@@ -5,7 +5,7 @@ Revember v2 is a local macOS app for solidifying technical fundamentals after fi
 The app reads topic JSON files from:
 
 ```text
-/Users/yash/Desktop/RevemberKnowledge/topics
+/Users/yash/Desktop/revember_v2_codex_project/RevemberKnowledge/topics
 ```
 
 It writes progress locally to:

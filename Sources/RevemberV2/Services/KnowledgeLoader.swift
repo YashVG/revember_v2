@@ -10,6 +10,7 @@ public struct KnowledgeLoader: KnowledgeLoading {
     public static var defaultKnowledgeRoot: URL {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Desktop")
+            .appendingPathComponent("revember_v2_codex_project", isDirectory: true)
             .appendingPathComponent("RevemberKnowledge", isDirectory: true)
     }
 
