@@ -8,9 +8,16 @@ struct FlowTagList: View {
             ForEach(labels, id: \.self) { label in
                 Text(label)
                     .font(.caption.weight(.medium))
+                    .foregroundStyle(RevemberTheme.secondaryInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.quaternary, in: Capsule())
+                    .background(RevemberTheme.panelLift, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(RevemberTheme.hairline, lineWidth: 1)
+                    )
             }
         }
     }
