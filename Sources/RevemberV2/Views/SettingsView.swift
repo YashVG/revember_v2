@@ -34,7 +34,7 @@ struct SettingsView: View {
             }
 
             Section("Progress") {
-                Text("Progress is saved locally to ~/Library/Application Support/RevemberV2/progress.json.")
+                Text("Progress is saved locally to \(RevemberPaths.defaultProgressURL.path).")
                     .foregroundStyle(.secondary)
             }
         }

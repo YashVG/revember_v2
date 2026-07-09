@@ -1,0 +1,28 @@
+{
+  "name": "revember-mcp-server",
+  "version": "0.1.0",
+  "description": "Local MCP server for the Revember v2 knowledge base.",
+  "type": "module",
+  "bin": {
+    "revember-mcp-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "tsx tests/run-tests.ts",
+    "check": "npm run build && npm run test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

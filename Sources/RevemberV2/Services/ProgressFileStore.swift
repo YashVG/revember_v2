@@ -13,11 +13,7 @@ public struct ProgressFileStore: ProgressStoring {
     }
 
     public static var defaultProgressURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base
-            .appendingPathComponent("RevemberV2", isDirectory: true)
-            .appendingPathComponent("progress.json")
+        RevemberPaths.defaultProgressURL
     }
 
     public func load() throws -> ProgressRecord {

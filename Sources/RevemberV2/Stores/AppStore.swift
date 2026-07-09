@@ -22,7 +22,9 @@ public final class AppStore: ObservableObject {
         self.knowledgeLoader = knowledgeLoader
         self.progressStore = progressStore
         self.userDefaults = userDefaults
-        self.knowledgeRootPath = userDefaults.string(forKey: "knowledgeRootPath") ?? knowledgeRoot.path
+        self.knowledgeRootPath = RevemberPaths.configuredKnowledgeRoot?.path
+            ?? userDefaults.string(forKey: "knowledgeRootPath")
+            ?? knowledgeRoot.path
         reload()
         loadProgress()
     }

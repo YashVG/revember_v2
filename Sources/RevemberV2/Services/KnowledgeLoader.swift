@@ -1,5 +1,47 @@
 import Foundation
 
+public enum RevemberPaths {
+    private static func configuredURL(for environmentKey: String, isDirectory: Bool) -> URL? {
+        guard let configured = ProcessInfo.processInfo.environment[environmentKey], configured.isEmpty == false else {
+            return nil
+        }
+
+        let expanded = (configured as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded, isDirectory: isDirectory).standardizedFileURL
+    }
+
+    public static var configuredKnowledgeRoot: URL? {
+        configuredURL(for: "REVEMBER_KNOWLEDGE_ROOT", isDirectory: true)
+    }
+
+    public static var configuredProgressURL: URL? {
+        configuredURL(for: "REVEMBER_PROGRESS_PATH", isDirectory: false)
+    }
+
+    public static var defaultKnowledgeRoot: URL {
+        if let configuredKnowledgeRoot {
+            return configuredKnowledgeRoot
+        }
+
+        return URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Desktop")
+            .appendingPathComponent("revember_v2_codex_project", isDirectory: true)
+            .appendingPathComponent("RevemberKnowledge", isDirectory: true)
+    }
+
+    public static var defaultProgressURL: URL {
+        if let configuredProgressURL {
+            return configuredProgressURL
+        }
+
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return base
+            .appendingPathComponent("RevemberV2", isDirectory: true)
+            .appendingPathComponent("progress.json")
+    }
+}
+
 public protocol KnowledgeLoading {
     func loadTopics(from knowledgeRoot: URL) throws -> [KnowledgeTopic]
 }
@@ -8,10 +50,7 @@ public struct KnowledgeLoader: KnowledgeLoading {
     public init() {}
 
     public static var defaultKnowledgeRoot: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Desktop")
-            .appendingPathComponent("revember_v2_codex_project", isDirectory: true)
-            .appendingPathComponent("RevemberKnowledge", isDirectory: true)
+        RevemberPaths.defaultKnowledgeRoot
     }
 
     public func loadTopics(from knowledgeRoot: URL) throws -> [KnowledgeTopic] {
