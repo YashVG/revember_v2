@@ -15,6 +15,17 @@ enum RevemberTheme {
     static let mutedInk = Color.white.opacity(0.42)
 }
 
+extension ReviewRating {
+    var tint: Color {
+        switch self {
+        case .missed: RevemberTheme.ruby
+        case .hard: RevemberTheme.amber
+        case .good: RevemberTheme.cyan
+        case .easy: RevemberTheme.magenta
+        }
+    }
+}
+
 struct CockpitBackground: View {
     var body: some View {
         ZStack {

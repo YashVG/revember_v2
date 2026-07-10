@@ -1,9 +1,11 @@
 import type { RevemberConfig } from "./config.js";
 import { fileExists, markdownPath } from "./paths.js";
 import { listTopicFiles, readMarkdown, readTopic } from "./topics.js";
+import { searchSessions, type SessionSearchResult } from "./sessions.js";
 import path from "node:path";
 
 export interface SearchResult {
+  type: "topic";
   id: string;
   title: string;
   matchedFields: string[];
@@ -84,6 +86,23 @@ export async function searchTopics(
     addField(fields, "title", topic.title);
     addField(fields, "summary", topic.summary);
     addStringArray(fields, "tags", (topic as Record<string, unknown>).tags);
+    for (const source of topic.sources ?? []) {
+      addField(fields, "source.id", source.id);
+      addField(fields, "source.kind", source.kind);
+      addField(fields, "source.title", source.title);
+      addField(fields, "source.locator", source.locator);
+      addField(fields, "source.fingerprint", source.fingerprint);
+      addField(fields, "source.capturedAt", source.capturedAt);
+    }
+
+    for (const relationship of topic.relationships ?? []) {
+      addField(fields, "relationship.id", relationship.id);
+      addField(fields, "relationship.kind", relationship.kind);
+      addField(fields, "relationship.sourceConceptID", relationship.sourceConceptID);
+      addField(fields, "relationship.targetConceptID", relationship.targetConceptID);
+      addField(fields, "relationship.rationale", relationship.rationale);
+      addStringArray(fields, "relationship.sourceRefs", relationship.sourceRefs);
+    }
 
     for (const concept of topic.concepts) {
       addField(fields, "concept.id", concept.id);
@@ -93,19 +112,28 @@ export async function searchTopics(
       addStringArray(fields, "concept.relatedTerms", concept.relatedTerms);
       addStringArray(fields, "concept.confusableTerms", concept.confusableTerms);
       addStringArray(fields, "concept.gapTags", concept.gapTags);
+      addStringArray(fields, "concept.sourceRefs", concept.sourceRefs);
     }
 
     for (const gap of topic.gaps) {
       addField(fields, "gap.title", gap.title);
       addField(fields, "gap.tag", gap.tag);
       addField(fields, "gap.description", gap.description);
+      addStringArray(fields, "gap.misconceptionIDs", gap.misconceptionIDs);
+      addStringArray(fields, "gap.sourceRefs", gap.sourceRefs);
     }
 
     for (const question of topic.questions) {
       addField(fields, "question.prompt", question.prompt);
       addField(fields, "question.explanation", question.explanation);
+      addField(fields, "question.kind", question.kind);
+      addField(fields, "question.transferLevel", question.transferLevel);
+      addField(fields, "question.retiredAt", question.retiredAt);
+      addStringArray(fields, "question.sourceRefs", question.sourceRefs);
       for (const choice of question.choices) {
         addField(fields, "choice.text", choice.text);
+        addField(fields, "choice.rationale", choice.rationale);
+        addField(fields, "choice.misconceptionID", choice.misconceptionID);
       }
     }
 
@@ -127,6 +155,7 @@ export async function searchTopics(
 
     if (matchedFields.size > 0) {
       results.push({
+        type: "topic",
         id: topic.id,
         title: topic.title,
         matchedFields: [...matchedFields].sort(),
@@ -140,4 +169,19 @@ export async function searchTopics(
   }
 
   return results;
+}
+
+export async function searchKnowledge(
+  config: RevemberConfig,
+  query: string,
+  options: { includeMarkdown?: boolean; includeSessions?: boolean; limit?: number } = {}
+): Promise<Array<SearchResult | SessionSearchResult>> {
+  const limit = options.limit ?? 20;
+  const topics = await searchTopics(config, query, {
+    ...(options.includeMarkdown !== undefined ? { includeMarkdown: options.includeMarkdown } : {}),
+    limit
+  });
+  if (options.includeSessions === false || topics.length >= limit) return topics.slice(0, limit);
+  const sessions = await searchSessions(config, query, limit - topics.length);
+  return [...topics, ...sessions].slice(0, limit);
 }

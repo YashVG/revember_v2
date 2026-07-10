@@ -4,6 +4,18 @@ struct ConceptReviewView: View {
     @EnvironmentObject private var store: AppStore
     let topic: KnowledgeTopic
 
+    private var evidenceGraph: KnowledgeGraph {
+        KnowledgeGraph(topic: topic, progress: store.progress)
+    }
+
+    private var stableCoverage: Double {
+        guard topic.concepts.isEmpty == false else { return 0 }
+        let stableCount = topic.concepts.filter {
+            evidenceGraph.evidence(forConceptID: $0.id) == .stable
+        }.count
+        return Double(stableCount) / Double(topic.concepts.count)
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
@@ -11,13 +23,13 @@ struct ConceptReviewView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                SectionEyebrow(text: "Concept Ladder")
-                                Text("From physical states to app-level meaning")
+                                SectionEyebrow(text: "Concept Evidence")
+                                Text("Authored knowledge, measured by retrieval")
                                     .font(.title3.weight(.semibold))
                                     .foregroundStyle(RevemberTheme.ink)
                             }
                             Spacer()
-                            MasteryRing(progress: store.progress.score(for: topic.id), tint: RevemberTheme.cyan)
+                            MasteryRing(progress: stableCoverage, tint: RevemberTheme.cyan)
                         }
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -25,7 +37,7 @@ struct ConceptReviewView: View {
                                 ForEach(topic.concepts) { concept in
                                     ConceptNode(
                                         concept: concept,
-                                        isWeak: store.weakConcepts(for: topic).contains(where: { $0.id == concept.id })
+                                        evidenceStatus: evidenceGraph.evidence(forConceptID: concept.id)
                                     )
                                 }
                             }
@@ -38,7 +50,8 @@ struct ConceptReviewView: View {
                     ConceptCard(
                         index: index + 1,
                         concept: concept,
-                        isWeak: store.weakConcepts(for: topic).contains(where: { $0.id == concept.id })
+                        evidenceStatus: evidenceGraph.evidence(forConceptID: concept.id),
+                        evidenceSummary: evidenceGraph.evidenceSummary(forConceptID: concept.id)
                     )
                 }
 
@@ -51,6 +64,7 @@ struct ConceptReviewView: View {
                         .foregroundStyle(RevemberTheme.ink)
 
                     ForEach(topic.gaps) { gap in
+                        let gapNode = evidenceGraph.node(withID: KnowledgeGraphNode.gapID(gap.id))
                         SurfacePanel {
                             VStack(alignment: .leading, spacing: 8) {
                                 Label(gap.title, systemImage: "exclamationmark.triangle")
@@ -58,6 +72,10 @@ struct ConceptReviewView: View {
                                     .foregroundStyle(RevemberTheme.amber)
                                 Text(gap.description)
                                     .foregroundStyle(RevemberTheme.secondaryInk)
+                                EvidenceLabel(
+                                    status: gapNode?.evidenceStatus ?? .untested,
+                                    summary: gapNode?.evidenceSummary ?? "No linked review evidence"
+                                )
                                 FlowTagList(labels: [gap.tag])
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,12 +91,12 @@ struct ConceptReviewView: View {
 
 private struct ConceptNode: View {
     let concept: Concept
-    let isWeak: Bool
+    let evidenceStatus: KnowledgeGraphNode.EvidenceStatus
 
     var body: some View {
         VStack(spacing: 6) {
             Circle()
-                .fill(isWeak ? RevemberTheme.amber : RevemberTheme.cyan)
+                .fill(evidenceStatus.tint)
                 .frame(width: 9, height: 9)
             Text(concept.title)
                 .font(.caption2.weight(.semibold))
@@ -93,7 +111,8 @@ private struct ConceptNode: View {
 private struct ConceptCard: View {
     let index: Int
     let concept: Concept
-    let isWeak: Bool
+    let evidenceStatus: KnowledgeGraphNode.EvidenceStatus
+    let evidenceSummary: String
 
     var body: some View {
         SurfacePanel {
@@ -101,23 +120,25 @@ private struct ConceptCard: View {
                 VStack(spacing: 8) {
                     Text(String(format: "%02d", index))
                         .font(.caption.monospacedDigit().weight(.bold))
-                        .foregroundStyle(isWeak ? RevemberTheme.amber : RevemberTheme.cyan)
+                        .foregroundStyle(evidenceStatus.tint)
                     Rectangle()
-                        .fill(isWeak ? RevemberTheme.amber.opacity(0.55) : RevemberTheme.cyan.opacity(0.5))
+                        .fill(evidenceStatus.tint.opacity(0.55))
                         .frame(width: 1)
                 }
                 .frame(width: 34)
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Label(concept.title, systemImage: isWeak ? "bolt.trianglebadge.exclamationmark" : "lightbulb")
+                        Label(concept.title, systemImage: evidenceStatus.systemImage)
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(RevemberTheme.ink)
                         Spacer()
-                        Text(isWeak ? "fragile" : "stable target")
+                        Text(evidenceStatus.title)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(isWeak ? RevemberTheme.amber : RevemberTheme.cyan)
+                            .foregroundStyle(evidenceStatus.tint)
                     }
+
+                    EvidenceLabel(status: evidenceStatus, summary: evidenceSummary)
 
                     Text(concept.firstPrinciples)
                         .font(.callout.weight(.semibold))
@@ -147,6 +168,45 @@ private struct ConceptCard: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct EvidenceLabel: View {
+    let status: KnowledgeGraphNode.EvidenceStatus
+    let summary: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Circle()
+                .fill(status.tint)
+                .frame(width: 7, height: 7)
+            Text(summary)
+                .font(.caption)
+                .foregroundStyle(RevemberTheme.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(status.title). \(summary)")
+    }
+}
+
+private extension KnowledgeGraphNode.EvidenceStatus {
+    var tint: Color {
+        switch self {
+        case .untested: RevemberTheme.mutedInk
+        case .fragile: RevemberTheme.amber
+        case .developing: RevemberTheme.magenta
+        case .stable: RevemberTheme.cyan
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .untested: "questionmark.circle"
+        case .fragile: "bolt.trianglebadge.exclamationmark"
+        case .developing: "chart.line.uptrend.xyaxis"
+        case .stable: "checkmark.seal"
         }
     }
 }

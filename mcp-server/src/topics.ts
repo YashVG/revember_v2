@@ -20,6 +20,7 @@ import {
 } from "./schema.js";
 
 const choiceIDs = "abcdefghijklmnopqrstuvwxyz".split("");
+const topicMutationLocks = new Map<string, Promise<void>>();
 
 export interface TopicSummary {
   id: string;
@@ -29,6 +30,9 @@ export interface TopicSummary {
   conceptCount: number;
   gapCount: number;
   questionCount: number;
+  activeQuestionCount: number;
+  schemaVersion: number;
+  revision: number;
   topicPath: string;
   markdownPath?: string | undefined;
   valid: boolean;
@@ -63,10 +67,55 @@ export interface CreateTopicInput {
   tags?: string[] | undefined;
   concepts: CreateConceptInput[];
   markdownBody?: string | undefined;
+  expectedRevision?: number | undefined;
+  sources?: unknown[] | undefined;
+  relationships?: unknown[] | undefined;
 }
 
 function asErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function topicRevision(topic: KnowledgeTopic): number {
+  const revision = (topic as Record<string, unknown>).revision;
+  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+export function assertExpectedTopicRevision(topic: KnowledgeTopic, expectedRevision?: number): void {
+  if (expectedRevision === undefined) return;
+  const actual = topicRevision(topic);
+  if (actual !== expectedRevision) {
+    throw new Error(`Revision conflict for topic "${topic.id}": expected ${expectedRevision}, found ${actual}. Refresh and retry.`);
+  }
+}
+
+export function bumpTopicRevision(topic: KnowledgeTopic): KnowledgeTopic {
+  return {
+    ...topic,
+    schemaVersion: Math.max(topic.schemaVersion ?? 1, 2),
+    revision: topicRevision(topic) + 1
+  };
+}
+
+export async function withTopicMutationLock<T>(
+  config: RevemberConfig,
+  slug: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const key = topicPath(config, slug);
+  const previous = topicMutationLocks.get(key) ?? Promise.resolve();
+  let release = (): void => undefined;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  topicMutationLocks.set(key, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (topicMutationLocks.get(key) === queued) topicMutationLocks.delete(key);
+  }
 }
 
 export function slugify(value: string): string {
@@ -192,6 +241,11 @@ export async function listTopicSummaries(config: RevemberConfig): Promise<TopicS
         conceptCount: concepts.length,
         gapCount: gaps.length,
         questionCount: questions.length,
+        activeQuestionCount: questions.filter((question) => {
+          return !question || typeof question !== "object" || (question as Record<string, unknown>).retiredAt == null;
+        }).length,
+        schemaVersion: typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : 1,
+        revision: typeof parsed.revision === "number" ? parsed.revision : 0,
         topicPath: file,
         markdownPath: (await fileExists(markdownFile)) ? markdownFile : undefined,
         valid: validation.valid,
@@ -204,6 +258,9 @@ export async function listTopicSummaries(config: RevemberConfig): Promise<TopicS
         conceptCount: 0,
         gapCount: 0,
         questionCount: 0,
+        activeQuestionCount: 0,
+        schemaVersion: 1,
+        revision: 0,
         topicPath: file,
         markdownPath: (await fileExists(markdownFile)) ? markdownFile : undefined,
         valid: false,
@@ -239,7 +296,7 @@ function formatTopic(topic: KnowledgeTopic): string {
   return `${JSON.stringify(topic, null, 2)}\n`;
 }
 
-async function writeTopic(
+export async function writeTopic(
   config: RevemberConfig,
   slug: string,
   topic: KnowledgeTopic
@@ -255,13 +312,17 @@ async function writeTopic(
   return { path: target, backup };
 }
 
-export async function createTopic(
+async function createTopicUnlocked(
   config: RevemberConfig,
   input: CreateTopicInput
 ): Promise<{ topic: KnowledgeTopic; topicPath: string; markdownPath?: string | undefined }> {
   const slug = assertSafeSlug(input.slug);
   const targetPath = topicPath(config, slug);
   const targetMarkdownPath = markdownPath(config, slug);
+
+  if (input.expectedRevision !== undefined && input.expectedRevision !== 0) {
+    throw new Error(`Revision conflict for new topic "${slug}": expected ${input.expectedRevision}, found 0.`);
+  }
 
   if (await fileExists(targetPath)) {
     throw new Error(`Topic already exists: ${slug}.json. Use update_topic to modify it.`);
@@ -312,10 +373,14 @@ export async function createTopic(
   });
 
   const topic = {
+    schemaVersion: 2,
+    revision: 1,
     id: slug,
     title: input.title,
     summary: input.summary,
     ...(input.tags ? { tags: input.tags } : {}),
+    ...(input.sources ? { sources: input.sources } : {}),
+    ...(input.relationships ? { relationships: input.relationships } : {}),
     ...(input.markdownBody !== undefined ? { markdownPath: `notes/${slug}.md` } : {}),
     concepts,
     gaps: [],
@@ -344,6 +409,14 @@ export async function createTopic(
   }
 }
 
+export async function createTopic(
+  config: RevemberConfig,
+  input: CreateTopicInput
+): Promise<{ topic: KnowledgeTopic; topicPath: string; markdownPath?: string | undefined }> {
+  const slug = assertSafeSlug(input.slug);
+  return withTopicMutationLock(config, slug, () => createTopicUnlocked(config, input));
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -363,12 +436,60 @@ function deepMerge(existing: unknown, patch: unknown): unknown {
   return merged;
 }
 
+interface CommittedTopicMutation {
+  topic: KnowledgeTopic;
+  topicPath: string;
+  backup?: string | undefined;
+  warnings: string[];
+  previousRevision: number;
+  revision: number;
+}
+
+async function commitTopicMutation(
+  config: RevemberConfig,
+  slug: string,
+  expectedRevision: number | undefined,
+  transform: (existing: KnowledgeTopic) => unknown
+): Promise<CommittedTopicMutation> {
+  return withTopicMutationLock(config, assertSafeSlug(slug), async () => {
+    const existing = await readTopic(config, slug);
+    assertExpectedTopicRevision(existing, expectedRevision);
+    const previousRevision = topicRevision(existing);
+    const transformed = transform(existing);
+    if (!isPlainObject(transformed)) throw new Error("Topic mutation must return an object.");
+
+    const next = {
+      ...transformed,
+      id: existing.id,
+      schemaVersion: Math.max(
+        typeof transformed.schemaVersion === "number" ? transformed.schemaVersion : 1,
+        2
+      ),
+      revision: previousRevision + 1
+    };
+    const validation = validateTopicData(next, { expectedSlug: slug });
+    if (!validation.valid || !validation.topic) {
+      throw new Error(`Updated topic did not validate: ${validation.errors.join("; ")}`);
+    }
+
+    const writeResult = await writeTopic(config, slug, validation.topic);
+    return {
+      topic: validation.topic,
+      topicPath: writeResult.path,
+      backup: writeResult.backup,
+      warnings: validation.warnings,
+      previousRevision,
+      revision: previousRevision + 1
+    };
+  });
+}
+
 export async function updateTopic(
   config: RevemberConfig,
   slug: string,
-  patch: Record<string, unknown>
-): Promise<{ topic: KnowledgeTopic; topicPath: string; backup?: string | undefined; warnings: string[] }> {
-  const existing = await readTopic(config, slug);
+  patch: Record<string, unknown>,
+  expectedRevision?: number
+): Promise<CommittedTopicMutation> {
   const normalizedPatch = { ...patch };
 
   if (typeof normalizedPatch.slug === "string") {
@@ -378,23 +499,110 @@ export async function updateTopic(
     delete normalizedPatch.slug;
   }
 
-  if (typeof normalizedPatch.id === "string" && normalizedPatch.id !== existing.id) {
-    throw new Error(`Refusing to change topic id from "${existing.id}" to "${normalizedPatch.id}".`);
+  if (normalizedPatch.revision !== undefined) {
+    throw new Error("Topic revision is server-managed. Pass expectedRevision instead of patching revision.");
   }
-
-  const merged = deepMerge(existing, normalizedPatch);
-  const validation = validateTopicData(merged, { expectedSlug: slug });
-  if (!validation.valid || !validation.topic) {
-    throw new Error(`Updated topic did not validate: ${validation.errors.join("; ")}`);
+  if (normalizedPatch.questions !== undefined) {
+    throw new Error("Card revisions are server-managed. Use upsert_card or retire_card instead of patching questions.");
   }
+  delete normalizedPatch.schemaVersion;
 
-  const writeResult = await writeTopic(config, slug, validation.topic);
-  return {
-    topic: validation.topic,
-    topicPath: writeResult.path,
-    backup: writeResult.backup,
-    warnings: validation.warnings
-  };
+  return commitTopicMutation(config, slug, expectedRevision, (existing) => {
+    if (typeof normalizedPatch.id === "string" && normalizedPatch.id !== existing.id) {
+      throw new Error(`Refusing to change topic id from "${existing.id}" to "${normalizedPatch.id}".`);
+    }
+    return deepMerge(existing, normalizedPatch);
+  });
+}
+
+export async function upsertConcept(
+  config: RevemberConfig,
+  slug: string,
+  conceptPatch: Record<string, unknown>,
+  expectedRevision?: number
+): Promise<CommittedTopicMutation & { created: boolean; conceptID: string }> {
+  const conceptID = assertSafeSlug(String(conceptPatch.id ?? ""), "concept id");
+  let created = false;
+  const result = await commitTopicMutation(config, slug, expectedRevision, (existing) => {
+    const index = existing.concepts.findIndex((concept) => concept.id === conceptID);
+    created = index === -1;
+    const base = created ? {
+      id: conceptID,
+      title: conceptPatch.title,
+      firstPrinciples: conceptPatch.firstPrinciples ?? conceptPatch.explanation,
+      explanation: conceptPatch.explanation ?? conceptPatch.firstPrinciples,
+      relatedTerms: [],
+      confusableTerms: [],
+      gapTags: []
+    } : existing.concepts[index];
+    const concept = deepMerge(base, { ...conceptPatch, id: conceptID });
+    const concepts = [...existing.concepts];
+    if (created) concepts.push(concept as KnowledgeTopic["concepts"][number]);
+    else concepts[index] = concept as KnowledgeTopic["concepts"][number];
+    return { ...existing, concepts };
+  });
+  return { ...result, created, conceptID };
+}
+
+export async function upsertCard(
+  config: RevemberConfig,
+  slug: string,
+  cardPatch: Record<string, unknown>,
+  expectedRevision?: number
+): Promise<CommittedTopicMutation & { created: boolean; cardID: string }> {
+  const cardID = assertSafeSlug(String(cardPatch.id ?? ""), "card id");
+  if (cardPatch.revision !== undefined) {
+    throw new Error("Card revision is server-managed and advances on every upsert or retirement.");
+  }
+  let created = false;
+  const result = await commitTopicMutation(config, slug, expectedRevision, (existing) => {
+    const index = existing.questions.findIndex((question) => question.id === cardID);
+    created = index === -1;
+    const base = created ? {
+      id: cardID,
+      prompt: cardPatch.prompt,
+      difficulty: "intro",
+      conceptIDs: [],
+      gapTags: [],
+      choices: cardPatch.choices,
+      explanation: cardPatch.explanation,
+      revision: 1,
+      kind: "multipleChoice",
+      transferLevel: "recall",
+      sourceRefs: []
+    } : existing.questions[index];
+    const card = {
+      ...(deepMerge(base, { ...cardPatch, id: cardID }) as Record<string, unknown>),
+      revision: created ? 1 : (existing.questions[index]?.revision ?? 1) + 1
+    };
+    const questions = [...existing.questions];
+    if (created) questions.push(card as KnowledgeTopic["questions"][number]);
+    else questions[index] = card as KnowledgeTopic["questions"][number];
+    return { ...existing, questions };
+  });
+  return { ...result, created, cardID };
+}
+
+export async function retireCard(
+  config: RevemberConfig,
+  slug: string,
+  cardIDInput: string,
+  retiredAt: string,
+  expectedRevision?: number
+): Promise<CommittedTopicMutation & { cardID: string; retiredAt: string }> {
+  const cardID = assertSafeSlug(cardIDInput, "card id");
+  const result = await commitTopicMutation(config, slug, expectedRevision, (existing) => {
+    const index = existing.questions.findIndex((question) => question.id === cardID);
+    if (index === -1) throw new Error(`Card "${cardID}" does not exist in topic "${slug}".`);
+    const questions = [...existing.questions];
+    questions[index] = {
+      ...questions[index]!,
+      revision: (questions[index]!.revision ?? 1) + 1,
+      retiredAt
+    };
+    return { ...existing, questions };
+  });
+  return { ...result, cardID, retiredAt };
 }
 
 export async function writeMarkdown(
@@ -410,6 +618,46 @@ export async function writeMarkdown(
 
   await atomicWriteFile(config.knowledgeRoot, target, contents);
   return { path: target, backup };
+}
+
+async function restoreFile(config: RevemberConfig, target: string, original: string | undefined): Promise<void> {
+  if (original === undefined) {
+    await fs.rm(target, { force: true });
+  } else {
+    await atomicWriteFile(config.knowledgeRoot, target, original);
+  }
+}
+
+export async function updateMarkdownWithRevision(
+  config: RevemberConfig,
+  slug: string,
+  body: string,
+  mode: "replace" | "append" = "replace",
+  expectedRevision?: number
+): Promise<{ markdown: { path: string; backup?: string | undefined }; topic: KnowledgeTopic; previousRevision: number; revision: number }> {
+  return withTopicMutationLock(config, assertSafeSlug(slug), async () => {
+    const existing = await readTopic(config, slug);
+    assertExpectedTopicRevision(existing, expectedRevision);
+    const previousRevision = topicRevision(existing);
+    const target = markdownPath(config, slug);
+    const original = (await fileExists(target)) ? await safeReadFile(config.knowledgeRoot, target) : undefined;
+    let markdown: { path: string; backup?: string | undefined } | undefined;
+
+    try {
+      markdown = await writeMarkdown(config, slug, body, mode);
+      const topic = {
+        ...bumpTopicRevision(existing),
+        markdownPath: (existing as Record<string, unknown>).markdownPath ?? `notes/${slug}.md`
+      };
+      await writeTopic(config, slug, topic);
+      return { markdown, topic, previousRevision, revision: previousRevision + 1 };
+    } catch (error) {
+      if (markdown !== undefined) {
+        await restoreFile(config, target, original).catch(() => undefined);
+      }
+      throw error;
+    }
+  });
 }
 
 export async function validateTopicFile(

@@ -8,14 +8,7 @@ struct SidebarView: View {
             RevemberTheme.backgroundLift.opacity(0.88)
 
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Revember")
-                        .font(.largeTitle.weight(.bold))
-                        .foregroundStyle(RevemberTheme.ink)
-                    Text("Fundamentals cockpit")
-                        .font(.callout)
-                        .foregroundStyle(RevemberTheme.secondaryInk)
-                }
+                RevemberLogoLockup()
                 .padding(.top, 14)
 
                 SurfacePanel {
@@ -23,16 +16,16 @@ struct SidebarView: View {
                         SectionEyebrow(text: "Today")
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("\(store.selectedTopic?.questions.count ?? 0) due checks")
+                                Text("\(store.dueReviewCount) due checks")
                                     .font(.headline)
                                     .foregroundStyle(RevemberTheme.ink)
-                                Text("Estimated 8 min")
+                                Text("Current-revision evidence only")
                                     .font(.caption)
                                     .foregroundStyle(RevemberTheme.secondaryInk)
                             }
                             Spacer()
                             MasteryRing(
-                                progress: store.selectedTopic.map { store.progress.score(for: $0.id) } ?? 0,
+                                progress: store.selectedTopic.map { store.currentScore(for: $0) } ?? 0,
                                 tint: RevemberTheme.cyan
                             )
                             .frame(width: 46, height: 46)

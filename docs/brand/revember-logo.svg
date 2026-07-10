@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="160" viewBox="0 0 512 160" role="img" aria-labelledby="title desc">
+  <title id="title">Revember logo</title>
+  <desc id="desc">A compact Revember wordmark with an unboxed angular revision mark and a cyan v accent.</desc>
+  <g fill="none" fill-rule="evenodd">
+    <rect width="512" height="160" rx="28" fill="#090A0B"/>
+    <g transform="translate(28 32)" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 25 L37 65" stroke="#57D1DB" stroke-width="14"/>
+      <path d="M37 65 L81 17" stroke="#DB4794" stroke-width="14"/>
+      <path d="M21 80 H79" stroke="#EBAA52" stroke-width="6"/>
+      <path d="M34 94 H66" stroke="#9DA3AD" stroke-opacity=".42" stroke-width="4"/>
+    </g>
+    <text x="148" y="76" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Inter, sans-serif" font-size="52" font-weight="650">
+      <tspan fill="#F4F7F8">Re</tspan><tspan fill="#57D1DB">v</tspan><tspan fill="#F4F7F8">ember</tspan>
+    </text>
+    <text x="151" y="106" fill="#9DA3AD" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, sans-serif" font-size="16" font-weight="500" letter-spacing="1.4">FUNDAMENTALS COCKPIT</text>
+  </g>
+</svg>

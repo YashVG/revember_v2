@@ -19,7 +19,8 @@ let package = Package(
         .executableTarget(
             name: "RevemberV2",
             dependencies: ["RevemberV2Core"],
-            path: "Sources/RevemberV2App"
+            path: "Sources/RevemberV2App",
+            exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "RevemberV2Tests",
