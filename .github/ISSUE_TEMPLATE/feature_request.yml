@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an improvement to the local learning workflow.
+title: "idea: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Describe the learning problem first; implementation details are optional.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What learning problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: What should a learner be able to do?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

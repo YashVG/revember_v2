@@ -1,54 +1,84 @@
-# Revember v2
+<p align="center">
+  <img src="docs/brand/revember-logo.svg" alt="Revember" width="512">
+</p>
 
-Revember is a local-first macOS learning app for turning first-principles sessions into evidence-backed review. It stores authored knowledge as readable Markdown and JSON, records review evidence locally, and schedules the next retrieval without a backend, login, or cloud account.
+<p align="center">
+  <strong>A local-first macOS app for turning technical learning into evidence-backed review.</strong>
+</p>
 
-## What's Included
+<p align="center">
+  <a href="https://github.com/YashVG/revember_v2/actions/workflows/ci.yml"><img src="https://github.com/YashVG/revember_v2/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-57D1DB.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-090A0B.svg" alt="macOS">
+  <img src="https://img.shields.io/badge/Swift-6-EBAA52.svg" alt="Swift 6">
+</p>
 
-- A native macOS app, Swift package, and Xcode project.
-- A seed `RevemberKnowledge/` folder with a BLE lesson in Markdown and schema-v2 JSON.
-- A local stdio MCP server for inspecting and revising knowledge safely.
-- A transparent review scheduler with an explicit seam for a future FSRS implementation.
+# Revember
 
-Review progress lives only on the local machine at `~/Library/Application Support/RevemberV2/progress.json` by default.
+Revember helps you keep technical understanding durable. Learn from first principles, capture the concepts and misconceptions that matter, then review exactly what needs fresh evidence. Your knowledge, review history, and scheduling state remain readable local files—there is no account, backend, telemetry, or cloud sync.
 
-## Requirements
+## Start Here
 
-- macOS 14 or later
-- Xcode 16 or a Swift 6 toolchain
-- Node.js 20 or later (for the optional MCP server)
-
-The app build script also uses standard macOS tools: `qlmanage`, `sips`, `iconutil`, `codesign`, and `open`.
-
-## Quick Start
+**Requirements:** macOS 14+, Xcode 16 (or Swift 6), and standard macOS developer tools.
 
 ```bash
 git clone https://github.com/YashVG/revember_v2.git
 cd revember_v2
-npm --prefix mcp-server ci
 ./script/set_project_knowledge_path.sh
-swift test
-npm --prefix mcp-server run check
 ./script/build_and_run.sh
 ```
 
-The setup script points the app at this checkout's seed knowledge store. To maintain private personal learning material, copy `RevemberKnowledge/` somewhere writable and select it in the app's Settings instead. You can also set `REVEMBER_KNOWLEDGE_ROOT` when launching the app or MCP server outside the normal setup flow.
+The app opens with the included BLE learning module. Use its review flow to rate an answer, inspect the concept graph, and see why the next review is scheduled when it is.
 
-Open `Revember.xcodeproj` in Xcode to work with the app, core framework, and test targets directly.
+Open `Revember.xcodeproj` when you prefer to run or debug from Xcode.
 
-## Repository Guide
+## What You Can Do
+
+- **Learn with diagnostic checks.** Questions record correct and incorrect retrieval, including the misconception a distractor was designed to expose.
+- **Review with transparent scheduling.** Every rating writes an immutable local event and derives the next interval with a small, inspectable scheduler.
+- **Inspect the knowledge graph.** Concepts, relationships, gaps, questions, and learner evidence are separate layers you can explore directly.
+- **Keep the source of truth editable.** Notes are Markdown; app-ready lessons are versioned JSON; review progress is local JSON.
+- **Use an optional MCP workflow.** Any compatible local MCP client can read learner evidence and safely update lessons through revision-checked tools.
+
+<p align="center">
+  <a href="docs/architecture/closed-loop-learning-system.md">
+    <img src="docs/architecture/revember-architecture-preview.png" alt="Revember architecture overview" width="760">
+  </a>
+</p>
+
+## Make It Yours
+
+The checked-in `RevemberKnowledge/` folder is a safe seed module. For private learning material, copy it somewhere writable, then select that folder from the app's Settings:
+
+```bash
+cp -R RevemberKnowledge "$HOME/Documents/RevemberKnowledge"
+```
+
+Keep your own notes and progress local by default. Generated MCP backups and personal learning-session files are intentionally ignored by Git.
+
+## Optional MCP Server
+
+The local stdio MCP server is optional; the app works without Node.js or an AI client. Install it only if you want to create or revise knowledge through Codex, Claude Desktop, or another MCP-compatible client:
+
+```bash
+npm --prefix mcp-server ci
+npm --prefix mcp-server run check
+```
+
+See [the MCP guide](mcp-server/README.md) for client setup, available resources, mutation tools, revision checks, and session artifacts.
+
+## Developer Guide
 
 | Path | Purpose |
 | --- | --- |
-| `Sources/` | App and core learning logic |
+| `Revember.xcodeproj` | Native macOS app, core framework, and test targets |
+| `Sources/` | App UI, models, scheduling, persistence, and system integration |
 | `Tests/` | Swift test suite |
-| `RevemberKnowledge/` | Seed authored knowledge; generated backups and personal sessions are ignored |
-| `mcp-server/` | Optional local stdio MCP server |
-| `docs/architecture/` | Data flow and system contracts |
-| `script/` | Local build and setup helpers |
+| `RevemberKnowledge/` | Seed Markdown and schema-v2 learning content |
+| `mcp-server/` | Optional TypeScript stdio MCP server |
+| `docs/architecture/` | System contracts and data-flow documentation |
 
-The end-to-end data flow and contracts are documented in [the closed-loop learning architecture](docs/architecture/closed-loop-learning-system.md).
-
-## Verify Changes
+Run the repository checks with:
 
 ```bash
 swift test
@@ -56,28 +86,21 @@ npm --prefix mcp-server run check
 git diff --check
 ```
 
-For an Xcode build without signing:
+For a no-signing Xcode build:
 
 ```bash
 xcodebuild -project Revember.xcodeproj -scheme Revember -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-## Optional MCP Server
+## Documentation and Support
 
-The `revember` server is a local stdio MCP server; it works with Codex, Claude Desktop, or another MCP-compatible client. It defaults to the checked-in `RevemberKnowledge/` folder and never contacts a remote service.
+- [Architecture and data contracts](docs/architecture/closed-loop-learning-system.md)
+- [Knowledge authoring workflow](RevemberKnowledge/LEARNING_WORKFLOW.md)
+- [MCP server guide](mcp-server/README.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
-Build and validate it with:
-
-```bash
-npm --prefix mcp-server ci
-npm --prefix mcp-server run check
-```
-
-See [the MCP server guide](mcp-server/README.md) for client configuration, resources, mutation tools, revision checks, and session artifacts.
-
-## Contributing and Security
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the local workflow and [SECURITY.md](SECURITY.md) for responsible disclosure guidance.
+Questions, ideas, and bug reports are welcome through GitHub Issues. Please remove private learning data and local paths before posting.
 
 ## License
 
