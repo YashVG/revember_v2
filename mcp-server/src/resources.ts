@@ -1,6 +1,9 @@
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RevemberConfig } from "./config.js";
 import { assertSafeSlug } from "./paths.js";
+import { getLearnerBrief } from "./learner.js";
+import { listSessionSummaries, readLearningSession } from "./sessions.js";
+import { validateKnowledgeBase } from "./validation.js";
 import {
   listMarkdownSlugs,
   listProjectDocs,
@@ -45,6 +48,39 @@ export function registerResources(server: McpServer, config: RevemberConfig): vo
   );
 
   server.registerResource(
+    "revember-session-index",
+    "revember://sessions",
+    {
+      title: "Revember learning session index",
+      description: "List captured local learning-session checkpoints.",
+      mimeType: "application/json"
+    },
+    async (uri) => textResource(uri, `${JSON.stringify(await listSessionSummaries(config), null, 2)}\n`, "application/json")
+  );
+
+  server.registerResource(
+    "revember-learner-brief",
+    "revember://learner/brief",
+    {
+      title: "Revember learner brief",
+      description: "Evidence-based local learner state from legacy attempts, v2 review events, schedules, and sessions.",
+      mimeType: "application/json"
+    },
+    async (uri) => textResource(uri, `${JSON.stringify(await getLearnerBrief(config), null, 2)}\n`, "application/json")
+  );
+
+  server.registerResource(
+    "revember-knowledge-validation",
+    "revember://validation",
+    {
+      title: "Revember knowledge-base validation",
+      description: "Validate topics, sessions, declared note presence, and local progress readability.",
+      mimeType: "application/json"
+    },
+    async (uri) => textResource(uri, `${JSON.stringify(await validateKnowledgeBase(config), null, 2)}\n`, "application/json")
+  );
+
+  server.registerResource(
     "revember-topic-schema",
     "revember://schema/topic",
     {
@@ -81,6 +117,35 @@ export function registerResources(server: McpServer, config: RevemberConfig): vo
     async (uri, variables) => {
       const slug = assertSafeSlug(variableToString(variables.slug, "slug"));
       return textResource(uri, await readTopicFileText(config, slug), "application/json");
+    }
+  );
+
+  server.registerResource(
+    "revember-learning-session-json",
+    new ResourceTemplate("revember://session/{id}", {
+      list: async () => ({
+        resources: (await listSessionSummaries(config)).map((session) => ({
+          uri: `revember://session/${session.id}`,
+          name: session.title ?? session.id,
+          description: session.summary ?? session.error ?? "Revember learning session",
+          mimeType: "application/json"
+        }))
+      }),
+      complete: {
+        id: async (value) => {
+          const sessions = await listSessionSummaries(config);
+          return sessions.map((session) => session.id).filter((id) => id.startsWith(value));
+        }
+      }
+    }),
+    {
+      title: "Revember learning session JSON",
+      description: "Read a captured learning-session checkpoint by id.",
+      mimeType: "application/json"
+    },
+    async (uri, variables) => {
+      const id = assertSafeSlug(variableToString(variables.id, "id"), "session id");
+      return textResource(uri, `${JSON.stringify(await readLearningSession(config, id), null, 2)}\n`, "application/json");
     }
   );
 

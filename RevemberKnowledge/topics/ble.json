@@ -1,0 +1,837 @@
+{
+  "schemaVersion": 2,
+  "revision": 3,
+  "sources": [
+    {
+      "id": "ble-note",
+      "kind": "note",
+      "title": "Bluetooth Low Energy learning note",
+      "locator": "notes/ble.md"
+    },
+    {
+      "id": "bluetooth-core",
+      "kind": "specification",
+      "title": "Bluetooth Core Specification",
+      "locator": "https://www.bluetooth.com/specifications/specs/core-specification/"
+    }
+  ],
+  "concepts": [
+    {
+      "confusableTerms": [
+        "protocol",
+        "packet",
+        "byte"
+      ],
+      "explanation": "Software calls the state 0 or 1, but the machine still needs a physical difference it can measure. In electronics that difference is usually voltage, current, charge, or a radio signal state.",
+      "firstPrinciples": "A bit is information represented by a distinguishable physical state.",
+      "gapTags": [
+        "physical substrate"
+      ],
+      "sourceRefs": [
+        "ble-note"
+      ],
+      "id": "bits",
+      "relatedTerms": [
+        "voltage",
+        "state",
+        "binary"
+      ],
+      "title": "Bits"
+    },
+    {
+      "confusableTerms": [
+        "field",
+        "packet"
+      ],
+      "explanation": "A byte is not automatically meaningful. It becomes meaningful only when a protocol or schema says how to interpret the bit pattern.",
+      "firstPrinciples": "A byte is eight bits, which gives 256 possible patterns.",
+      "gapTags": [
+        "representation"
+      ],
+      "sourceRefs": [
+        "ble-note"
+      ],
+      "id": "bytes",
+      "relatedTerms": [
+        "2^8",
+        "bit pattern",
+        "value range"
+      ],
+      "title": "Bytes"
+    },
+    {
+      "confusableTerms": [
+        "radio",
+        "electricity",
+        "data"
+      ],
+      "explanation": "Two devices can receive the same bit pattern and still disagree unless they share rules for packet shape, timing, roles, fields, and meaning.",
+      "firstPrinciples": "A protocol is a rulebook for interpreting and exchanging bit patterns.",
+      "gapTags": [
+        "protocol/schema"
+      ],
+      "sourceRefs": [
+        "ble-note"
+      ],
+      "id": "protocol",
+      "relatedTerms": [
+        "schema",
+        "agreement",
+        "meaning"
+      ],
+      "title": "Protocol"
+    },
+    {
+      "confusableTerms": [
+        "Link Layer",
+        "GAP",
+        "GATT"
+      ],
+      "explanation": "The PHY layer does not know what a sensor value means. It makes the radio transmission possible and turns radio energy into bits that higher layers can use.",
+      "firstPrinciples": "The PHY layer handles the physical radio path between signal and bits.",
+      "gapTags": [
+        "layer mapping"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "id": "phy",
+      "relatedTerms": [
+        "radio",
+        "frequency",
+        "modulation"
+      ],
+      "title": "PHY Layer"
+    },
+    {
+      "confusableTerms": [
+        "PHY",
+        "GATT",
+        "application"
+      ],
+      "explanation": "It decides when packets are exchanged, whether a device is advertising or connected, and how connection events are maintained. It is below the app-level meaning of the data.",
+      "firstPrinciples": "The Link Layer controls radio packet exchange and connection mechanics.",
+      "gapTags": [
+        "layer mapping",
+        "transport mechanics"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "id": "link-layer",
+      "relatedTerms": [
+        "connection event",
+        "advertising",
+        "packet timing"
+      ],
+      "title": "Link Layer"
+    },
+    {
+      "confusableTerms": [
+        "GATT",
+        "service",
+        "characteristic"
+      ],
+      "explanation": "GAP is how BLE devices become discoverable and decide who connects to whom. It is not the place where your sensor payload's fields are defined.",
+      "firstPrinciples": "GAP defines device discovery, roles, advertising, and connection setup.",
+      "gapTags": [
+        "role mapping"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "id": "gap",
+      "relatedTerms": [
+        "advertising",
+        "central",
+        "peripheral"
+      ],
+      "title": "GAP"
+    },
+    {
+      "confusableTerms": [
+        "GAP",
+        "raw packet",
+        "PHY"
+      ],
+      "explanation": "GATT gives the connected devices an application-level structure: services contain characteristics, and characteristics expose values that can be read, written, or notified.",
+      "firstPrinciples": "GATT is the connected-data model for services and characteristics.",
+      "gapTags": [
+        "application mapping"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "id": "gatt",
+      "relatedTerms": [
+        "service",
+        "characteristic",
+        "notify"
+      ],
+      "title": "GATT"
+    },
+    {
+      "confusableTerms": [
+        "service",
+        "packet",
+        "connection"
+      ],
+      "explanation": "A characteristic is where a value lives in GATT. Your iPhone can receive a notification from a characteristic, but it still needs your own app logic to parse the bytes.",
+      "firstPrinciples": "A characteristic is a named GATT value with allowed operations.",
+      "gapTags": [
+        "implementation mapping"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "id": "characteristic",
+      "relatedTerms": [
+        "read",
+        "write",
+        "notify"
+      ],
+      "title": "Characteristic"
+    },
+    {
+      "confusableTerms": [
+        "creating a sample",
+        "parsing",
+        "connection"
+      ],
+      "explanation": "Calling notify does not create the sample. It asks the BLE stack to send an already-prepared value through the characteristic to the subscribed central.",
+      "firstPrinciples": "A notification sends a characteristic value update to a connected subscriber.",
+      "gapTags": [
+        "direction-of-causality",
+        "implementation mapping"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "id": "notify",
+      "relatedTerms": [
+        "subscription",
+        "bt_gatt_notify",
+        "central"
+      ],
+      "title": "Notifications"
+    }
+  ],
+  "gaps": [
+    {
+      "conceptIDs": [
+        "bits",
+        "protocol"
+      ],
+      "description": "Knowing that data is electrical is not enough. A receiver also needs an agreed rulebook for what each bit pattern means.",
+      "id": "physical-vs-meaning",
+      "misconceptionIDs": [
+        "bit-is-protocol-rule",
+        "physical-medium-implies-meaning",
+        "gatt-auto-parses-custom-schema"
+      ],
+      "sourceRefs": [
+        "ble-note"
+      ],
+      "tag": "concept conflation",
+      "title": "Physical Signal vs Meaning"
+    },
+    {
+      "conceptIDs": [
+        "phy",
+        "link-layer",
+        "gatt"
+      ],
+      "description": "Different BLE layers answer different questions: can radio become bits, can packets be exchanged, and what app-level value changed.",
+      "id": "layer-boundaries",
+      "misconceptionIDs": [
+        "characteristic-is-radio-layer",
+        "gatt-is-radio-layer",
+        "parser-is-physical-layer",
+        "link-layer-defines-payload-schema",
+        "gatt-gap-role-conflation",
+        "notify-is-phy"
+      ],
+      "sourceRefs": [
+        "ble-note",
+        "bluetooth-core"
+      ],
+      "tag": "abstraction-level jump",
+      "title": "BLE Layer Boundaries"
+    },
+    {
+      "conceptIDs": [
+        "notify",
+        "characteristic"
+      ],
+      "description": "Creating data, storing it in a packet, sending a notification, and parsing it on the iPhone are separate steps.",
+      "id": "sample-vs-transport",
+      "misconceptionIDs": [
+        "notify-creates-sample",
+        "notification-delivers-raw-electrode-voltage",
+        "notify-implies-payload-schema",
+        "characteristic-implies-payload-schema"
+      ],
+      "sourceRefs": [
+        "ble-note"
+      ],
+      "tag": "implementation mapping gap",
+      "title": "Sample Creation vs Transport"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "bits-part-of-bytes",
+      "sourceConceptID": "bits",
+      "targetConceptID": "bytes",
+      "kind": "partOf",
+      "rationale": "A byte is composed of eight bits, so the bit is the physical-information unit inside the byte representation.",
+      "sourceRefs": ["ble-note"]
+    },
+    {
+      "id": "phy-enables-bits",
+      "sourceConceptID": "phy",
+      "targetConceptID": "bits",
+      "kind": "enables",
+      "rationale": "The PHY makes radio states distinguishable as bits for higher layers.",
+      "sourceRefs": ["ble-note", "bluetooth-core"]
+    },
+    {
+      "id": "bytes-prerequisite-protocol",
+      "sourceConceptID": "bytes",
+      "targetConceptID": "protocol",
+      "kind": "prerequisite",
+      "rationale": "Understanding that byte patterns have no inherent meaning is prerequisite to understanding why shared protocol rules are needed.",
+      "sourceRefs": ["ble-note"]
+    },
+    {
+      "id": "phy-prerequisite-link-layer",
+      "sourceConceptID": "phy",
+      "targetConceptID": "link-layer",
+      "kind": "prerequisite",
+      "rationale": "Link Layer packet exchange depends on the PHY radio path that carries the packet bits.",
+      "sourceRefs": ["ble-note", "bluetooth-core"]
+    },
+    {
+      "id": "link-layer-enables-gap",
+      "sourceConceptID": "link-layer",
+      "targetConceptID": "gap",
+      "kind": "enables",
+      "rationale": "GAP discovery and connection roles use the advertising and connection mechanics supplied below by the Link Layer.",
+      "sourceRefs": ["ble-note", "bluetooth-core"]
+    },
+    {
+      "id": "gap-prerequisite-gatt",
+      "sourceConceptID": "gap",
+      "targetConceptID": "gatt",
+      "kind": "prerequisite",
+      "rationale": "Devices must discover and establish the appropriate relationship before using the connected GATT data model.",
+      "sourceRefs": ["ble-note"]
+    },
+    {
+      "id": "link-layer-prerequisite-gatt",
+      "sourceConceptID": "link-layer",
+      "targetConceptID": "gatt",
+      "kind": "prerequisite",
+      "rationale": "GATT transactions rely on an established BLE connection maintained by lower-layer packet exchange.",
+      "sourceRefs": ["ble-note", "bluetooth-core"]
+    },
+    {
+      "id": "characteristic-part-of-gatt",
+      "sourceConceptID": "characteristic",
+      "targetConceptID": "gatt",
+      "kind": "partOf",
+      "rationale": "A characteristic is a value-bearing element inside the GATT service model.",
+      "sourceRefs": ["ble-note", "bluetooth-core"]
+    },
+    {
+      "id": "characteristic-enables-notify",
+      "sourceConceptID": "characteristic",
+      "targetConceptID": "notify",
+      "kind": "enables",
+      "rationale": "A notification publishes an update for an existing characteristic value to a subscriber.",
+      "sourceRefs": ["ble-note", "bluetooth-core"]
+    },
+    {
+      "id": "protocol-enables-characteristic-meaning",
+      "sourceConceptID": "protocol",
+      "targetConceptID": "characteristic",
+      "kind": "enables",
+      "rationale": "A characteristic transports bytes, while a shared payload schema lets the receiving app interpret those bytes consistently.",
+      "sourceRefs": ["ble-note"]
+    },
+    {
+      "id": "notify-contrasts-with-protocol",
+      "sourceConceptID": "notify",
+      "targetConceptID": "protocol",
+      "kind": "contrastsWith",
+      "rationale": "Notification is a delivery operation; protocol or schema supplies meaning, so neither function should be mistaken for the other.",
+      "sourceRefs": ["ble-note"]
+    }
+  ],
+  "id": "ble",
+  "questions": [
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": true,
+          "rationale": "A bit begins as a measurable distinction; software assigns that distinction the symbols 0 and 1.",
+          "text": "A distinguishable physical state interpreted as 0 or 1."
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "A BLE packet is a structured collection of many bits, not the underlying unit itself.",
+          "misconceptionID": "bit-is-packet",
+          "text": "A packet that has already been sent over BLE."
+        },
+        {
+          "id": "c",
+          "isCorrect": false,
+          "rationale": "A protocol assigns rules to patterns of bits; it is not itself a bit.",
+          "misconceptionID": "bit-is-protocol-rule",
+          "text": "A protocol rule that tells a device how to parse data."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "A byte contains eight bits and therefore sits one representation level above a bit.",
+          "misconceptionID": "bit-byte-conflation",
+          "text": "A byte stored in memory."
+        }
+      ],
+      "conceptIDs": [
+        "bits"
+      ],
+      "difficulty": "intro",
+      "explanation": "The physical state comes first. Protocols and bytes are higher-level interpretations of groups of bits.",
+      "gapTags": [
+        "physical substrate"
+      ],
+      "id": "ble-q001",
+      "revision": 1,
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": ["ble-note"],
+      "prompt": "At the lowest useful level, what is a bit?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "Eight is the number of bits in the byte, not the number of distinct patterns those bits can form.",
+          "misconceptionID": "byte-patterns-equals-bit-count",
+          "text": "8"
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "Sixteen would describe four binary positions, not eight.",
+          "misconceptionID": "byte-patterns-four-bits",
+          "text": "16"
+        },
+        {
+          "id": "c",
+          "isCorrect": true,
+          "rationale": "Each of eight independent binary positions doubles the combinations, giving 2^8 = 256.",
+          "text": "256"
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "1024 is 2^10, so it would require ten binary positions rather than one eight-bit byte.",
+          "misconceptionID": "byte-patterns-ten-bits",
+          "text": "1024"
+        }
+      ],
+      "conceptIDs": [
+        "bytes"
+      ],
+      "difficulty": "intro",
+      "explanation": "Eight bits gives 2^8 possible patterns, which is 256.",
+      "gapTags": [
+        "representation"
+      ],
+      "id": "ble-q002",
+      "revision": 1,
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": ["ble-note"],
+      "prompt": "How many possible bit patterns can one byte represent?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "A shared physical medium can transport states but does not define the meaning or coordination of their patterns.",
+          "misconceptionID": "physical-medium-implies-meaning",
+          "text": "Because both devices use electricity."
+        },
+        {
+          "id": "b",
+          "isCorrect": true,
+          "rationale": "Shared rules make the same received pattern map to the same structure and meaning on both devices.",
+          "text": "Because the same bit pattern can mean different things without shared rules."
+        },
+        {
+          "id": "c",
+          "isCorrect": false,
+          "rationale": "Radio can encode binary distinctions; protocol rules are needed for interpretation and coordination, not because radio rejects binary data.",
+          "misconceptionID": "radio-cannot-carry-binary",
+          "text": "Because radio waves cannot carry binary data."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "Encryption is optional and separate from the need for a shared packet and payload interpretation.",
+          "misconceptionID": "protocol-needed-for-default-encryption",
+          "text": "Because all BLE packets are encrypted by default."
+        }
+      ],
+      "conceptIDs": [
+        "protocol"
+      ],
+      "difficulty": "intro",
+      "explanation": "A physical signal can carry bits, but a protocol is what makes those bits interpretable.",
+      "gapTags": [
+        "protocol/schema"
+      ],
+      "id": "ble-q003",
+      "revision": 1,
+      "kind": "explain",
+      "transferLevel": "application",
+      "sourceRefs": ["ble-note"],
+      "prompt": "Why do two devices need a protocol?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": true,
+          "rationale": "The PHY defines the physical radio signaling that higher layers observe as bits.",
+          "text": "PHY"
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "GATT organizes connected application values after lower layers have already delivered data.",
+          "misconceptionID": "gatt-is-radio-layer",
+          "text": "GATT"
+        },
+        {
+          "id": "c",
+          "isCorrect": false,
+          "rationale": "The application parser interprets delivered bytes and never performs the radio-to-bit conversion.",
+          "misconceptionID": "parser-is-physical-layer",
+          "text": "Application parser"
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "A characteristic is a GATT value container, not a radio signaling mechanism.",
+          "misconceptionID": "characteristic-is-radio-layer",
+          "text": "Characteristic"
+        }
+      ],
+      "conceptIDs": [
+        "phy"
+      ],
+      "difficulty": "intro",
+      "explanation": "PHY handles the physical radio side. It is below the app's interpretation of values.",
+      "gapTags": [
+        "layer mapping"
+      ],
+      "id": "ble-q004",
+      "revision": 1,
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": ["ble-note", "bluetooth-core"],
+      "prompt": "Which BLE layer is closest to radio energy becoming bits?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "Custom payload fields are defined by the application schema, above the Link Layer.",
+          "misconceptionID": "link-layer-defines-payload-schema",
+          "text": "It decides what your 182-byte payload fields mean."
+        },
+        {
+          "id": "b",
+          "isCorrect": true,
+          "rationale": "The Link Layer schedules and controls advertising, connections, and radio packet exchange.",
+          "text": "It controls radio packet exchange and connection mechanics."
+        },
+        {
+          "id": "c",
+          "isCorrect": false,
+          "rationale": "User-facing notes belong to application storage and have no Link Layer role.",
+          "misconceptionID": "link-layer-is-application-storage",
+          "text": "It stores the user-facing note for a sensor sample."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "Question generation is a Revember authoring concern, not part of BLE packet transport.",
+          "misconceptionID": "link-layer-is-learning-tool",
+          "text": "It generates multiple-choice questions."
+        }
+      ],
+      "conceptIDs": [
+        "link-layer"
+      ],
+      "difficulty": "intro",
+      "explanation": "The Link Layer is about connection and packet exchange mechanics, not app-level payload meaning.",
+      "gapTags": [
+        "layer mapping",
+        "transport mechanics"
+      ],
+      "id": "ble-q005",
+      "revision": 1,
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": ["ble-note", "bluetooth-core"],
+      "prompt": "What does the BLE Link Layer mainly do?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "GATT describes connected services and characteristics, not discovery roles.",
+          "misconceptionID": "gatt-gap-role-conflation",
+          "text": "GATT"
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "The PHY carries radio symbols and bits but does not define central or peripheral roles.",
+          "misconceptionID": "phy-defines-device-roles",
+          "text": "PHY"
+        },
+        {
+          "id": "c",
+          "isCorrect": true,
+          "rationale": "GAP specifies advertising, discovery, and device roles such as central and peripheral.",
+          "text": "GAP"
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "An app parser gives custom payload bytes meaning after delivery; it does not control BLE discovery roles.",
+          "misconceptionID": "parser-defines-device-roles",
+          "text": "The app's packet parser"
+        }
+      ],
+      "conceptIDs": [
+        "gap"
+      ],
+      "difficulty": "medium",
+      "explanation": "GAP owns discovery, advertising, and roles like central/peripheral.",
+      "gapTags": [
+        "role mapping"
+      ],
+      "id": "ble-q006",
+      "revision": 1,
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": ["ble-note", "bluetooth-core"],
+      "prompt": "Which BLE layer describes advertising and central/peripheral roles?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "A radio packet is a lower-layer transport unit; GATT is the higher-level model presented to connected applications.",
+          "misconceptionID": "gatt-is-raw-packet",
+          "text": "A raw radio packet."
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "Voltage is a possible physical representation far below the GATT application model.",
+          "misconceptionID": "gatt-is-physical-state",
+          "text": "A voltage level."
+        },
+        {
+          "id": "c",
+          "isCorrect": true,
+          "rationale": "GATT arranges application-visible data into services and their characteristics once devices are connected.",
+          "text": "A connected-data model made of services and characteristics."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "Review scheduling belongs to Revember and is unrelated to BLE's connected-data model.",
+          "misconceptionID": "gatt-is-review-scheduler",
+          "text": "A test date scheduling algorithm."
+        }
+      ],
+      "conceptIDs": [
+        "gatt"
+      ],
+      "difficulty": "medium",
+      "explanation": "GATT is the app-visible structure after a connection exists.",
+      "gapTags": [
+        "application mapping"
+      ],
+      "id": "ble-q007",
+      "revision": 1,
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": ["ble-note", "bluetooth-core"],
+      "prompt": "What is GATT in BLE?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": true,
+          "rationale": "A characteristic names a value in the GATT model and declares supported operations on it.",
+          "text": "A named GATT value with operations like read, write, or notify."
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "A characteristic exists within a connection's GATT model but is not the connection itself.",
+          "misconceptionID": "characteristic-is-connection",
+          "text": "The whole radio connection."
+        },
+        {
+          "id": "c",
+          "isCorrect": false,
+          "rationale": "A characteristic exposes bytes; a separate shared payload schema determines the meaning of custom fields.",
+          "misconceptionID": "characteristic-implies-payload-schema",
+          "text": "A guaranteed interpretation of every byte in your payload."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "The antenna participates in the PHY radio path, several abstraction layers below a characteristic.",
+          "misconceptionID": "characteristic-is-antenna",
+          "text": "The physical antenna."
+        }
+      ],
+      "conceptIDs": [
+        "characteristic"
+      ],
+      "difficulty": "medium",
+      "explanation": "A characteristic exposes a value. Your app still needs to parse the value's bytes.",
+      "gapTags": [
+        "implementation mapping"
+      ],
+      "id": "ble-q008",
+      "revision": 1,
+      "kind": "compare",
+      "transferLevel": "application",
+      "sourceRefs": ["ble-note", "bluetooth-core"],
+      "prompt": "In GATT, what is a characteristic?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "The sensor or sampling pipeline creates the value before the notification operation is called.",
+          "misconceptionID": "notify-creates-sample",
+          "text": "It creates a new sensor sample."
+        },
+        {
+          "id": "b",
+          "isCorrect": true,
+          "rationale": "The call hands an existing characteristic value update to the BLE stack for delivery to subscribed centrals.",
+          "text": "It sends an already-prepared characteristic value to a subscribed central."
+        },
+        {
+          "id": "c",
+          "isCorrect": false,
+          "rationale": "Notification transports bytes; the app's schema and parser determine what those bytes mean.",
+          "misconceptionID": "notify-implies-payload-schema",
+          "text": "It tells the iPhone what each byte means."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "Radio energy is converted to bits by the PHY before any GATT notification operation occurs.",
+          "misconceptionID": "notify-is-phy",
+          "text": "It turns radio energy into bits."
+        }
+      ],
+      "conceptIDs": [
+        "notify",
+        "characteristic"
+      ],
+      "difficulty": "medium",
+      "explanation": "Notification is a transport/update step. Sample creation and payload parsing are separate.",
+      "gapTags": [
+        "direction-of-causality",
+        "implementation mapping"
+      ],
+      "id": "ble-q009",
+      "revision": 1,
+      "kind": "trace",
+      "transferLevel": "application",
+      "sourceRefs": ["ble-note", "bluetooth-core"],
+      "prompt": "What does `bt_gatt_notify()` conceptually do?"
+    },
+    {
+      "choices": [
+        {
+          "id": "a",
+          "isCorrect": false,
+          "rationale": "GATT identifies the characteristic and delivers its bytes but cannot infer an arbitrary custom field schema.",
+          "misconceptionID": "gatt-auto-parses-custom-schema",
+          "text": "Nothing; GATT automatically knows all custom payload schemas."
+        },
+        {
+          "id": "b",
+          "isCorrect": false,
+          "rationale": "Connection security metadata does not replace knowledge of the characteristic or parsing of its value.",
+          "misconceptionID": "notification-only-reveals-encryption",
+          "text": "Only whether the connection was encrypted."
+        },
+        {
+          "id": "c",
+          "isCorrect": true,
+          "rationale": "CoreBluetooth provides characteristic identity and bytes; custom application logic must apply the shared payload schema.",
+          "text": "It receives bytes from a known characteristic, but your app must parse their meaning."
+        },
+        {
+          "id": "d",
+          "isCorrect": false,
+          "rationale": "Electrode voltage is sampled and encoded upstream; the phone receives the resulting payload bytes, not direct analog voltage.",
+          "misconceptionID": "notification-delivers-raw-electrode-voltage",
+          "text": "It receives raw voltage values directly from the electrode."
+        }
+      ],
+      "conceptIDs": [
+        "characteristic",
+        "protocol"
+      ],
+      "difficulty": "hard",
+      "explanation": "BLE can deliver bytes through a characteristic, but custom field meaning belongs to your payload schema and parser.",
+      "gapTags": [
+        "implementation mapping",
+        "protocol/schema"
+      ],
+      "id": "ble-q010",
+      "revision": 1,
+      "kind": "predict",
+      "transferLevel": "transfer",
+      "sourceRefs": ["ble-note"],
+      "prompt": "If an iPhone gets a custom BLE notification, what does it know by default?"
+    }
+  ],
+  "summary": "BLE from physical bits up through Link Layer, GAP, GATT, characteristics, and notifications.",
+  "title": "Bluetooth Low Energy"
+}

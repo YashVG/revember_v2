@@ -15,14 +15,14 @@ struct TopicDetailView: View {
                 HStack(spacing: 14) {
                     MetricTile(
                         title: "Due now",
-                        value: "\(topic.questions.count)",
-                        caption: "ready checks",
+                        value: "\(dueCount)",
+                        caption: "scheduled + new",
                         tint: RevemberTheme.amber,
                         systemImage: "clock"
                     )
                     MetricTile(
-                        title: "Mastery",
-                        value: "\(Int((store.progress.score(for: topic.id) * 100).rounded()))%",
+                        title: "Current accuracy",
+                        value: "\(Int((store.currentScore(for: topic) * 100).rounded()))%",
                         caption: store.progressSummary(for: topic),
                         tint: RevemberTheme.cyan,
                         systemImage: "waveform.path.ecg"
@@ -41,6 +41,8 @@ struct TopicDetailView: View {
             switch mode {
             case .concepts:
                 ConceptReviewView(topic: topic)
+            case .graph:
+                KnowledgeGraphView(topic: topic)
             case .checkIn:
                 QuizView(topic: topic)
             }
@@ -48,10 +50,15 @@ struct TopicDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(.clear)
     }
+
+    private var dueCount: Int {
+        store.dueReviewItems().filter { $0.topicID == topic.id }.count
+    }
 }
 
 private enum TopicMode: String, CaseIterable {
     case concepts = "Concept Map"
+    case graph = "Graph"
     case checkIn = "Check-In"
 }
 
@@ -80,7 +87,7 @@ private struct TopicHeader: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 250)
+                .frame(width: 320)
 
                 Button {
                     mode = .checkIn
@@ -95,7 +102,7 @@ private struct TopicHeader: View {
                 Label("Local JSON", systemImage: "folder")
                 Label("\(topic.concepts.count) concepts", systemImage: "lightbulb")
                 Label("\(topic.questions.count) checks", systemImage: "checklist")
-                Label("No cloud, no NLP", systemImage: "lock")
+                Label("Local-first", systemImage: "lock")
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(RevemberTheme.secondaryInk)

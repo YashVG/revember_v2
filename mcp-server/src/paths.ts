@@ -35,7 +35,11 @@ export function markdownPath(config: RevemberConfig, slug: string): string {
   return safeResolve(config.notesDir, `${assertSafeSlug(slug)}.md`);
 }
 
-export function backupPath(config: RevemberConfig, area: "topics" | "notes", sourcePath: string): string {
+export function sessionPath(config: RevemberConfig, id: string): string {
+  return safeResolve(config.sessionsDir, `${assertSafeSlug(id, "session id")}.json`);
+}
+
+export function backupPath(config: RevemberConfig, area: "topics" | "notes" | "sessions", sourcePath: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const fileName = `${path.basename(sourcePath)}.${timestamp}.${randomUUID()}.bak`;
   return safeResolve(config.backupsDir, area, fileName);
@@ -45,14 +49,19 @@ export async function ensureKnowledgeDirs(config: RevemberConfig): Promise<void>
   safeResolve(config.knowledgeRoot);
   safeResolve(config.knowledgeRoot, "topics");
   safeResolve(config.knowledgeRoot, "notes");
+  safeResolve(config.knowledgeRoot, "sessions");
   safeResolve(config.knowledgeRoot, ".backups", "topics");
   safeResolve(config.knowledgeRoot, ".backups", "notes");
+  safeResolve(config.knowledgeRoot, ".backups", "sessions");
   await fs.mkdir(config.topicsDir, { recursive: true });
   await fs.mkdir(config.notesDir, { recursive: true });
+  await fs.mkdir(config.sessionsDir, { recursive: true });
   await fs.mkdir(safeResolve(config.backupsDir, "topics"), { recursive: true });
   await fs.mkdir(safeResolve(config.backupsDir, "notes"), { recursive: true });
+  await fs.mkdir(safeResolve(config.backupsDir, "sessions"), { recursive: true });
   await assertRealPathInside(config.knowledgeRoot, config.topicsDir);
   await assertRealPathInside(config.knowledgeRoot, config.notesDir);
+  await assertRealPathInside(config.knowledgeRoot, config.sessionsDir);
   await assertRealPathInside(config.knowledgeRoot, config.backupsDir);
 }
 
@@ -67,7 +76,7 @@ export async function fileExists(filePath: string): Promise<boolean> {
 
 export async function backupIfExists(
   config: RevemberConfig,
-  area: "topics" | "notes",
+  area: "topics" | "notes" | "sessions",
   sourcePath: string
 ): Promise<string | undefined> {
   if (!(await fileExists(sourcePath))) {

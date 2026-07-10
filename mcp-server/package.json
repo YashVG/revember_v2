@@ -2,6 +2,15 @@
   "name": "revember-mcp-server",
   "version": "0.1.0",
   "description": "Local MCP server for the Revember v2 knowledge base.",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YashVG/revember_v2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YashVG/revember_v2/issues"
+  },
   "type": "module",
   "bin": {
     "revember-mcp-server": "./dist/index.js"
@@ -10,8 +19,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "tsx tests/run-tests.ts",
-    "check": "npm run build && npm run test"
+    "test": "node --import tsx tests/run-tests.ts",
+    "test:transport": "node tests/stdio-smoke.mjs",
+    "check": "npm run build && npm run test && npm run test:transport"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

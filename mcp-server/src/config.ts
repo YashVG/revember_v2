@@ -8,6 +8,7 @@ export interface RevemberConfig {
   knowledgeRoot: string;
   topicsDir: string;
   notesDir: string;
+  sessionsDir: string;
   backupsDir: string;
   progressPath: string;
 }
@@ -43,7 +44,7 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = findPackageRoot(moduleDirectory);
 
 export function defaultKnowledgeRoot(): string {
-  return path.resolve(packageRoot, "..", "..", "RevemberKnowledge");
+  return path.resolve(packageRoot, "..", "RevemberKnowledge");
 }
 
 export function defaultProgressPath(): string {
@@ -59,6 +60,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RevemberConfig
     knowledgeRoot,
     topicsDir: path.join(knowledgeRoot, "topics"),
     notesDir: path.join(knowledgeRoot, "notes"),
+    sessionsDir: path.join(knowledgeRoot, "sessions"),
     backupsDir: path.join(knowledgeRoot, ".backups"),
     progressPath
   };

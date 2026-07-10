@@ -23,9 +23,10 @@ public enum RevemberPaths {
             return configuredKnowledgeRoot
         }
 
-        return URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Desktop")
-            .appendingPathComponent("revember_v2_codex_project", isDirectory: true)
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents", isDirectory: true)
+
+        return documentsDirectory
             .appendingPathComponent("RevemberKnowledge", isDirectory: true)
     }
 
@@ -75,7 +76,9 @@ public struct KnowledgeLoader: KnowledgeLoading {
         return try files.map { file in
             do {
                 let data = try Data(contentsOf: file)
-                return try decoder.decode(KnowledgeTopic.self, from: data)
+                let topic = try decoder.decode(KnowledgeTopic.self, from: data)
+                try topic.validate(expectedID: file.deletingPathExtension().lastPathComponent)
+                return topic
             } catch {
                 throw KnowledgeLoadError.malformedFile(file.lastPathComponent, error)
             }

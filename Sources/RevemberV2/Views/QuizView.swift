@@ -8,10 +8,22 @@ struct QuizView: View {
     @State private var selectedChoiceID: String?
     @State private var lastAnswerWasCorrect: Bool?
     @State private var selectedRating: ReviewRating?
+    @State private var pendingReviewID = UUID()
+    @State private var hasRevealedRecallChoices = false
+    @State private var answeredQuestionVersionKey: String?
+    @State private var lastCommittedSchedule: ReviewSchedulePresentation?
+
+    private var questions: [Question] {
+        topic.questions.filter { $0.retiredAt == nil }
+    }
 
     private var question: Question? {
-        guard topic.questions.indices.contains(questionIndex) else { return nil }
-        return topic.questions[questionIndex]
+        guard questions.indices.contains(questionIndex) else { return nil }
+        return questions[questionIndex]
+    }
+
+    private var questionVersionKey: String {
+        question.map { "\($0.id)::\($0.revision)" } ?? "none"
     }
 
     var body: some View {
@@ -23,7 +35,7 @@ struct QuizView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 5) {
                                     SectionEyebrow(text: "Focus Check-In")
-                                    Text("Question \(questionIndex + 1) of \(topic.questions.count)")
+                                    Text("Question \(questionIndex + 1) of \(questions.count)")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(RevemberTheme.secondaryInk)
                                 }
@@ -36,17 +48,38 @@ struct QuizView: View {
                                 .foregroundStyle(RevemberTheme.ink)
                                 .fixedSize(horizontal: false, vertical: true)
 
-                            VStack(spacing: 8) {
-                                ForEach(Array(question.choices.enumerated()), id: \.element.id) { index, choice in
-                                    ChoiceButton(
-                                        index: index + 1,
-                                        choice: choice,
-                                        isSelected: selectedChoiceID == choice.id,
-                                        isLocked: selectedChoiceID != nil
-                                    ) {
-                                        selectedChoiceID = choice.id
-                                        selectedRating = nil
-                                        lastAnswerWasCorrect = store.answer(topic: topic, question: question, choice: choice)
+                            if question.kind.requiresRecallBeforeChoices && hasRevealedRecallChoices == false {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Label("Recall before cues", systemImage: "text.bubble")
+                                        .font(.headline)
+                                        .foregroundStyle(RevemberTheme.cyan)
+                                    Text("Answer mentally or aloud, then reveal the choices to score what you recalled.")
+                                        .font(.callout)
+                                        .foregroundStyle(RevemberTheme.secondaryInk)
+                                    Button("Reveal Choices") {
+                                        hasRevealedRecallChoices = true
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(RevemberTheme.cyan)
+                                }
+                                .padding(14)
+                                .background(RevemberTheme.panelLift.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
+                            } else {
+                                VStack(spacing: 8) {
+                                    ForEach(Array(question.choices.enumerated()), id: \.element.id) { index, choice in
+                                        ChoiceButton(
+                                            index: index + 1,
+                                            choice: choice,
+                                            isSelected: selectedChoiceID == choice.id,
+                                            isLocked: selectedChoiceID != nil
+                                        ) {
+                                            selectedChoiceID = choice.id
+                                            selectedRating = choice.isCorrect ? nil : .missed
+                                            pendingReviewID = UUID()
+                                            lastAnswerWasCorrect = choice.isCorrect
+                                            answeredQuestionVersionKey = questionVersionKey
+                                            lastCommittedSchedule = nil
+                                        }
                                     }
                                 }
                             }
@@ -61,17 +94,17 @@ struct QuizView: View {
                                 } label: {
                                     Label("Previous", systemImage: "chevron.left")
                                 }
-                                .disabled(questionIndex == 0)
+                                .disabled(questionIndex == 0 || selectedChoiceID != nil)
 
                                 Spacer()
 
                                 Button {
-                                    moveQuestion(by: 1)
+                                    commitAndMove(question: question)
                                 } label: {
-                                    Label(questionIndex == topic.questions.count - 1 ? "Restart" : "Next", systemImage: "chevron.right")
+                                    Label(questionIndex == questions.count - 1 ? "Restart" : "Next", systemImage: "chevron.right")
                                 }
                                 .keyboardShortcut(.space, modifiers: [])
-                                .disabled(selectedChoiceID == nil)
+                                .disabled(selectedChoiceID == nil || selectedRating == nil)
                             }
                         }
                     }
@@ -81,7 +114,9 @@ struct QuizView: View {
                         topic: topic,
                         question: question,
                         selectedRating: $selectedRating,
-                        answered: selectedChoiceID != nil
+                        answered: selectedChoiceID != nil,
+                        wasCorrect: lastAnswerWasCorrect,
+                        lastCommittedSchedule: lastCommittedSchedule
                     )
                 } else {
                     ContentUnavailableView(
@@ -96,43 +131,47 @@ struct QuizView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: questionVersionKey) { _, _ in
+            resetAnswerState()
+        }
     }
 
     private func moveQuestion(by delta: Int) {
         let nextIndex = questionIndex + delta
-        if topic.questions.indices.contains(nextIndex) {
+        if questions.indices.contains(nextIndex) {
             questionIndex = nextIndex
         } else {
             questionIndex = 0
         }
+        resetAnswerState()
+    }
+
+    private func resetAnswerState() {
         selectedChoiceID = nil
         lastAnswerWasCorrect = nil
         selectedRating = nil
-    }
-}
-
-private enum ReviewRating: String, CaseIterable {
-    case missed = "Missed"
-    case hard = "Hard"
-    case good = "Good"
-    case easy = "Easy"
-
-    var tint: Color {
-        switch self {
-        case .missed: RevemberTheme.ruby
-        case .hard: RevemberTheme.amber
-        case .good: RevemberTheme.cyan
-        case .easy: RevemberTheme.magenta
-        }
+        pendingReviewID = UUID()
+        hasRevealedRecallChoices = false
+        answeredQuestionVersionKey = nil
     }
 
-    var nextReviewText: String {
-        switch self {
-        case .missed: "Repeat soon"
-        case .hard: "Due tomorrow"
-        case .good: "Due in 2 days"
-        case .easy: "Due in 4 days"
+    private func commitAndMove(question: Question) {
+        guard answeredQuestionVersionKey == "\(question.id)::\(question.revision)",
+              let selectedChoiceID,
+              let choice = question.choices.first(where: { $0.id == selectedChoiceID }),
+              let selectedRating,
+              let result = store.commitReview(
+                topic: topic,
+                question: question,
+                choice: choice,
+                rating: selectedRating,
+                eventID: pendingReviewID
+              )
+        else {
+            return
         }
+        lastCommittedSchedule = ReviewSchedulePresentation(cardState: result.cardState)
+        moveQuestion(by: 1)
     }
 }
 
@@ -217,6 +256,8 @@ private struct CheckInInsightPanel: View {
     let question: Question
     @Binding var selectedRating: ReviewRating?
     let answered: Bool
+    let wasCorrect: Bool?
+    let lastCommittedSchedule: ReviewSchedulePresentation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -224,7 +265,7 @@ private struct CheckInInsightPanel: View {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionEyebrow(text: "Session Signal")
                     HStack {
-                        MasteryRing(progress: store.progress.score(for: topic.id), tint: RevemberTheme.cyan)
+                        MasteryRing(progress: store.currentScore(for: topic), tint: RevemberTheme.cyan)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(store.progressSummary(for: topic))
                                 .font(.headline)
@@ -249,20 +290,38 @@ private struct CheckInInsightPanel: View {
 
             SurfacePanel {
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionEyebrow(text: "Next Review")
-                    Text(selectedRating?.nextReviewText ?? "Answer, then rate the effort")
-                        .font(.headline)
-                        .foregroundStyle(selectedRating?.tint ?? RevemberTheme.secondaryInk)
+                    SectionEyebrow(text: lastCommittedSchedule == nil ? "Next Review" : "Last Saved Schedule")
+                    if let lastCommittedSchedule {
+                        Text("Saved")
+                            .font(.headline)
+                            .foregroundStyle(RevemberTheme.cyan)
+                        Text("Previous check due \(lastCommittedSchedule.dueAt, style: .relative)")
+                            .font(.callout)
+                            .foregroundStyle(RevemberTheme.ink)
+                        Text(lastCommittedSchedule.intervalText)
+                            .font(.caption)
+                            .foregroundStyle(RevemberTheme.secondaryInk)
+                    } else {
+                        Text(selectedRating == nil ? "Answer, then rate the effort" : "Save to schedule your next review")
+                            .font(.headline)
+                            .foregroundStyle(selectedRating?.tint ?? RevemberTheme.secondaryInk)
+                    }
 
                     HStack(spacing: 8) {
                         ForEach(ReviewRating.allCases, id: \.self) { rating in
-                            Button(rating.rawValue) {
+                            Button(rating.title) {
                                 selectedRating = rating
                             }
                             .buttonStyle(.bordered)
                             .tint(selectedRating == rating ? rating.tint : RevemberTheme.secondaryInk)
-                            .disabled(answered == false)
+                            .disabled(answered == false || (wasCorrect == false && rating != .missed))
                         }
+                    }
+
+                    if wasCorrect == false {
+                        Text("Incorrect retrievals are recorded as Missed so they return soon.")
+                            .font(.caption)
+                            .foregroundStyle(RevemberTheme.amber)
                     }
                 }
             }

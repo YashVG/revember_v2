@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1720" viewBox="0 0 1100 1720" role="img" aria-labelledby="title desc">
+  <title id="title">Revember v2 Architecture Portrait Diagram</title>
+  <desc id="desc">Portrait architecture diagram for manual inspection and development of the Revember v2 macOS SwiftUI app.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12161c"/>
+      <stop offset="1" stop-color="#18202a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <marker id="arrowCyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3dd6d0"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f4b752"/>
+    </marker>
+    <marker id="arrowPink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#de4f86"/>
+    </marker>
+    <style>
+      .bg { fill: url(#bg); }
+      .panel { fill: #202833; stroke: #354457; stroke-width: 1.4; filter: url(#shadow); }
+      .box { fill: #141d26; stroke: #314050; stroke-width: 1.2; }
+      .box2 { fill: #182230; stroke: #394b5f; stroke-width: 1.2; }
+      .title { font: 750 40px -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif; fill: #f4f7f9; }
+      .subtitle { font: 500 17px -apple-system, BlinkMacSystemFont, "SF Pro Text", Arial, sans-serif; fill: #a9bac9; }
+      .section { font: 750 22px -apple-system, BlinkMacSystemFont, "SF Pro Text", Arial, sans-serif; fill: #eef3f6; }
+      .label { font: 700 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", Arial, sans-serif; fill: #f4f7f9; }
+      .small { font: 520 15px -apple-system, BlinkMacSystemFont, "SF Pro Text", Arial, sans-serif; fill: #b8c7d5; }
+      .tiny { font: 500 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", Arial, sans-serif; fill: #98aabd; }
+      .code { font: 600 15px "SF Mono", Menlo, Consolas, monospace; fill: #d4dee7; }
+      .codeStrong { font: 750 15px "SF Mono", Menlo, Consolas, monospace; fill: #f4f7f9; }
+      .cyan { fill: #3dd6d0; }
+      .amber { fill: #f4b752; }
+      .pink { fill: #de4f86; }
+      .green { fill: #7ddf9b; }
+      .lineCyan { fill: none; stroke: #3dd6d0; stroke-width: 2.4; marker-end: url(#arrowCyan); }
+      .lineAmber { fill: none; stroke: #f4b752; stroke-width: 2.4; marker-end: url(#arrowAmber); }
+      .linePink { fill: none; stroke: #de4f86; stroke-width: 2.4; marker-end: url(#arrowPink); }
+      .lineMuted { fill: none; stroke: #546779; stroke-width: 2; stroke-dasharray: 6 7; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1100" height="1720"/>
+
+  <text class="title" x="54" y="62">Revember v2 Architecture</text>
+  <text class="subtitle" x="56" y="96">Narrow inspection map for development in Xcode without horizontal clipping.</text>
+
+  <!-- 1 Entry points -->
+  <rect class="panel" x="52" y="132" width="996" height="176" rx="14"/>
+  <text class="section" x="86" y="172">1. Entry Points</text>
+  <rect class="box" x="86" y="198" width="280" height="70" rx="10"/>
+  <text class="codeStrong" x="112" y="229">Revember.xcodeproj</text>
+  <text class="tiny" x="112" y="252">Open this in Xcode</text>
+  <rect class="box" x="408" y="198" width="240" height="70" rx="10"/>
+  <text class="codeStrong" x="436" y="229">Package.swift</text>
+  <text class="tiny" x="436" y="252">SwiftPM build/test</text>
+  <rect class="box" x="690" y="198" width="280" height="70" rx="10"/>
+  <text class="codeStrong" x="718" y="229">build_and_run.sh</text>
+  <text class="tiny" x="718" y="252">Codex/local launch path</text>
+
+  <!-- 2 Targets and launch -->
+  <rect class="panel" x="52" y="350" width="996" height="250" rx="14"/>
+  <text class="section" x="86" y="390">2. Targets and Launch Path</text>
+  <rect class="box2" x="86" y="426" width="214" height="76" rx="10"/>
+  <text class="label" x="126" y="458">Revember</text>
+  <text class="tiny" x="126" y="482">macOS app target</text>
+  <rect class="box2" x="356" y="426" width="248" height="76" rx="10"/>
+  <text class="label" x="390" y="458">RevemberV2Core</text>
+  <text class="tiny" x="390" y="482">views, models, stores</text>
+  <rect class="box2" x="660" y="426" width="250" height="76" rx="10"/>
+  <text class="label" x="700" y="458">RevemberV2Tests</text>
+  <text class="tiny" x="700" y="482">loader, progress, graph</text>
+  <rect class="box" x="170" y="532" width="248" height="48" rx="9"/>
+  <text class="code" x="194" y="562">main.swift</text>
+  <rect class="box" x="480" y="532" width="248" height="48" rx="9"/>
+  <text class="code" x="508" y="562">RevemberV2App</text>
+  <rect class="box" x="790" y="532" width="160" height="48" rx="9"/>
+  <text class="code" x="814" y="562">AppStore</text>
+  <path class="lineCyan" d="M418 556 C440 556 454 556 478 556"/>
+  <path class="lineCyan" d="M728 556 C750 556 766 556 788 556"/>
+
+  <!-- 3 SwiftUI -->
+  <rect class="panel" x="52" y="642" width="996" height="300" rx="14"/>
+  <text class="section" x="86" y="682">3. SwiftUI Presentation Layer</text>
+  <rect class="box" x="86" y="716" width="238" height="88" rx="10"/>
+  <text class="codeStrong" x="118" y="748">ContentView</text>
+  <text class="tiny" x="118" y="772">NavigationSplitView</text>
+  <text class="tiny" x="118" y="792">toolbar reload/settings</text>
+  <rect class="box" x="382" y="716" width="238" height="88" rx="10"/>
+  <text class="codeStrong" x="414" y="748">SidebarView</text>
+  <text class="tiny" x="414" y="772">topic list</text>
+  <text class="tiny" x="414" y="792">progress summaries</text>
+  <rect class="box" x="678" y="716" width="238" height="88" rx="10"/>
+  <text class="codeStrong" x="704" y="748">TopicDetailView</text>
+  <text class="tiny" x="704" y="772">mode switcher</text>
+  <text class="tiny" x="704" y="792">metrics + header</text>
+  <rect class="box2" x="210" y="850" width="680" height="64" rx="10"/>
+  <text class="code" x="248" y="875">Mode Views: ConceptReviewView, KnowledgeGraphView, QuizView</text>
+  <text class="tiny" x="248" y="898">All views read shared state through @EnvironmentObject AppStore</text>
+  <path class="lineCyan" d="M324 760 C344 760 360 760 380 760"/>
+  <path class="lineCyan" d="M620 760 C640 760 656 760 676 760"/>
+  <path class="lineCyan" d="M797 804 C797 826 780 838 742 848"/>
+
+  <!-- 4 AppStore -->
+  <rect class="panel" x="52" y="984" width="996" height="278" rx="14"/>
+  <text class="section" x="86" y="1024">4. AppStore: State and Behavior Hub</text>
+  <rect class="box2" x="86" y="1058" width="440" height="174" rx="12"/>
+  <text class="label" x="270" y="1092">AppStore</text>
+  <text class="code" x="126" y="1122">@Published topics</text>
+  <text class="code" x="126" y="1148">@Published selectedTopicID</text>
+  <text class="code" x="126" y="1174">@Published progress</text>
+  <text class="code" x="126" y="1200">@Published knowledgeRootPath</text>
+  <rect class="box" x="584" y="1058" width="358" height="174" rx="12"/>
+  <text class="codeStrong" x="624" y="1092">Main methods to inspect</text>
+  <text class="tiny" x="624" y="1122">reload() -> KnowledgeLoader</text>
+  <text class="tiny" x="624" y="1148">loadProgress() -> ProgressFileStore</text>
+  <text class="tiny" x="624" y="1174">answer() -> recordAnswer() + save</text>
+  <text class="tiny" x="624" y="1200">weakConcepts() -> sidebar/header state</text>
+
+  <!-- 5 Persistence -->
+  <rect class="panel" x="52" y="1304" width="996" height="224" rx="14"/>
+  <text class="section" x="86" y="1344">5. Services and Persistent Files</text>
+  <rect class="box" x="86" y="1378" width="284" height="92" rx="10"/>
+  <text class="codeStrong" x="120" y="1410">KnowledgeLoader</text>
+  <text class="tiny" x="120" y="1434">reads RevemberKnowledge/topics/*.json</text>
+  <text class="tiny" x="120" y="1454">decodes KnowledgeTopic</text>
+  <rect class="box" x="408" y="1378" width="284" height="92" rx="10"/>
+  <text class="codeStrong" x="438" y="1410">ProgressFileStore</text>
+  <text class="tiny" x="438" y="1434">loads/saves progress.json</text>
+  <text class="tiny" x="438" y="1454">atomic pretty JSON write</text>
+  <rect class="box" x="730" y="1378" width="284" height="92" rx="10"/>
+  <text class="codeStrong" x="758" y="1410">RevemberKnowledge</text>
+  <text class="tiny" x="758" y="1434">notes/*.md = source layer</text>
+  <text class="tiny" x="758" y="1454">topics/*.json = app layer</text>
+  <path class="lineAmber" d="M526 1232 C520 1284 400 1322 284 1376"/>
+  <path class="lineAmber" d="M766 1232 C764 1280 660 1322 552 1376"/>
+
+  <!-- 6 Models and feature seams -->
+  <rect class="panel" x="52" y="1568" width="996" height="142" rx="14"/>
+  <text class="section" x="86" y="1608">6. Fast Inspection Routes</text>
+  <circle class="cyan" cx="94" cy="1638" r="6"/>
+  <text class="small" x="114" y="1643">UI bug: TopicDetailView -> selected mode view -> AppStore state</text>
+  <circle class="amber" cx="94" cy="1664" r="6"/>
+  <text class="small" x="114" y="1669">Data bug: RevemberKnowledge JSON -> KnowledgeModels -> KnowledgeLoaderTests</text>
+  <circle class="pink" cx="94" cy="1690" r="6"/>
+  <text class="small" x="114" y="1695">Progress bug: AppStore.answer -> ProgressModels -> ProgressFileStoreTests</text>
+  <circle class="green" cx="562" cy="1690" r="6"/>
+  <text class="small" x="582" y="1695">Graph bug: KnowledgeGraphModels -> KnowledgeGraphView -> KnowledgeGraphTests</text>
+
+  <!-- Vertical flow guides -->
+  <path class="lineMuted" d="M550 308 C550 326 550 332 550 348"/>
+  <path class="lineMuted" d="M550 600 C550 620 550 626 550 640"/>
+  <path class="lineMuted" d="M550 942 C550 962 550 970 550 982"/>
+  <path class="lineMuted" d="M550 1262 C550 1282 550 1290 550 1302"/>
+</svg>
