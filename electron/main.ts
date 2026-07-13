@@ -1,0 +1,249 @@
+import path from "node:path";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, shell, Tray } from "electron";
+import { dueReviewItems, nextDueAt } from "../shared/domain";
+import type { AppSnapshot, CommitReviewInput } from "../shared/types";
+import { RevemberState } from "./app-state";
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let state: RevemberState;
+let notificationTimer: NodeJS.Timeout | undefined;
+let pendingRoute: string | undefined;
+
+if (process.env.REVEMBER_USER_DATA_PATH) {
+  app.setPath("userData", path.resolve(process.env.REVEMBER_USER_DATA_PATH));
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) app.quit();
+
+app.on("second-instance", (_event, argv) => {
+  showMainWindow();
+  const url = argv.find((argument) => argument.startsWith("revember://"));
+  if (url) routeURL(url);
+});
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  routeURL(url);
+});
+
+app.whenReady().then(() => {
+  app.setName("Revember");
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient("revember");
+  } else if (process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient("revember", process.execPath, [path.resolve(process.argv[1])]);
+  }
+  const bundledKnowledgeRoot = app.isPackaged
+    ? path.join(process.resourcesPath, "RevemberKnowledge")
+    : path.join(app.getAppPath(), "RevemberKnowledge");
+  state = new RevemberState({
+    settingsPath: path.join(app.getPath("userData"), "settings.json"),
+    bundledKnowledgeRoot,
+    legacyProgressPath: process.platform === "darwin"
+      ? path.join(app.getPath("appData"), "RevemberV2", "progress.json")
+      : path.join(app.getPath("userData"), "progress.json")
+  });
+  state.on("snapshot", (snapshot: AppSnapshot) => {
+    mainWindow?.webContents.send("revember:snapshot", snapshot);
+    updateTray(snapshot);
+    scheduleNotification(snapshot);
+  });
+
+  registerIPC();
+  createMenu();
+  createWindow();
+  createTray();
+  updateTray(state.snapshot);
+  scheduleNotification(state.snapshot);
+});
+
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  else showMainWindow();
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  state?.dispose();
+  if (notificationTimer) clearTimeout(notificationTimer);
+});
+
+function createWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: 1420,
+    height: 900,
+    minWidth: 1020,
+    minHeight: 680,
+    show: false,
+    title: "Revember",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    trafficLightPosition: { x: 18, y: 18 },
+    backgroundColor: "#08090b",
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+    if (pendingRoute) sendRoute(pendingRoute);
+  });
+  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const current = mainWindow?.webContents.getURL();
+    if (current && new URL(url).origin === new URL(current).origin) return;
+    event.preventDefault();
+    void shell.openExternal(url);
+  });
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  } else {
+    void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  }
+}
+
+function registerIPC(): void {
+  ipcMain.handle("revember:get-snapshot", () => state.snapshot);
+  ipcMain.handle("revember:reload", () => state.reload());
+  ipcMain.handle("revember:choose-knowledge-root", async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: "Choose Revember Knowledge Folder",
+      properties: ["openDirectory", "createDirectory"]
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled || !result.filePaths[0] ? state.snapshot : state.setKnowledgeRoot(result.filePaths[0]);
+  });
+  ipcMain.handle("revember:reset-knowledge-root", () => state.resetKnowledgeRoot());
+  ipcMain.handle("revember:open-knowledge-root", async () => {
+    const error = await shell.openPath(state.snapshot.settings.knowledgeRootPath);
+    if (error) throw new Error(error);
+  });
+  ipcMain.handle("revember:commit-review", (_event, input: CommitReviewInput) => state.commitReview(input));
+  ipcMain.handle("revember:capture-checkpoint", (_event, input) => state.captureCheckpoint(input));
+  ipcMain.handle("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
+}
+
+function createMenu(): void {
+  const menu = Menu.buildFromTemplate([
+    ...(process.platform === "darwin" ? [{
+      label: app.name,
+      submenu: [
+        { role: "about" as const },
+        { type: "separator" as const },
+        { label: "Settings…", accelerator: "CmdOrCtrl+,", click: () => sendRoute("settings") },
+        { type: "separator" as const },
+        { role: "services" as const },
+        { type: "separator" as const },
+        { role: "hide" as const },
+        { role: "hideOthers" as const },
+        { role: "unhide" as const },
+        { type: "separator" as const },
+        { role: "quit" as const }
+      ]
+    }] : []),
+    { label: "File", submenu: [
+      { label: "Start 3-Minute Review", accelerator: "CmdOrCtrl+Shift+R", click: () => sendRoute("review:3") },
+      { label: "Capture Learning Checkpoint…", accelerator: "CmdOrCtrl+Shift+K", click: () => sendRoute("checkpoint") },
+      { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => state.reload() },
+      { type: "separator" },
+      { role: "close" }
+    ] },
+    { label: "Edit", submenu: [
+      { role: "undo" }, { role: "redo" }, { type: "separator" },
+      { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }
+    ] },
+    { label: "View", submenu: [
+      { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, { type: "separator" },
+      { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }
+    ] },
+    { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, ...(process.platform === "darwin" ? [{ type: "separator" as const }, { role: "front" as const }] : [])] }
+  ]);
+  Menu.setApplicationMenu(menu);
+}
+
+function createTray(): void {
+  const image = process.platform === "darwin"
+    ? nativeImage.createFromNamedImage("NSStatusAvailable")
+    : nativeImage.createEmpty();
+  image.setTemplateImage(true);
+  tray = new Tray(image);
+  tray.setToolTip("Revember");
+  tray.on("click", showMainWindow);
+}
+
+function updateTray(snapshot: AppSnapshot): void {
+  if (!tray) return;
+  const dueCount = dueReviewItems(snapshot).length;
+  tray.setTitle(process.platform === "darwin" && dueCount > 0 ? `${dueCount}` : "");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: dueCount ? `${dueCount} checks ready` : "Nothing due now", enabled: false },
+    { type: "separator" },
+    { label: "Open Revember", click: showMainWindow },
+    { label: "Start 3-Minute Review", click: () => sendRoute("review:3") },
+    { label: "Capture Learning Checkpoint…", click: () => sendRoute("checkpoint") },
+    { type: "separator" },
+    { label: "Quit Revember", click: () => app.quit() }
+  ]));
+}
+
+function scheduleNotification(snapshot: AppSnapshot): void {
+  if (notificationTimer) clearTimeout(notificationTimer);
+  if (!snapshot.settings.notificationsEnabled || !Notification.isSupported()) return;
+  const due = dueReviewItems(snapshot);
+  const dueAt = nextDueAt(snapshot);
+  if (!due.length && !dueAt) return;
+  const delay = due.length ? 60_000 : Math.max(60_000, new Date(dueAt!).getTime() - Date.now());
+  notificationTimer = setTimeout(() => {
+    const latest = state.snapshot;
+    const count = dueReviewItems(latest).length;
+    if (!count) {
+      scheduleNotification(latest);
+      return;
+    }
+    const notification = new Notification({
+      title: "Revember review ready",
+      body: count === 1 ? "One check is ready." : `${count} checks are ready.`
+    });
+    notification.on("click", () => sendRoute("review:3"));
+    notification.show();
+  }, Math.min(delay, 2_147_000_000));
+}
+
+function routeURL(url: string): void {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "topic") sendRoute(`topic:${parsed.pathname.replace(/^\//, "")}`);
+    else if (parsed.hostname === "review") sendRoute(`review:${Math.max(1, Number(parsed.searchParams.get("minutes")) || 3)}`);
+  } catch {
+    // Invalid deep links are ignored.
+  }
+}
+
+function sendRoute(route: string): void {
+  pendingRoute = route;
+  if (!app.isReady()) return;
+  showMainWindow();
+  if (mainWindow && !mainWindow.webContents.isLoading()) mainWindow.webContents.send("revember:navigate", route);
+}
+
+function showMainWindow(): void {
+  if (!mainWindow) createWindow();
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.show();
+  mainWindow?.focus();
+}

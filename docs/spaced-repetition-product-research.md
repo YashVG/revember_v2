@@ -2,7 +2,7 @@
 
 ## Product Brief
 
-Revember v2 should be a local macOS app for turning first-principles learning sessions into durable technical memory. The app should not feel like a generic flashcard tool. It should feel like a focused fundamentals cockpit: a small daily queue, direct checks, immediate correction, and a visible map of weak concepts.
+Revember v2 should be a local desktop app for turning first-principles learning sessions into durable technical memory. The app should not feel like a generic flashcard tool. It should feel like a focused fundamentals cockpit: a small daily queue, direct checks, immediate correction, and a visible map of weak concepts.
 
 The app should optimize for solidifying knowledge, not vague familiarity. The primary loop is:
 
@@ -172,7 +172,7 @@ Bad Revember mechanics:
 
 Revember should feel like an intelligence dashboard for your own knowledge:
 
-- dark, calm, high-contrast macOS app
+- dark, calm, high-contrast desktop app
 - dense enough to feel serious
 - enough motion/feedback to feel alive
 - no decorative clutter

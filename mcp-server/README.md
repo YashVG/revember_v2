@@ -206,7 +206,7 @@ Simultaneous writers are serialized inside the server, so two writes using the s
 
 ## Topic Schema
 
-The legacy shape used by existing Swift builds is still valid. New MCP-created or mutated topics add `schemaVersion` and `revision`, while all richer fields are additive:
+The legacy Revember topic shape remains valid. New MCP-created or mutated topics add `schemaVersion` and `revision`, while all richer fields are additive:
 
 ```json
 {
@@ -275,7 +275,7 @@ The legacy shape used by existing Swift builds is still valid. New MCP-created o
 }
 ```
 
-Questions remain in the `questions` array so the app and MCP server share one canonical JSON contract; the MCP API uses “card” and “probe” as workflow names. Legacy MCP aliases such as `multiple-choice`, `fromConceptID`, and source `uri` are accepted at validation boundaries but normalized before writing. Answer choices remain required for every current probe kind. Unknown fields are preserved by update operations and ignored by Swift decoders that do not know them.
+Questions remain in the `questions` array so the app and MCP server share one canonical JSON contract; the MCP API uses “card” and “probe” as workflow names. Legacy MCP aliases such as `multiple-choice`, `fromConceptID`, and source `uri` are accepted at validation boundaries but normalized before writing. Answer choices remain required for every current probe kind. Unknown fields are preserved by update operations and ignored by app versions that do not know them.
 
 ## Progress Compatibility
 

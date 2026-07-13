@@ -1,0 +1,77 @@
+{
+  "name": "revember",
+  "version": "0.2.0",
+  "description": "A local-first Electron app for evidence-backed technical review.",
+  "author": "YashVG",
+  "main": "out/main/main.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "npm run build && node tests-electron/e2e.mjs",
+    "test:package": "npm run package && node tests-electron/package-smoke.mjs",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test && npm run build && npm --prefix mcp-server run check",
+    "package": "npm run build && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir && bash script/adhoc_sign_electron.sh",
+    "dist": "npm run build && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
+  },
+  "dependencies": {
+    "lucide-react": "^1.24.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@playwright/test": "^1.61.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "com.yashvg.Revember",
+    "productName": "Revember",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "RevemberKnowledge",
+        "to": "RevemberKnowledge",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Revember deep link",
+        "schemes": ["revember"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": ".build-assets/Revember.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "title": "Revember ${version}"
+    }
+  }
+}

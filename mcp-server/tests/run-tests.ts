@@ -125,7 +125,7 @@ async function run(): Promise<void> {
       concepts: [{ ...validTopic.concepts[0]!, sourceRefs: ["missing-source"] }]
     }).valid, false);
 
-    // Interim MCP aliases are accepted only by normalizing to Swift's canonical JSON contract.
+    // Interim MCP aliases are accepted only by normalizing to the app's canonical JSON contract.
     const aliasValidation = validateTopicData({
       ...validTopic,
       sources: [{ id: "legacy", title: "Legacy link", uri: "https://example.test/legacy" }],
@@ -341,7 +341,7 @@ async function run(): Promise<void> {
     await fs.mkdir(backupNotes, { recursive: true });
     await fs.rm(outside, { recursive: true, force: true });
 
-    // Exact Swift v2 scheduler names plus legacy aggregates feed one learner brief.
+    // Exact app scheduler names plus legacy aggregates feed one learner brief.
     // Missing questionRevision is the legacy revision-1 contract. The explicit
     // correctness and misconception snapshot remain authoritative over choice lookup.
     const legacyRevisionSchedule = {

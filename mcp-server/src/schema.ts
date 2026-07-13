@@ -356,7 +356,7 @@ export const TopicSchemaDocumentation = {
   notes: [
     "The app keys topics by id. MCP tools accept slug as an input alias and write id.",
     "schemaVersion, revision, sources, relationships, and probe metadata are additive and backward-compatible.",
-    "Questions remain in the questions array so existing Swift builds can decode them; MCP calls them cards or probes.",
+    "Questions remain in the questions array so the Electron app and MCP server share one canonical contract; MCP calls them cards or probes.",
     "Markdown explanations are stored separately in notes/<id>.md. Learning checkpoints are stored in sessions/<id>.json."
   ],
   additiveV2Shape: {

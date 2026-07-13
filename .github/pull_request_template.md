@@ -4,7 +4,8 @@ Describe the user-visible change and the learning or data-contract problem it ad
 
 ## Validation
 
-- [ ] `swift test`
+- [ ] `npm run check`
+- [ ] `npm run test:e2e`
 - [ ] `npm --prefix mcp-server run check` (when MCP code changed)
 - [ ] `git diff --check`
 

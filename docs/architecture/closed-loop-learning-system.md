@@ -1,6 +1,6 @@
 # Closed-Loop Learning Architecture
 
-Revember keeps authored knowledge, learner evidence, and scheduling state local and separable. Codex changes the authored knowledge through a stdio MCP server; the macOS app watches those files, presents reviews, and writes progress; the MCP learner brief reads that progress back for the next learning session.
+Revember keeps authored knowledge, learner evidence, and scheduling state local and separable. Codex changes authored knowledge through a stdio MCP server; the Electron desktop app watches those files, presents reviews, and writes progress; the MCP learner brief reads that progress back for the next learning session.
 
 ```mermaid
 flowchart TD
@@ -10,7 +10,9 @@ flowchart TD
     topics["topics/*.json<br/>versioned knowledge + assessment"]
     sessions["sessions/*.json<br/>learning checkpoints"]
     watcher["Debounced knowledge-folder watcher"]
-    app["Revember macOS app<br/>Knowledge / Assessment / Learner layers"]
+    main["Electron main process<br/>validation / persistence / native surfaces"]
+    preload["Isolated preload API<br/>typed IPC boundary"]
+    app["React renderer<br/>Knowledge / Assessment / Learner views"]
     progress["progress.json<br/>immutable events + derived schedules"]
     brief["get_learner_brief<br/>revember://learner/brief"]
 
@@ -18,7 +20,7 @@ flowchart TD
     mcp --> notes
     mcp --> topics
     mcp --> sessions
-    topics --> watcher --> app
+    topics --> watcher --> main --> preload --> app
     app --> progress --> brief --> codex
 ```
 
@@ -28,8 +30,8 @@ flowchart TD
 | --- | --- | --- | --- |
 | `RevemberKnowledge/notes/*.md` | Knowledge base | MCP or direct editing | Human- and LLM-readable source explanation |
 | `RevemberKnowledge/topics/*.json` | Knowledge base | Revision-checked MCP tools or direct editing | App-readable concepts, provenance, relationships, gaps, and checks |
-| `RevemberKnowledge/sessions/*.json` | Knowledge base | `capture_learning_session` or Capture Checkpoint App Intent | Durable learning-session residue |
-| `~/Library/Application Support/RevemberV2/progress.json` | App | Atomic `ProgressFileStore` saves | Review-event ledger, compatibility aggregates, and derived schedules |
+| `RevemberKnowledge/sessions/*.json` | Knowledge base | `capture_learning_session` or the Electron checkpoint dialog | Durable learning-session residue |
+| `~/Library/Application Support/RevemberV2/progress.json` | App | Atomic Electron main-process saves | Review-event ledger, compatibility aggregates, and derived schedules |
 | `RevemberKnowledge/.backups/` | MCP server | Automatic before replacing topic or note files | Recovery copies for authored content |
 
 ## Versioned Knowledge And Provenance
@@ -45,7 +47,7 @@ The authored graph is explicit:
 - Each question has a stable ID and revision, a diagnostic kind, transfer level, answer rationales, optional misconception IDs, and optional `retiredAt`.
 - Retirement is a timestamp, not deletion, so old learner evidence remains interpretable.
 
-Array position is presentation order only. The graph never infers meaning from adjacent concepts. Both the Swift loader and MCP validator reject future schemas, duplicate IDs, invalid answer keys, dangling concept references, and unknown source references before the app replaces its last valid snapshot. Files without version metadata retain legacy v1/revision 0 semantics.
+Array position is presentation order only. The graph never infers meaning from adjacent concepts. Both the Electron loader and MCP validator reject future schemas, duplicate IDs, invalid answer keys, dangling concept references, and unknown source references before the app replaces its last valid snapshot. Files without version metadata retain legacy v1/revision 0 semantics.
 
 ## Evidence Graph
 
@@ -86,7 +88,7 @@ Each `ReviewCardState` contains `questionRevision`, `schedulerVersion`, `dueAt`,
 
 An incorrect choice is always persisted and scheduled as `Missed`, even if the learner attempted to self-rate it Good or Easy. Free-recall probes hide answer cues until the learner explicitly reveals them for scoring.
 
-The scheduler is injected through `ReviewScheduler`; event and card-state schemas already retain stability and difficulty. `reviewCardsByQuestionID` is a cache, not the canonical learning record: `ProgressRecord.rebuildReviewCardStates(using:)` replays each card's immutable, revision-bound history in review-time order and replaces only that cache. This is deliberately opt-in, so opening a file never silently reinterprets an existing scheduler's due dates. A future FSRS adapter can therefore replay the same history under its own version without changing topic IDs, event history, the due queue, or the UI contract.
+The scheduler lives behind the shared TypeScript domain boundary; event and card-state schemas retain stability, difficulty, and `schedulerVersion`. `reviewCardsByQuestionID` is a cache, not the canonical learning record: every newly inserted event replays that card revision's immutable history in review-time order before replacing the cache. Opening a file never silently reinterprets existing due dates. A future FSRS adapter can replay the same history under its own version without changing topic IDs, event history, the due queue, or the renderer contract.
 
 The Check-In and Today flows show the exact persisted `dueAt` and interval returned by the scheduler after a review is saved; they do not infer a generic interval from the rating label. The MCP learner brief also exposes each card's `schedulerVersion` and the distinct current scheduler versions in the progress record.
 
@@ -102,16 +104,15 @@ The server is registered globally as `revember`. Because MCP capability discover
 
 ## Live Reload And System Surfaces
 
-`KnowledgeFolderWatcher` watches the knowledge root and `topics/`, coalesces editor save bursts, and asks `AppStore` to reload on the main actor. If decoding fails while an editor is mid-save, the app keeps its last known-good topics and reports the error. The watcher reattaches after a reload so atomic directory replacement remains observable.
+The Electron main process watches the knowledge root and `topics/`, coalesces editor save bursts, and publishes a fresh typed snapshot over the isolated preload bridge. If decoding fails while an editor is mid-save, the app keeps its last known-good topics and reports the error. The watcher reattaches after a reload so atomic directory replacement remains observable.
 
 The same review model is exposed outside the main window:
 
-- the menu bar shows due state and starts a three-minute review;
-- the Start Review App Shortcut opens a due-card session;
-- the Open Topic App Shortcut and `revember://topic/<id>` deep link select a topic;
-- Capture Checkpoint writes a schema-v1 session artifact without opening the app;
-- notifications are opt-in and schedule a single next-review request;
-- Spotlight indexes topic titles, summaries, concepts, and gaps with local deep links.
+- the tray shows due state and starts a three-minute review;
+- application-menu shortcuts open a due-card session or checkpoint capture;
+- `revember://topic/<id>` and `revember://review?minutes=3` deep links route through the running app;
+- Capture Learning Checkpoint writes a schema-v1 session artifact from the renderer through the main-process persistence boundary;
+- notifications are opt-in and schedule the next review while Revember is running.
 
 These surfaces route through the same app state and scheduler. They do not maintain independent review data.
 
@@ -121,4 +122,5 @@ These surfaces route through the same app state and scheduler. They do not maint
 - Topic mutations serialize within the MCP process, reject stale `expectedRevision` values, and keep topic/card revisions server-managed.
 - Progress v1 is copied before automatic migration to v2; malformed progress is quarantined instead of overwritten.
 - The app keeps the last known-good knowledge snapshot during a bad or partial topic save.
-- Notification permission is requested only when the user enables review notifications.
+- The sandboxed renderer has no Node.js or direct filesystem access; all mutations cross a narrow `contextBridge` API.
+- Desktop notifications are created only when the user enables review reminders.

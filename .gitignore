@@ -1,9 +1,10 @@
 .DS_Store
 .build/
 .swiftpm/
+Revember.xcodeproj/
+node_modules/
+out/
+release/
+.build-assets/
+test-results/
 dist/
-DerivedData/
-*.xcuserstate
-*.xcworkspace
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/

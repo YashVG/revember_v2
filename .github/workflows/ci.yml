@@ -12,10 +12,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
-      - run: swift test
+          cache-dependency-path: |
+            package-lock.json
+            mcp-server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: node tests-electron/e2e.mjs
       - run: npm --prefix mcp-server ci
       - run: npm --prefix mcp-server run check
       - run: git diff --check

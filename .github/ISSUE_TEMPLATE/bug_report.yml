@@ -30,13 +30,14 @@ body:
       label: Revember revision
       description: Share the app version or commit SHA if available.
   - type: dropdown
-    id: macos
+    id: platform
     attributes:
-      label: macOS version
+      label: Platform
       options:
-        - macOS 14
-        - macOS 15
-        - macOS 16 or later
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows
+        - Linux
         - Other
   - type: textarea
     id: logs

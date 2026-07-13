@@ -85,7 +85,7 @@ export function registerResources(server: McpServer, config: RevemberConfig): vo
     "revember://schema/topic",
     {
       title: "Revember topic schema",
-      description: "Documented topic JSON shape expected by the SwiftUI app.",
+      description: "Documented topic JSON shape expected by the Electron app.",
       mimeType: "application/json"
     },
     async (uri) => textResource(uri, await readSchemaDocumentation(), "application/json")

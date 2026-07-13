@@ -164,10 +164,11 @@ npm --prefix mcp-server run check
 If app code changed, also run from `revember_v2/`:
 
 ```bash
-swift test
+npm run typecheck
+npm test
 ```
 
-If only Markdown changed, Swift tests are not required.
+If only Markdown changed, the Electron app tests are not required.
 
 ## Pause Checkpoint
 
