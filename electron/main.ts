@@ -1,7 +1,16 @@
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, shell, Tray } from "electron";
 import { dueReviewItems, nextDueAt } from "../shared/domain";
-import type { AppSnapshot, CommitReviewInput } from "../shared/types";
+import type {
+  AppSnapshot,
+  ArchiveExamPlanInput,
+  CommitReviewInput,
+  CreateCardInput,
+  EditCardInput,
+  RetireCardInput,
+  SaveCaptureInput,
+  UpsertExamPlanInput
+} from "../shared/types";
 import { RevemberState } from "./app-state";
 
 let mainWindow: BrowserWindow | null = null;
@@ -98,14 +107,14 @@ function createWindow(): void {
   });
   mainWindow.on("closed", () => { mainWindow = null; });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternal(url);
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const current = mainWindow?.webContents.getURL();
     if (current && new URL(url).origin === new URL(current).origin) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternal(url);
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -135,6 +144,15 @@ function registerIPC(): void {
   });
   ipcMain.handle("revember:commit-review", (_event, input: CommitReviewInput) => state.commitReview(input));
   ipcMain.handle("revember:capture-checkpoint", (_event, input) => state.captureCheckpoint(input));
+  ipcMain.handle("revember:create-card", (_event, input: CreateCardInput) => state.createCard(input));
+  ipcMain.handle("revember:edit-card", (_event, input: EditCardInput) => state.editCard(input));
+  ipcMain.handle("revember:retire-card", (_event, input: RetireCardInput) => state.retireCard(input));
+  ipcMain.handle("revember:upsert-exam-plan", (_event, input: UpsertExamPlanInput) => state.upsertExamPlan(input));
+  ipcMain.handle("revember:archive-exam-plan", (_event, input: ArchiveExamPlanInput) => state.archiveExamPlan(input));
+  ipcMain.handle("revember:list-capture-summaries", () => state.listCaptureSummaries());
+  ipcMain.handle("revember:get-capture", (_event, id: string) => state.getCapture(id));
+  ipcMain.handle("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
+  ipcMain.handle("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
   ipcMain.handle("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
 }
 
@@ -156,21 +174,27 @@ function createMenu(): void {
         { role: "quit" as const }
       ]
     }] : []),
-    { label: "File", submenu: [
-      { label: "Start 3-Minute Review", accelerator: "CmdOrCtrl+Shift+R", click: () => sendRoute("review:3") },
-      { label: "Capture Learning Checkpoint…", accelerator: "CmdOrCtrl+Shift+K", click: () => sendRoute("checkpoint") },
-      { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => state.reload() },
-      { type: "separator" },
-      { role: "close" }
-    ] },
-    { label: "Edit", submenu: [
-      { role: "undo" }, { role: "redo" }, { type: "separator" },
-      { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }
-    ] },
-    { label: "View", submenu: [
-      { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, { type: "separator" },
-      { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }
-    ] },
+    {
+      label: "File", submenu: [
+        routeCommand("Start 3-Minute Review", "review:3", "CmdOrCtrl+Shift+R"),
+        routeCommand("Capture Learning Checkpoint…", "checkpoint", "CmdOrCtrl+Shift+K"),
+        { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => state.reload() },
+        { type: "separator" },
+        { role: "close" }
+      ]
+    },
+    {
+      label: "Edit", submenu: [
+        { role: "undo" }, { role: "redo" }, { type: "separator" },
+        { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }
+      ]
+    },
+    {
+      label: "View", submenu: [
+        { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, { type: "separator" },
+        { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }
+      ]
+    },
     { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, ...(process.platform === "darwin" ? [{ type: "separator" as const }, { role: "front" as const }] : [])] }
   ]);
   Menu.setApplicationMenu(menu);
@@ -194,8 +218,8 @@ function updateTray(snapshot: AppSnapshot): void {
     { label: dueCount ? `${dueCount} checks ready` : "Nothing due now", enabled: false },
     { type: "separator" },
     { label: "Open Revember", click: showMainWindow },
-    { label: "Start 3-Minute Review", click: () => sendRoute("review:3") },
-    { label: "Capture Learning Checkpoint…", click: () => sendRoute("checkpoint") },
+    routeCommand("Start 3-Minute Review", "review:3"),
+    routeCommand("Capture Learning Checkpoint…", "checkpoint"),
     { type: "separator" },
     { label: "Quit Revember", click: () => app.quit() }
   ]));
@@ -246,4 +270,16 @@ function showMainWindow(): void {
   if (mainWindow?.isMinimized()) mainWindow.restore();
   mainWindow?.show();
   mainWindow?.focus();
+}
+
+function routeCommand(label: string, route: string, accelerator?: string) {
+  return {
+    label,
+    ...(accelerator ? { accelerator } : {}),
+    click: () => sendRoute(route)
+  };
+}
+
+function openExternal(url: string): void {
+  void shell.openExternal(url);
 }

@@ -1,2 +1,4 @@
 .backups/
+.locks/
+captures/
 sessions/

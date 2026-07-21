@@ -26,6 +26,29 @@ export interface GraphData {
   links: GraphLink[];
 }
 
+export const GRAPH_VIEWBOX = { width: 1000, height: 740 } as const;
+
+export function graphNodeRadius(kind: GraphNodeKind): number {
+  return kind === "concept" ? 22 : kind === "gap" ? 19 : 17;
+}
+
+export function graphTierY(kind: GraphNodeKind): number {
+  return kind === "gap" ? 125 : kind === "concept" ? 330 : 570;
+}
+
+export function isDirectedGraphLink(kind: string): boolean {
+  return kind === "prerequisite" || kind === "partOf" || kind === "enables";
+}
+
+export function graphNeighbors(links: GraphLink[], nodeID: string): Set<string> {
+  const neighbors = new Set<string>();
+  for (const link of links) {
+    if (link.sourceID === nodeID) neighbors.add(link.targetID);
+    if (link.targetID === nodeID) neighbors.add(link.sourceID);
+  }
+  return neighbors;
+}
+
 export function buildGraph(topic: KnowledgeTopic, progress: ProgressRecord): GraphData {
   const nodes: GraphNode[] = [];
   const links: GraphLink[] = [];

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,6 +78,19 @@ const validTopic = {
     }
   ]
 };
+
+function runTopicMutationWorker(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const workerPath = fileURLToPath(new URL("./topic-mutation-worker.mjs", import.meta.url));
+    const child = spawn(process.execPath, [workerPath, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+  });
+}
 
 async function run(): Promise<void> {
   const root = await fs.mkdtemp(path.join(tmpdir(), "revember-mcp-"));
@@ -197,19 +211,53 @@ async function run(): Promise<void> {
       /Revision conflict/
     );
 
+    // Unknown top-level and nested fields survive the raw authoring path.
+    const firmwarePath = topicPath(config, "firmware");
+    const rawFirmware = JSON.parse(await fs.readFile(firmwarePath, "utf8")) as Record<string, unknown>;
+    rawFirmware.futureMetadata = { plugin: "kept" };
+    const rawConcepts = rawFirmware.concepts as Array<Record<string, unknown>>;
+    rawConcepts[0]!.futureConceptField = { layout: 17 };
+    const rawQuestions = rawFirmware.questions as Array<Record<string, unknown>>;
+    rawQuestions[0]!.futureQuestionField = ["keep-me"];
+    const rawChoices = rawQuestions[0]!.choices as Array<Record<string, unknown>>;
+    rawChoices[0]!.futureChoiceField = { color: "cyan" };
+    await fs.writeFile(firmwarePath, `${JSON.stringify(rawFirmware, null, 2)}\n`, "utf8");
+    const bytesBeforeUpdate = await fs.readFile(firmwarePath);
+
     // Optimistic concurrency is enforced under simultaneous writers.
     const updated = await updateTopic(config, "firmware", { summary: "Updated firmware fundamentals." }, 1);
     assert.equal(updated.revision, 2);
     assert.ok(updated.backup);
-    await assert.rejects(updateTopic(config, "firmware", { summary: "Stale write" }, 1), /Revision conflict/);
+    assert.deepEqual(await fs.readFile(updated.backup!), bytesBeforeUpdate);
+    await assert.rejects(
+      updateTopic(config, "firmware", { summary: "Stale write" }, 1),
+      (error: unknown) => {
+        const conflict = error as { code?: string; expectedRevision?: number; actualRevision?: number };
+        assert.equal(conflict.code, "REVISION_CONFLICT");
+        assert.equal(conflict.expectedRevision, 1);
+        assert.equal(conflict.actualRevision, 2);
+        return true;
+      }
+    );
     assert.equal((await readTopic(config, "firmware")).summary, "Updated firmware fundamentals.");
 
-    const concurrent = await Promise.allSettled([
-      updateTopic(config, "firmware", { summary: "Concurrent A" }, 2),
-      updateTopic(config, "firmware", { summary: "Concurrent B" }, 2)
+    const preserved = JSON.parse(await fs.readFile(firmwarePath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(preserved.futureMetadata, { plugin: "kept" });
+    const preservedConcept = (preserved.concepts as Array<Record<string, unknown>>)[0]!;
+    assert.deepEqual(preservedConcept.futureConceptField, { layout: 17 });
+    const preservedQuestion = (preserved.questions as Array<Record<string, unknown>>)[0]!;
+    assert.deepEqual(preservedQuestion.futureQuestionField, ["keep-me"]);
+    const preservedChoice = (preservedQuestion.choices as Array<Record<string, unknown>>)[0]!;
+    assert.deepEqual(preservedChoice.futureChoiceField, { color: "cyan" });
+
+    // These are independent Node processes, not two promises sharing one lock map.
+    const concurrent = await Promise.all([
+      runTopicMutationWorker([root, firmwarePath, "firmware", "2", "Concurrent process A"]),
+      runTopicMutationWorker([root, firmwarePath, "firmware", "2", "Concurrent process B"])
     ]);
-    assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(concurrent.filter((result) => result.status === "rejected").length, 1);
+    assert.equal(concurrent.filter((result) => result.code === 0).length, 1);
+    assert.equal(concurrent.filter((result) => result.code === 2).length, 1);
+    assert.match(concurrent.find((result) => result.code === 2)!.stderr, /Revision conflict/);
     assert.equal((await readTopic(config, "firmware")).revision, 3);
     await assert.rejects(updateTopic(config, "firmware", { revision: 99 }, 3), /server-managed/);
 
@@ -277,6 +325,15 @@ async function run(): Promise<void> {
       }]
     }, 6);
     assert.equal(metadata.revision, 7);
+    const canonicalDiskTopic = JSON.parse(await fs.readFile(firmwarePath, "utf8")) as Record<string, unknown>;
+    const canonicalSource = (canonicalDiskTopic.sources as Array<Record<string, unknown>>)[0]!;
+    assert.equal(canonicalSource.uri, undefined);
+    assert.equal(canonicalSource.locator, "https://example.test/c");
+    const canonicalRelationship = (canonicalDiskTopic.relationships as Array<Record<string, unknown>>)[0]!;
+    assert.equal(canonicalRelationship.fromConceptID, undefined);
+    assert.equal(canonicalRelationship.sourceConceptID, "pointers");
+    assert.equal(canonicalRelationship.kind, "prerequisite");
+    assert.deepEqual(canonicalDiskTopic.futureMetadata, { plugin: "kept" });
 
     const markdownUpdate = await updateMarkdownWithRevision(config, "firmware", "Appended note.", "append", 7);
     assert.equal(markdownUpdate.revision, 8);

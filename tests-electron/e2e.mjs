@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, cp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,27 +9,107 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), "revember-electron-e2e-"));
 const knowledgeRoot = path.join(temporaryRoot, "RevemberKnowledge");
 const progressPath = path.join(temporaryRoot, "progress.json");
+const userDataPath = path.join(temporaryRoot, "user-data");
 await cp(path.join(root, "RevemberKnowledge"), knowledgeRoot, { recursive: true });
 
-const app = await electron.launch({
+const launch = () => electron.launch({
   args: [root],
   env: {
     ...process.env,
+    TZ: "UTC",
     REVEMBER_KNOWLEDGE_ROOT: knowledgeRoot,
     REVEMBER_PROGRESS_PATH: progressPath,
-    REVEMBER_USER_DATA_PATH: path.join(temporaryRoot, "user-data")
+    REVEMBER_USER_DATA_PATH: userDataPath
   }
 });
 
+let app = await launch();
+
 try {
-  const window = await app.firstWindow();
+  let window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
   await window.getByRole("heading", { name: "Bluetooth Low Energy" }).waitFor();
   assert.equal(await window.getByText("Local JSON").isVisible(), true);
 
   await window.getByRole("button", { name: "Graph", exact: true }).click();
-  await window.getByLabel("Knowledge relationships").waitFor();
+  await window.getByRole("group", { name: "Knowledge relationships", exact: true }).waitFor();
   assert.match(await window.getByText(/nodes/).first().textContent(), /22 nodes/);
+
+  const graph = window.getByRole("group", { name: "Knowledge relationships", exact: true });
+  const graphNodes = graph.locator(".graph-node");
+  assert.equal(await graphNodes.count(), 22);
+  assert.match(await graphNodes.first().getAttribute("aria-label"), /Concept:/);
+
+  const graphGroup = graph.locator(":scope > g").last();
+  const initialTransform = await graphGroup.getAttribute("transform");
+  await window.getByRole("button", { name: "Zoom in" }).click();
+  await window.waitForTimeout(100);
+  assert.notEqual(await graphGroup.getAttribute("transform"), initialTransform);
+  await window.getByRole("button", { name: "Reset graph view" }).click();
+  await window.waitForTimeout(50);
+  assert.equal(await graphGroup.getAttribute("transform"), "translate(0 0) scale(1)");
+
+  await window.getByRole("button", { name: "Fit graph to view" }).click();
+  await window.getByRole("button", { name: "Zoom in" }).click();
+  await window.getByRole("button", { name: "Zoom in" }).click();
+  await graph.focus();
+  const beforeArrowPan = await graphGroup.getAttribute("transform");
+  await window.keyboard.press("ArrowRight");
+  await window.waitForTimeout(50);
+  assert.notEqual(await graphGroup.getAttribute("transform"), beforeArrowPan);
+  const beforeKeyboardZoom = await graphGroup.getAttribute("transform");
+  await window.keyboard.press("+");
+  await window.waitForTimeout(50);
+  assert.notEqual(await graphGroup.getAttribute("transform"), beforeKeyboardZoom);
+
+  const graphBox = await graph.boundingBox();
+  assert.ok(graphBox);
+  const scrollBefore = await window.locator(".main-stage").evaluate((element) => element.scrollTop);
+  const beforeWheelZoom = await graphGroup.getAttribute("transform");
+  await window.mouse.move(graphBox.x + graphBox.width / 2, graphBox.y + graphBox.height / 4);
+  await window.mouse.wheel(0, -180);
+  await window.waitForTimeout(100);
+  assert.notEqual(await graphGroup.getAttribute("transform"), beforeWheelZoom);
+  assert.equal(await window.locator(".main-stage").evaluate((element) => element.scrollTop), scrollBefore);
+
+  await window.getByRole("button", { name: "Fit graph to view" }).click();
+  await window.getByRole("button", { name: "Zoom in" }).click();
+  await window.getByRole("button", { name: "Zoom in" }).click();
+  const beforeDrag = await graphGroup.getAttribute("transform");
+  await window.mouse.move(graphBox.x + graphBox.width / 2, graphBox.y + graphBox.height / 5);
+  await window.mouse.down();
+  await window.mouse.move(graphBox.x + graphBox.width / 2 + 90, graphBox.y + graphBox.height / 5 + 20);
+  await window.mouse.up();
+  await window.waitForTimeout(100);
+  assert.notEqual(await graphGroup.getAttribute("transform"), beforeDrag);
+
+  const conceptFilter = window.locator(".graph-controls button").nth(0);
+  assert.equal(await conceptFilter.getAttribute("aria-pressed"), "true");
+  await conceptFilter.click();
+  await window.waitForTimeout(100);
+  assert.equal(await conceptFilter.getAttribute("aria-pressed"), "false");
+  assert.equal(await graphNodes.count(), 13);
+  await conceptFilter.click();
+  await window.waitForTimeout(100);
+  assert.equal(await graphNodes.count(), 22);
+
+  await graphNodes.first().hover();
+  await window.waitForTimeout(50);
+  assert.ok(await graph.locator(".graph-node.dimmed").count() > 0);
+  await graphNodes.nth(1).focus();
+  await window.keyboard.press("Enter");
+  assert.equal(await window.getByRole("heading", { name: "Bytes", exact: true }).isVisible(), true);
+
+  await window.getByRole("button", { name: /Operating Systems and Computer Architecture/ }).click();
+  await window.getByRole("heading", { name: "Operating Systems and Computer Architecture", exact: true }).waitFor();
+  await window.getByText(/20 nodes/).waitFor();
+  assert.equal(await graphNodes.count(), 20);
+  assert.match(await graphNodes.first().getAttribute("aria-label"), /Concept:|Gap:|Check:/);
+
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+  await window.getByText(/22 nodes/).waitFor();
+  assert.equal(await graphNodes.count(), 22);
 
   await window.getByRole("button", { name: "Check-In", exact: true }).click();
   await window.getByText("At the lowest useful level, what is a bit?").waitFor();
@@ -42,6 +122,107 @@ try {
   assert.equal(progress.schemaVersion, 2);
   assert.equal(progress.reviewEvents.length, 1);
   assert.equal(progress.reviewEvents[0].questionID, "ble-q001");
+  const existingDueAt = progress.topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt;
+
+  await window.getByRole("button", { name: "Plan", exact: true }).click();
+  await window.getByRole("heading", { name: "Plan", exact: true }).waitFor();
+  await window.getByRole("button", { name: "New exam", exact: true }).click();
+  const planEditor = window.getByRole("dialog", { name: "New exam plan", exact: true });
+  await planEditor.waitFor();
+  const calendar = await window.evaluate(() => {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    const format = (date) => {
+      const parts = formatter.formatToParts(date);
+      const part = (type) => parts.find((item) => item.type === type)?.value;
+      return `${part("year")}-${part("month")}-${part("day")}`;
+    };
+    const target = new Date();
+    target.setDate(target.getDate() + 2);
+    return { today: format(new Date()), targetDate: format(target) };
+  });
+  await planEditor.getByLabel("Exam name", { exact: true }).fill("V1 E2E Exam");
+  await planEditor.getByLabel("Exam date", { exact: true }).fill(calendar.targetDate);
+  await planEditor.getByLabel("Revision sessions", { exact: true }).fill("2");
+  const previewDates = await planEditor.locator(".projection-preview li span").allTextContents();
+  assert.ok(previewDates.includes(calendar.today), "the saved plan must include a session today");
+  await planEditor.getByRole("button", { name: "Save plan", exact: true }).click();
+  await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
+  assert.deepEqual(JSON.parse(await readFile(progressPath, "utf8")), progress, "creating an exam plan must not mutate review evidence or schedules");
+  const progressAfterPlan = JSON.parse(await readFile(progressPath, "utf8"));
+  assert.equal(progressAfterPlan.topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt, existingDueAt);
+  const savedPlan = JSON.parse(await readFile(path.join(temporaryRoot, "planner.json"), "utf8"));
+  assert.equal(savedPlan.plans.length, 1);
+  assert.equal(savedPlan.plans[0].examName, "V1 E2E Exam");
+  assert.equal(savedPlan.plans[0].targetDate, calendar.targetDate);
+  assert.deepEqual(savedPlan.plans[0].topicIDs, ["ble"]);
+  const todaySessions = window.getByLabel("Today's planned sessions", { exact: true });
+  await todaySessions.waitFor();
+  const plannedSession = todaySessions.getByRole("button", { name: /V1 E2E Exam/ });
+  await plannedSession.waitFor();
+  await plannedSession.click();
+  const reviewShell = window.locator(".review-shell");
+  await reviewShell.waitFor();
+  const sessionProgress = await window.locator(".review-top span").textContent();
+  const sessionCount = /^1 of (\d+)$/.exec(sessionProgress?.trim() ?? "")?.[1];
+  assert.ok(sessionCount, "a planned session must disclose its review-item count");
+  assert.ok(Number(sessionCount) <= 4, "a planned session must retain the four-card cap");
+  assert.equal(await reviewShell.locator(".review-context strong").textContent(), "Bluetooth Low Energy");
+  await window.getByRole("button", { name: "Exit Review", exact: true }).click();
+  await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
+  assert.deepEqual(JSON.parse(await readFile(progressPath, "utf8")), progressAfterPlan, "opening and exiting a planned session must not write review evidence");
+  assert.equal(JSON.parse(await readFile(progressPath, "utf8")).topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt, existingDueAt);
+
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+  await window.getByRole("button", { name: "Cards", exact: true }).click();
+  await window.getByRole("heading", { name: "Cards", exact: true }).waitFor();
+  await window.getByRole("button", { name: "New Card", exact: true }).click();
+  const cardEditor = window.getByRole("dialog", { name: "Create card", exact: true });
+  await cardEditor.waitFor();
+  await cardEditor.getByLabel("Sentence containing the answer", { exact: true }).fill("An Electron E2E card uses a persistent local record.");
+  await cardEditor.getByRole("textbox", { name: /^Answer/ }).fill("persistent local record");
+  await cardEditor.getByLabel("Alternative 1", { exact: true }).fill("temporary remote cache");
+  await cardEditor.getByLabel("Explanation", { exact: true }).fill("The card and its review evidence are stored locally for this isolated test.");
+  await cardEditor.getByRole("button", { name: "Save card", exact: true }).click();
+  await cardEditor.getByRole("heading", { name: "Card saved", exact: true }).waitFor();
+  await cardEditor.getByRole("button", { name: "Review this card", exact: true }).click();
+  await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
+  await window.getByRole("button", { name: /persistent local record/ }).click();
+  await window.getByRole("button", { name: "Good", exact: true }).click();
+  await window.getByRole("button", { name: "Finish Review", exact: true }).click();
+  await window.getByRole("heading", { name: "Review complete", exact: true }).waitFor();
+  assert.equal(await window.getByText("Earliest next review", { exact: true }).isVisible(), true);
+
+  const afterAuthoredReview = JSON.parse(await readFile(progressPath, "utf8"));
+  const authoredEvent = afterAuthoredReview.reviewEvents.find((event) => event.questionID !== "ble-q001");
+  assert.ok(authoredEvent, "the authored card must create review evidence");
+  assert.equal(authoredEvent.isCorrect, true);
+  assert.equal(authoredEvent.rating, "good");
+  const authoredSchedule = afterAuthoredReview.topics.ble.reviewCardsByQuestionID[authoredEvent.questionID];
+  assert.ok(authoredSchedule);
+  assert.equal(authoredSchedule.lastRating, "good");
+  assert.ok(new Date(authoredSchedule.dueAt).getTime() > new Date(authoredEvent.reviewedAt).getTime());
+
+  await app.close();
+  app = await launch();
+  window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+  const reloaded = await window.evaluate(() => window.revember.getSnapshot());
+  assert.equal(reloaded.planner.plans.length, 1);
+  assert.equal(reloaded.planner.plans[0].examName, "V1 E2E Exam");
+  assert.equal(reloaded.progress.reviewEvents.length, 2);
+  assert.equal(reloaded.progress.topics.ble.reviewCardsByQuestionID[authoredEvent.questionID].dueAt, authoredSchedule.dueAt);
+  await window.getByRole("button", { name: "Plan", exact: true }).click();
+  await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.getByRole("button", { name: "Cards", exact: true }).click();
+  await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
 
   await window.getByTitle("Settings").click();
   await window.getByRole("heading", { name: "Revember Settings" }).waitFor();
@@ -56,7 +237,92 @@ try {
   await window.getByRole("heading", { name: "Checkpoint saved" }).waitFor();
   const sessions = await readdir(path.join(knowledgeRoot, "sessions"));
   assert.equal(sessions.length, 1);
-  console.log(`Electron E2E passed. Screenshot: ${path.join(temporaryRoot, "revember-electron.png")}`);
-} finally {
+  await window.getByRole("button", { name: "Done", exact: true }).click();
+
+  await window.getByRole("button", { name: "Notes", exact: true }).click();
+  await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  await window.getByRole("button", { name: "New note", exact: true }).click();
+  await window.getByRole("dialog", { name: "New note", exact: true }).waitFor();
+  const noteEditor = window.getByRole("dialog");
+  const noteRawText = "  Leading and trailing spaces stay here  \n\nBluetooth Low Energy — café notes use hyphenated-text and repeated phrases.\nRepeated phrases remain repeated phrases.\n\tA tab begins this final line.  ";
+  const concisePoint = "Bluetooth Low Energy uses short-range radio communication.";
+  await noteEditor.getByRole("combobox", { name: /^Topic/ }).selectOption({ label: "Bluetooth Low Energy" });
+  await noteEditor.getByLabel("Title", { exact: true }).fill("BLE exact-text note");
+  await noteEditor.getByRole("textbox", { name: /^Raw text/ }).fill(noteRawText);
+  await noteEditor.getByRole("button", { name: "Add concise point", exact: true }).click();
+  await noteEditor.getByLabel("Concise point 1", { exact: true }).fill(concisePoint);
+  await window.keyboard.press(process.platform === "darwin" ? "Meta+S" : "Control+S");
+  try {
+    await noteEditor.getByRole("status").filter({ hasText: /^Saved$/ }).waitFor({ timeout: 5_000 });
+  } catch {
+    const saveState = await noteEditor.getByRole("status").textContent();
+    const visibleError = await noteEditor.locator(".inline-error").textContent().catch(() => "none");
+    assert.fail(`Keyboard save did not complete (state: ${saveState}; error: ${visibleError})`);
+  }
+
+  const captureDirectory = path.join(knowledgeRoot, "captures");
+  const captureFiles = (await readdir(captureDirectory)).filter((name) => name.endsWith(".json"));
+  assert.deepEqual(captureFiles.length, 1);
+  const capturePath = path.join(captureDirectory, captureFiles[0]);
+  const savedCaptureBytes = await readFile(capturePath);
+  const savedCapture = JSON.parse(savedCaptureBytes.toString("utf8"));
+  assert.equal(savedCapture.title, "BLE exact-text note");
+  assert.equal(savedCapture.topicID, "ble");
+  assert.equal(savedCapture.rawText, noteRawText, "raw note text must be persisted exactly");
+  assert.equal(savedCapture.concisePoints.length, 1);
+  assert.equal(savedCapture.concisePoints[0].text, concisePoint);
+  assert.match(savedCapture.concisePoints[0].id, /^point-[0-9a-f-]+$/i, "the main process must assign the concise-point ID");
+  assert.equal((await stat(capturePath)).mode & 0o777, 0o600, "private capture files must be owner-readable only");
+
+  const captureSummaries = await window.evaluate(() => window.revember.listCaptureSummaries());
+  assert.equal(captureSummaries.length, 1);
+  assert.equal(Object.hasOwn(captureSummaries[0], "rawText"), false, "capture summaries must not expose raw note text");
+  assert.equal(JSON.stringify(captureSummaries[0]).includes(concisePoint), false, "capture summaries must not expose concise-point text");
+  const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
+  assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
+
+  await noteEditor.getByRole("button", { name: "Create Card from Point", exact: true }).click();
+  await window.getByRole("dialog", { name: "Create card", exact: true }).waitFor();
+  const pointCardEditor = window.locator(".card-editor-dialog");
+  assert.equal(await pointCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), concisePoint);
+  await pointCardEditor.getByRole("button", { name: "Cancel", exact: true }).click();
+  await pointCardEditor.waitFor({ state: "detached" });
+  assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "opening and cancelling a point-derived card must not mutate the capture");
+
   await app.close();
+  app = await launch();
+  window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+  await window.getByRole("button", { name: "Notes", exact: true }).click();
+  await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  const savedNoteRow = window.locator(".note-row", { hasText: "BLE exact-text note" });
+  await savedNoteRow.getByRole("button", { name: "Open", exact: true }).click();
+  const reopenedNoteEditor = window.getByRole("dialog", { name: "Edit note", exact: true });
+  await reopenedNoteEditor.waitFor();
+  assert.equal(await reopenedNoteEditor.getByLabel("Title", { exact: true }).inputValue(), "BLE exact-text note");
+  assert.equal(await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).inputValue(), noteRawText, "raw text must survive app relaunch unchanged");
+  assert.equal(await reopenedNoteEditor.getByLabel("Concise point 1", { exact: true }).inputValue(), concisePoint);
+
+  const externallyEditedCapture = {
+    ...savedCapture,
+    revision: savedCapture.revision + 1,
+    rawText: "External writer preserved this newer copy.",
+    updatedAt: new Date(Date.parse(savedCapture.updatedAt) + 1_000).toISOString()
+  };
+  await writeFile(capturePath, `${JSON.stringify(externallyEditedCapture, null, 2)}\n`, "utf8");
+  const externalCaptureBytes = await readFile(capturePath);
+  const localUnsavedRawText = `${noteRawText}\nLocal editor text must remain after the conflict.`;
+  await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).fill(localUnsavedRawText);
+  await window.keyboard.press(process.platform === "darwin" ? "Meta+S" : "Control+S");
+  await reopenedNoteEditor.getByRole("status").filter({ hasText: /^Conflict$/ }).waitFor();
+  assert.equal(await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).inputValue(), localUnsavedRawText, "a conflict must retain local unsaved note text");
+  assert.deepEqual(await readFile(capturePath), externalCaptureBytes, "a conflict must not overwrite the external capture revision");
+  console.log("Electron E2E passed.");
+} finally {
+  try {
+    await app.close();
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 }

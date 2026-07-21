@@ -11,23 +11,26 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build && npm --prefix mcp-server run check",
     "test:e2e": "npm run build && node tests-electron/e2e.mjs",
     "test:package": "npm run package && node tests-electron/package-smoke.mjs",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test && npm run build && npm --prefix mcp-server run check",
+    "check": "npm run verify",
     "package": "npm run build && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir && bash script/adhoc_sign_electron.sh",
     "dist": "npm run build && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
   },
   "dependencies": {
+    "d3-force": "^3.0.0",
     "lucide-react": "^1.24.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@playwright/test": "^1.61.1",
+    "playwright": "^1.61.1",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3",

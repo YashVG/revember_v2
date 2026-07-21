@@ -156,12 +156,77 @@ export interface AppSettings {
   notificationsEnabled: boolean;
 }
 
+export interface StoredExamPlan {
+  id: string;
+  examName: string;
+  targetDate: string;
+  topicIDs: string[];
+  sessionCount: number;
+  timeZone: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface PlannerRecord {
+  schemaVersion: 1;
+  revision: number;
+  plans: StoredExamPlan[];
+}
+
 export interface AppSnapshot {
   topics: KnowledgeTopic[];
   progress: ProgressRecord;
+  planner: PlannerRecord;
   settings: AppSettings;
   errorMessage?: string;
   platform: NodeJS.Platform;
+}
+
+export type QuestionDraft = Omit<Question, "revision" | "retiredAt">;
+export type QuestionEdit = Omit<QuestionDraft, "id">;
+
+export interface CreateCardInput {
+  topicID: string;
+  expectedTopicRevision: number;
+  card: QuestionDraft;
+}
+
+export interface EditCardInput {
+  topicID: string;
+  expectedTopicRevision: number;
+  questionID: string;
+  expectedQuestionRevision: number;
+  card: QuestionEdit;
+}
+
+export interface RetireCardInput {
+  topicID: string;
+  expectedTopicRevision: number;
+  questionID: string;
+  expectedQuestionRevision: number;
+}
+
+export interface CardMutationResult {
+  snapshot: AppSnapshot;
+  topic: KnowledgeTopic;
+  question: Question;
+}
+
+export interface UpsertExamPlanInput {
+  expectedPlannerRevision: number;
+  planID?: string;
+  plan: Omit<StoredExamPlan, "id" | "createdAt" | "updatedAt" | "archivedAt">;
+}
+
+export interface ArchiveExamPlanInput {
+  expectedPlannerRevision: number;
+  planID: string;
+}
+
+export interface PlannerMutationResult {
+  snapshot: AppSnapshot;
+  plan: StoredExamPlan;
 }
 
 export interface CommitReviewInput {
@@ -192,6 +257,56 @@ export interface CaptureCheckpointResult {
   filePath: string;
 }
 
+export type CaptureStatus = "draft" | "ready" | "archived";
+
+export interface CaptureConcisePoint {
+  id: string;
+  text: string;
+}
+
+export interface LearnerCapture {
+  schemaVersion: 1;
+  id: string;
+  revision: number;
+  topicID: string;
+  title: string;
+  rawText: string;
+  concisePoints: CaptureConcisePoint[];
+  status: CaptureStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Metadata returned while browsing captures. Raw learner text stays on disk. */
+export interface CaptureSummary {
+  id: string;
+  revision: number;
+  topicID: string;
+  title: string;
+  status: CaptureStatus;
+  concisePointCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CaptureConcisePointInput {
+  /** Existing point ID on edit. Omit for a new server-assigned point ID. */
+  id?: string;
+  text: string;
+}
+
+export interface SaveCaptureInput {
+  /** Omit on create. The main process assigns capture IDs. */
+  id?: string;
+  /** Use zero on create, or the currently loaded revision on edit. */
+  expectedRevision: number;
+  topicID: string;
+  title: string;
+  rawText: string;
+  concisePoints: CaptureConcisePointInput[];
+  status: Exclude<CaptureStatus, "archived">;
+}
+
 export interface RevemberAPI {
   getSnapshot(): Promise<AppSnapshot>;
   reload(): Promise<AppSnapshot>;
@@ -200,6 +315,15 @@ export interface RevemberAPI {
   openKnowledgeRoot(): Promise<void>;
   commitReview(input: CommitReviewInput): Promise<CommitReviewResult>;
   captureCheckpoint(input: CaptureCheckpointInput): Promise<CaptureCheckpointResult>;
+  createCard(input: CreateCardInput): Promise<CardMutationResult>;
+  editCard(input: EditCardInput): Promise<CardMutationResult>;
+  retireCard(input: RetireCardInput): Promise<CardMutationResult>;
+  upsertExamPlan(input: UpsertExamPlanInput): Promise<PlannerMutationResult>;
+  archiveExamPlan(input: ArchiveExamPlanInput): Promise<PlannerMutationResult>;
+  listCaptureSummaries(): Promise<CaptureSummary[]>;
+  getCapture(id: string): Promise<LearnerCapture>;
+  saveCapture(input: SaveCaptureInput): Promise<LearnerCapture>;
+  archiveCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   setNotificationsEnabled(enabled: boolean): Promise<AppSnapshot>;
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void;
   onNavigate(callback: (route: string) => void): () => void;

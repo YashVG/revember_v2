@@ -8,13 +8,24 @@ import type { FSWatcher } from "node:fs";
 import type {
   AppSettings,
   AppSnapshot,
+  ArchiveExamPlanInput,
+  CardMutationResult,
   CaptureCheckpointInput,
   CaptureCheckpointResult,
+  CaptureSummary,
   CommitReviewInput,
   CommitReviewResult,
+  CreateCardInput,
+  EditCardInput,
   KnowledgeTopic,
+  LearnerCapture,
+  PlannerMutationResult,
+  PlannerRecord,
   ProgressRecord,
-  ReviewEvent
+  RetireCardInput,
+  ReviewEvent,
+  SaveCaptureInput,
+  UpsertExamPlanInput
 } from "../shared/types";
 import {
   applyReviewEvent,
@@ -23,6 +34,10 @@ import {
   normalizeProgress,
   normalizeTopic
 } from "../shared/domain";
+import { planExamReviews } from "../shared/planner";
+import { createTopicCard, editTopicCard, retireTopicCard } from "./topic-authoring";
+import { emptyPlanner, PlannerStore } from "./planner-store";
+import { CaptureStore } from "./capture-store";
 
 interface StatePaths {
   settingsPath: string;
@@ -33,6 +48,7 @@ interface StatePaths {
 export class RevemberState extends EventEmitter {
   private topics: KnowledgeTopic[] = [];
   private progress: ProgressRecord = emptyProgress();
+  private planner: PlannerRecord = emptyPlanner();
   private settings: AppSettings;
   private errorMessage?: string;
   private watchers: FSWatcher[] = [];
@@ -49,6 +65,7 @@ export class RevemberState extends EventEmitter {
     return structuredClone({
       topics: this.topics,
       progress: this.progress,
+      planner: this.planner,
       settings: this.settings,
       errorMessage: this.errorMessage,
       platform: process.platform
@@ -56,8 +73,7 @@ export class RevemberState extends EventEmitter {
   }
 
   reload(): AppSnapshot {
-    this.reloadFromDisk();
-    this.startWatching();
+    this.refreshFromDiskAndWatch();
     this.broadcast();
     return this.snapshot;
   }
@@ -149,8 +165,70 @@ export class RevemberState extends EventEmitter {
     };
     const filePath = path.join(this.settings.knowledgeRootPath, "sessions", `${id}.json`);
     mkdirSync(path.dirname(filePath), { recursive: true });
-    atomicWrite(filePath, JSON.stringify(record, null, 2) + "\n");
+    writeJson(filePath, record);
     return { snapshot: this.snapshot, filePath };
+  }
+
+  listCaptureSummaries(): CaptureSummary[] {
+    return new CaptureStore(this.settings.knowledgeRootPath).listSummaries();
+  }
+
+  getCapture(id: string): LearnerCapture {
+    return new CaptureStore(this.settings.knowledgeRootPath).get(id);
+  }
+
+  saveCapture(input: SaveCaptureInput): LearnerCapture {
+    return new CaptureStore(this.settings.knowledgeRootPath).save(input, new Date(), (topicID) => {
+      if (!this.topics.some((topic) => topic.id === topicID)) {
+        throw new Error(`Capture references missing topic ${topicID}.`);
+      }
+    });
+  }
+
+  archiveCapture(id: string, expectedRevision: number): LearnerCapture {
+    return new CaptureStore(this.settings.knowledgeRootPath).archive(id, expectedRevision);
+  }
+
+  async createCard(input: CreateCardInput): Promise<CardMutationResult> {
+    const result = await createTopicCard(this.settings.knowledgeRootPath, input);
+    return this.finishCardMutation(input.topicID, input.card.id, result.topic);
+  }
+
+  async editCard(input: EditCardInput): Promise<CardMutationResult> {
+    const result = await editTopicCard(this.settings.knowledgeRootPath, input);
+    return this.finishCardMutation(input.topicID, input.questionID, result.topic);
+  }
+
+  async retireCard(input: RetireCardInput): Promise<CardMutationResult> {
+    const result = await retireTopicCard(this.settings.knowledgeRootPath, input);
+    return this.finishCardMutation(input.topicID, input.questionID, result.topic);
+  }
+
+  upsertExamPlan(input: UpsertExamPlanInput): PlannerMutationResult {
+    const before = JSON.stringify(this.progress);
+    const store = new PlannerStore(this.settings.progressPath);
+    const result = store.upsert(input, new Date(), (plan) => {
+      const knownTopicIDs = new Set(this.topics.map((topic) => topic.id));
+      for (const topicID of plan.topicIDs) {
+        if (!knownTopicIDs.has(topicID)) throw new Error(`Exam plan references missing topic ${topicID}.`);
+      }
+      planExamReviews(plan, { topics: this.topics, progress: this.progress });
+      if (JSON.stringify(this.progress) !== before) throw new Error("Planner operations cannot mutate review progress.");
+    });
+    this.planner = result.record;
+    this.errorMessage = undefined;
+    this.broadcast();
+    return { snapshot: this.snapshot, plan: result.plan };
+  }
+
+  archiveExamPlan(input: ArchiveExamPlanInput): PlannerMutationResult {
+    const before = JSON.stringify(this.progress);
+    const result = new PlannerStore(this.settings.progressPath).archive(input);
+    this.planner = result.record;
+    if (JSON.stringify(this.progress) !== before) throw new Error("Planner operations cannot mutate review progress.");
+    this.errorMessage = undefined;
+    this.broadcast();
+    return { snapshot: this.snapshot, plan: result.plan };
   }
 
   dispose(): void {
@@ -204,17 +282,30 @@ export class RevemberState extends EventEmitter {
 
   private saveSettings(): void {
     mkdirSync(path.dirname(this.paths.settingsPath), { recursive: true });
-    atomicWrite(this.paths.settingsPath, JSON.stringify(this.settings, null, 2) + "\n");
+    writeJson(this.paths.settingsPath, this.settings);
   }
 
   private reloadFromDisk(): void {
     try {
       this.topics = this.loadTopics();
       this.progress = this.loadProgress();
-      this.errorMessage = undefined;
+      const planner = new PlannerStore(this.settings.progressPath).load();
+      this.planner = planner.record;
+      this.errorMessage = planner.warning;
     } catch (error) {
       this.errorMessage = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  private finishCardMutation(topicID: string, questionID: string, rawTopic: Record<string, unknown>): CardMutationResult {
+    const topic = normalizeTopic(rawTopic);
+    const question = topic.questions.find((candidate) => candidate.id === questionID);
+    if (!question) throw new Error(`Saved question ${questionID} could not be reloaded.`);
+    this.topics = this.topics.map((candidate) => candidate.id === topicID ? topic : candidate);
+    this.errorMessage = undefined;
+    this.startWatching();
+    this.broadcast();
+    return { snapshot: this.snapshot, topic, question };
   }
 
   private loadTopics(): KnowledgeTopic[] {
@@ -252,7 +343,12 @@ export class RevemberState extends EventEmitter {
 
   private writeProgress(progress: ProgressRecord): void {
     mkdirSync(path.dirname(this.settings.progressPath), { recursive: true });
-    atomicWrite(this.settings.progressPath, JSON.stringify(progress, null, 2) + "\n");
+    writeJson(this.settings.progressPath, progress);
+  }
+
+  private refreshFromDiskAndWatch(): void {
+    this.reloadFromDisk();
+    this.startWatching();
   }
 
   private startWatching(): void {
@@ -264,8 +360,7 @@ export class RevemberState extends EventEmitter {
         this.watchers.push(watch(directory, () => {
           if (this.reloadTimer) clearTimeout(this.reloadTimer);
           this.reloadTimer = setTimeout(() => {
-            this.reloadFromDisk();
-            this.startWatching();
+            this.refreshFromDiskAndWatch();
             this.broadcast();
           }, 250);
         }));
@@ -284,6 +379,10 @@ function atomicWrite(filePath: string, contents: string): void {
   const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
   renameSync(temporaryPath, filePath);
+}
+
+function writeJson(filePath: string, value: unknown): void {
+  atomicWrite(filePath, JSON.stringify(value, null, 2) + "\n");
 }
 
 function artifactPath(filePath: string, kind: string): string {

@@ -8,3 +8,4 @@ release/
 .build-assets/
 test-results/
 dist/
+work/

@@ -18,9 +18,10 @@ import {
   TopicSchemaDocumentation,
   validateTopicData
 } from "./schema.js";
+import { errorMessage } from "./errors.js";
+import { mutateTopicJson, withTopicFileLock } from "../../topic-authoring/index.js";
 
 const choiceIDs = "abcdefghijklmnopqrstuvwxyz".split("");
-const topicMutationLocks = new Map<string, Promise<void>>();
 
 export interface TopicSummary {
   id: string;
@@ -72,10 +73,6 @@ export interface CreateTopicInput {
   relationships?: unknown[] | undefined;
 }
 
-function asErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export function topicRevision(topic: KnowledgeTopic): number {
   const revision = (topic as Record<string, unknown>).revision;
   return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : 0;
@@ -102,20 +99,7 @@ export async function withTopicMutationLock<T>(
   slug: string,
   operation: () => Promise<T>
 ): Promise<T> {
-  const key = topicPath(config, slug);
-  const previous = topicMutationLocks.get(key) ?? Promise.resolve();
-  let release = (): void => undefined;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  const queued = previous.then(() => current);
-  topicMutationLocks.set(key, queued);
-
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (topicMutationLocks.get(key) === queued) topicMutationLocks.delete(key);
-  }
+  return withTopicFileLock(config.knowledgeRoot, assertSafeSlug(slug), operation);
 }
 
 export function slugify(value: string): string {
@@ -205,7 +189,7 @@ export async function readTopic(config: RevemberConfig, slug: string): Promise<K
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    throw new Error(`Malformed JSON in ${slug}.json: ${asErrorMessage(error)}`);
+    throw new Error(`Malformed JSON in ${slug}.json: ${errorMessage(error)}`);
   }
 
   const validation = validateTopicData(parsed, { expectedSlug: slug });
@@ -264,7 +248,7 @@ export async function listTopicSummaries(config: RevemberConfig): Promise<TopicS
         topicPath: file,
         markdownPath: (await fileExists(markdownFile)) ? markdownFile : undefined,
         valid: false,
-        error: asErrorMessage(error)
+        error: errorMessage(error)
       });
     }
   }
@@ -335,7 +319,7 @@ async function createTopicUnlocked(
   const usedConceptIDs = new Set<string>();
   const questions: KnowledgeTopic["questions"] = [];
 
-  const concepts = input.concepts.map((concept, conceptIndex) => {
+  const concepts = input.concepts.map((concept) => {
     const conceptID = uniqueID(slugify(concept.id ?? concept.title), usedConceptIDs);
     const explanation = concept.explanation ?? concept.body ?? concept.firstPrinciples ?? input.summary;
     const firstPrinciples = concept.firstPrinciples ?? concept.body ?? concept.explanation ?? input.summary;
@@ -451,37 +435,36 @@ async function commitTopicMutation(
   expectedRevision: number | undefined,
   transform: (existing: KnowledgeTopic) => unknown
 ): Promise<CommittedTopicMutation> {
-  return withTopicMutationLock(config, assertSafeSlug(slug), async () => {
-    const existing = await readTopic(config, slug);
-    assertExpectedTopicRevision(existing, expectedRevision);
-    const previousRevision = topicRevision(existing);
-    const transformed = transform(existing);
-    if (!isPlainObject(transformed)) throw new Error("Topic mutation must return an object.");
-
-    const next = {
-      ...transformed,
-      id: existing.id,
-      schemaVersion: Math.max(
-        typeof transformed.schemaVersion === "number" ? transformed.schemaVersion : 1,
-        2
-      ),
-      revision: previousRevision + 1
-    };
-    const validation = validateTopicData(next, { expectedSlug: slug });
-    if (!validation.valid || !validation.topic) {
-      throw new Error(`Updated topic did not validate: ${validation.errors.join("; ")}`);
+  const safeSlug = assertSafeSlug(slug);
+  let validationWarnings: string[] = [];
+  const mutation = await mutateTopicJson({
+    knowledgeRoot: config.knowledgeRoot,
+    topicPath: topicPath(config, safeSlug),
+    topicID: safeSlug,
+    ...(expectedRevision === undefined ? {} : { expectedRevision }),
+    transform: (rawTopic) => transform(rawTopic as KnowledgeTopic) as Record<string, unknown>,
+    validate: (next) => {
+      const validation = validateTopicData(next, { expectedSlug: safeSlug });
+      if (!validation.valid || !validation.topic) {
+        throw new Error(`Updated topic did not validate: ${validation.errors.join("; ")}`);
+      }
+      validationWarnings = validation.warnings;
+      return validation.topic as Record<string, unknown>;
     }
-
-    const writeResult = await writeTopic(config, slug, validation.topic);
-    return {
-      topic: validation.topic,
-      topicPath: writeResult.path,
-      backup: writeResult.backup,
-      warnings: validation.warnings,
-      previousRevision,
-      revision: previousRevision + 1
-    };
   });
+
+  const validation = validateTopicData(mutation.topic, { expectedSlug: safeSlug });
+  if (!validation.valid || !validation.topic) {
+    throw new Error(`Committed topic did not validate: ${validation.errors.join("; ")}`);
+  }
+  return {
+    topic: validation.topic,
+    topicPath: mutation.topicPath,
+    backup: mutation.backupPath,
+    warnings: validationWarnings,
+    previousRevision: mutation.previousRevision,
+    revision: mutation.revision
+  };
 }
 
 export async function updateTopic(
@@ -670,7 +653,7 @@ export async function validateTopicFile(
   } catch (error) {
     return {
       valid: false,
-      errors: [`Malformed JSON in ${slug}.json: ${asErrorMessage(error)}`],
+      errors: [`Malformed JSON in ${slug}.json: ${errorMessage(error)}`],
       warnings: []
     };
   }

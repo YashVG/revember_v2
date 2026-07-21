@@ -20,8 +20,10 @@ import {
   writeMarkdown,
   writeTopic
 } from "./topics.js";
+import { createKeyedMutationLock } from "./mutation.js";
+import { errorMessage } from "./errors.js";
 
-const sessionMutationLocks = new Map<string, Promise<void>>();
+const withSessionLock = createKeyedMutationLock();
 
 export interface CaptureLearningSessionInput {
   id: string;
@@ -47,10 +49,6 @@ export interface SessionSummary {
   revision?: number | undefined;
   valid: boolean;
   error?: string | undefined;
-}
-
-function asMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function formatSession(session: LearningSession): string {
@@ -91,19 +89,7 @@ async function restoreNote(config: RevemberConfig, target: string, original: str
 }
 
 async function withSessionMutationLock<T>(config: RevemberConfig, id: string, operation: () => Promise<T>): Promise<T> {
-  const key = sessionPath(config, id);
-  const previous = sessionMutationLocks.get(key) ?? Promise.resolve();
-  let release = (): void => undefined;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  const queued = previous.then(() => current);
-  sessionMutationLocks.set(key, queued);
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (sessionMutationLocks.get(key) === queued) sessionMutationLocks.delete(key);
-  }
+  return withSessionLock(sessionPath(config, id), operation);
 }
 
 async function captureLearningSessionUnlocked(
@@ -202,7 +188,7 @@ export async function readLearningSession(config: RevemberConfig, id: string): P
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Malformed JSON in session ${safeID}.json: ${asMessage(error)}`);
+    throw new Error(`Malformed JSON in session ${safeID}.json: ${errorMessage(error)}`);
   }
   const result = LearningSessionSchema.safeParse(parsed);
   if (!result.success) {
@@ -230,7 +216,7 @@ export async function listSessionSummaries(config: RevemberConfig): Promise<Sess
         valid: true
       });
     } catch (error) {
-      summaries.push({ id, valid: false, error: asMessage(error) });
+      summaries.push({ id, valid: false, error: errorMessage(error) });
     }
   }
   return summaries;

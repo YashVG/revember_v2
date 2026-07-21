@@ -1,0 +1,786 @@
+{
+  "id": "os-computer-architecture",
+  "title": "Operating Systems and Computer Architecture",
+  "summary": "How programs execute on hardware, how memory and CPUs are organized, and how operating systems manage processes, memory, files, and hardware access.",
+  "schemaVersion": 2,
+  "revision": 11,
+  "sources": [
+    {
+      "id": "os-arch-note",
+      "kind": "authored-note",
+      "title": "Operating Systems and Computer Architecture fundamentals",
+      "locator": "notes/os-computer-architecture.md"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "instruction-cycle-uses-registers",
+      "sourceConceptID": "instruction-cycle",
+      "targetConceptID": "registers",
+      "kind": "enables",
+      "rationale": "Instruction execution reads and updates register state.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "memory-hierarchy-exploits-locality",
+      "sourceConceptID": "memory-hierarchy",
+      "targetConceptID": "locality",
+      "kind": "enables",
+      "rationale": "Caches are effective because programs exhibit temporal and spatial locality.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "kernel-provides-system-calls",
+      "sourceConceptID": "kernel",
+      "targetConceptID": "system-calls",
+      "kind": "enables",
+      "rationale": "System calls expose controlled entry points into privileged kernel services.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "process-contains-threads",
+      "sourceConceptID": "process-thread",
+      "targetConceptID": "scheduling",
+      "kind": "enables",
+      "rationale": "The scheduler selects runnable threads associated with processes.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "virtual-memory-protects-processes",
+      "sourceConceptID": "virtual-memory",
+      "targetConceptID": "process-thread",
+      "kind": "enables",
+      "rationale": "Per-process address spaces and page permissions help provide process isolation.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "file-system-uses-system-calls",
+      "sourceConceptID": "system-calls",
+      "targetConceptID": "file-system",
+      "kind": "enables",
+      "rationale": "Applications normally reach file-system services through system calls.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "registers-contrast-cache",
+      "sourceConceptID": "registers",
+      "targetConceptID": "memory-hierarchy",
+      "kind": "contrastsWith",
+      "rationale": "Registers are CPU-visible execution storage, while cache is a hierarchy level that transparently holds copies of memory data.",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "instruction-cycle",
+      "title": "Instruction Cycle",
+      "firstPrinciples": "A CPU runs a program by repeatedly fetching, decoding, and executing instructions.",
+      "explanation": "The program counter identifies the next instruction. The CPU fetches it, decodes the operation and operands, performs the operation, and updates control state for the next instruction.",
+      "relatedTerms": [
+        "fetch",
+        "decode",
+        "execute",
+        "program counter"
+      ],
+      "confusableTerms": [
+        "compiler",
+        "system call"
+      ],
+      "gapTags": [
+        "architecture",
+        "execution model"
+      ]
+    },
+    {
+      "id": "registers",
+      "title": "CPU Registers",
+      "firstPrinciples": "Registers are tiny, very fast storage locations inside the CPU for active execution state.",
+      "explanation": "Registers hold operands, intermediate values, addresses, flags, and control state. They are distinct from cache and main memory because instructions access them through the CPU's register interface.",
+      "relatedTerms": [
+        "program counter",
+        "stack pointer",
+        "flags"
+      ],
+      "confusableTerms": [
+        "cache",
+        "RAM"
+      ],
+      "gapTags": [
+        "architecture",
+        "representation"
+      ]
+    },
+    {
+      "id": "memory-hierarchy",
+      "title": "Memory Hierarchy",
+      "firstPrinciples": "Computer memory is organized as levels that trade speed, size, and cost.",
+      "explanation": "Registers and caches are faster and smaller than main memory. The hierarchy works well when programs reuse nearby data or instructions, allowing faster levels to satisfy many accesses.",
+      "relatedTerms": [
+        "cache",
+        "RAM",
+        "locality",
+        "latency"
+      ],
+      "confusableTerms": [
+        "virtual memory",
+        "persistent storage"
+      ],
+      "gapTags": [
+        "architecture",
+        "performance"
+      ]
+    },
+    {
+      "id": "locality",
+      "title": "Temporal and Spatial Locality",
+      "firstPrinciples": "Programs often reuse recently accessed data and access nearby addresses.",
+      "explanation": "Temporal locality means recently used data is likely to be used again. Spatial locality means addresses near a recently used address are likely to be accessed soon. Caches exploit both patterns.",
+      "relatedTerms": [
+        "cache hit",
+        "cache line",
+        "working set"
+      ],
+      "confusableTerms": [
+        "parallelism",
+        "virtual memory"
+      ],
+      "gapTags": [
+        "architecture",
+        "performance"
+      ]
+    },
+    {
+      "id": "kernel",
+      "title": "Kernel Privilege",
+      "firstPrinciples": "The kernel is the privileged OS software that controls protected resources.",
+      "explanation": "The kernel mediates access to memory, CPUs, devices, and files. User programs run with fewer privileges and enter kernel services through controlled interfaces.",
+      "relatedTerms": [
+        "user mode",
+        "kernel mode",
+        "protection"
+      ],
+      "confusableTerms": [
+        "shell",
+        "library"
+      ],
+      "gapTags": [
+        "operating systems",
+        "layer mapping"
+      ]
+    },
+    {
+      "id": "system-calls",
+      "title": "System Calls",
+      "firstPrinciples": "A system call is a controlled request from a user program to an operating-system service.",
+      "explanation": "Opening a file, creating a process, allocating certain resources, or communicating with a device may require a system call. It is conceptually different from an ordinary function call because it crosses the user/kernel protection boundary.",
+      "relatedTerms": [
+        "API",
+        "trap",
+        "syscall"
+      ],
+      "confusableTerms": [
+        "ordinary function call",
+        "interrupt"
+      ],
+      "gapTags": [
+        "operating systems",
+        "layer mapping"
+      ]
+    },
+    {
+      "id": "process-thread",
+      "title": "Processes and Threads",
+      "firstPrinciples": "A process is a protected running context; a thread is an execution path within that context.",
+      "explanation": "Processes provide address-space and resource boundaries. Threads within one process commonly share memory and resources while having their own execution state such as a stack and registers.",
+      "relatedTerms": [
+        "address space",
+        "shared memory",
+        "thread"
+      ],
+      "confusableTerms": [
+        "program file",
+        "process ID"
+      ],
+      "gapTags": [
+        "operating systems",
+        "concept conflation"
+      ]
+    },
+    {
+      "id": "scheduling",
+      "title": "CPU Scheduling and Context Switching",
+      "firstPrinciples": "The scheduler chooses which runnable thread runs, and a context switch changes the CPU's active execution state.",
+      "explanation": "The OS saves enough state for one thread and restores another so multiple activities can share a CPU. A context switch enables multiplexing but adds overhead.",
+      "relatedTerms": [
+        "runnable",
+        "preemption",
+        "timeslice"
+      ],
+      "confusableTerms": [
+        "parallel execution",
+        "instruction cycle"
+      ],
+      "gapTags": [
+        "operating systems",
+        "causality"
+      ]
+    },
+    {
+      "id": "virtual-memory",
+      "title": "Virtual Memory and Paging",
+      "firstPrinciples": "Virtual memory gives each process an address-space view that the OS maps to physical memory.",
+      "explanation": "Pages of virtual addresses map to physical frames with protection and sharing rules. A page fault occurs when an access needs OS involvement to establish or repair a mapping; it is a recoverable event in normal operation unless the access is invalid or recovery fails.",
+      "relatedTerms": [
+        "page",
+        "frame",
+        "page table",
+        "page fault"
+      ],
+      "confusableTerms": [
+        "cache miss",
+        "segmentation fault"
+      ],
+      "gapTags": [
+        "operating systems",
+        "representation",
+        "layer mapping"
+      ]
+    },
+    {
+      "id": "file-system",
+      "title": "File Systems",
+      "firstPrinciples": "A file system organizes persistent storage into named, structured objects and operations.",
+      "explanation": "The OS and file-system implementation map operations such as open, read, write, and close onto storage devices while tracking names, metadata, allocation, and durability.",
+      "relatedTerms": [
+        "inode",
+        "directory",
+        "block",
+        "durability"
+      ],
+      "confusableTerms": [
+        "RAM",
+        "virtual address space"
+      ],
+      "gapTags": [
+        "operating systems",
+        "representation"
+      ]
+    }
+  ],
+  "gaps": [],
+  "questions": [
+    {
+      "id": "osarch-q001",
+      "revision": 1,
+      "prompt": "Trace the normal CPU path for a simple instruction. Which sequence is most accurate?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "instruction-cycle",
+        "registers"
+      ],
+      "gapTags": [
+        "architecture",
+        "execution model"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "The CPU fetches, decodes, executes, then updates control state.",
+          "isCorrect": true,
+          "rationale": "This captures the core instruction cycle."
+        },
+        {
+          "id": "b",
+          "text": "The OS schedules, the compiler links, then the CPU stores the source code.",
+          "isCorrect": false,
+          "rationale": "Compilation and scheduling are different layers and are not the CPU's per-instruction sequence.",
+          "misconceptionID": "compiler-is-execution"
+        },
+        {
+          "id": "c",
+          "text": "The CPU writes the result to disk before it decodes the instruction.",
+          "isCorrect": false,
+          "rationale": "Persistent storage is not a normal step in each instruction cycle.",
+          "misconceptionID": "storage-is-register-step"
+        },
+        {
+          "id": "d",
+          "text": "The cache translates the instruction into a system call before execution.",
+          "isCorrect": false,
+          "rationale": "Cache may supply instruction bytes, but it does not turn instructions into system calls.",
+          "misconceptionID": "cache-is-control-layer"
+        }
+      ],
+      "explanation": "The CPU fetches the instruction identified by the program counter, decodes it, executes it using registers and/or memory, then updates execution state for the next instruction.",
+      "kind": "trace",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q002",
+      "revision": 1,
+      "prompt": "Which statement best distinguishes a CPU register from a cache?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "registers",
+        "memory-hierarchy"
+      ],
+      "gapTags": [
+        "architecture",
+        "representation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Registers hold active execution state; caches hold likely-to-be-reused memory data.",
+          "isCorrect": true,
+          "rationale": "This distinguishes their roles and interfaces."
+        },
+        {
+          "id": "b",
+          "text": "Registers are persistent storage; caches are the OS file system.",
+          "isCorrect": false,
+          "rationale": "Neither is persistent storage or a file system.",
+          "misconceptionID": "registers-are-storage"
+        },
+        {
+          "id": "c",
+          "text": "Registers belong to the kernel; caches belong to user programs.",
+          "isCorrect": false,
+          "rationale": "Both are hardware resources used while programs execute.",
+          "misconceptionID": "hardware-ownership-by-process"
+        },
+        {
+          "id": "d",
+          "text": "Registers and caches are two names for the same storage level.",
+          "isCorrect": false,
+          "rationale": "They differ in size, access model, and purpose.",
+          "misconceptionID": "register-cache-equivalence"
+        }
+      ],
+      "explanation": "Registers are explicit CPU storage locations used directly by instructions; caches transparently hold copies of memory data closer to the CPU.",
+      "kind": "compare",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q003",
+      "revision": 1,
+      "prompt": "A loop repeatedly reads the same small array. Why might it run faster after the first pass?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "memory-hierarchy",
+        "locality"
+      ],
+      "gapTags": [
+        "architecture",
+        "performance"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "The cache may retain recently used data and nearby elements.",
+          "isCorrect": true,
+          "rationale": "This uses both temporal and spatial locality."
+        },
+        {
+          "id": "b",
+          "text": "The OS permanently converts the array into CPU instructions.",
+          "isCorrect": false,
+          "rationale": "Caching data is not compilation.",
+          "misconceptionID": "cache-is-compilation"
+        },
+        {
+          "id": "c",
+          "text": "The disk becomes faster because the loop repeats.",
+          "isCorrect": false,
+          "rationale": "The relevant speedup is usually from the memory hierarchy, not disk acceleration.",
+          "misconceptionID": "disk-is-cache"
+        },
+        {
+          "id": "d",
+          "text": "The CPU stops executing the loop after the first pass.",
+          "isCorrect": false,
+          "rationale": "The loop still executes; data access may become cheaper.",
+          "misconceptionID": "reuse-means-skipping-work"
+        }
+      ],
+      "explanation": "Repeated reads exhibit temporal locality, and nearby array elements exhibit spatial locality. The cache may satisfy later accesses without waiting for main memory.",
+      "kind": "predict",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q004",
+      "revision": 1,
+      "prompt": "Which component normally mediates a user program's protected access to hardware and memory?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "kernel"
+      ],
+      "gapTags": [
+        "operating systems",
+        "layer mapping"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "The operating-system kernel.",
+          "isCorrect": true,
+          "rationale": "The kernel owns the privileged mediation role."
+        },
+        {
+          "id": "b",
+          "text": "The command-line shell.",
+          "isCorrect": false,
+          "rationale": "A shell is a user-facing command interpreter.",
+          "misconceptionID": "shell-is-kernel"
+        },
+        {
+          "id": "c",
+          "text": "A standard library function by itself.",
+          "isCorrect": false,
+          "rationale": "A library may wrap a system call but does not itself grant privilege.",
+          "misconceptionID": "library-is-kernel"
+        },
+        {
+          "id": "d",
+          "text": "The file name of the program.",
+          "isCorrect": false,
+          "rationale": "Names do not determine hardware privilege.",
+          "misconceptionID": "program-name-controls-privilege"
+        }
+      ],
+      "explanation": "The kernel runs with privilege and mediates access to protected resources. A shell launches programs and a library provides reusable code, but neither is the privileged resource manager itself.",
+      "kind": "compare",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q005",
+      "revision": 1,
+      "prompt": "Why is opening a file conceptually different from calling an ordinary helper function in the same program?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "system-calls",
+        "kernel",
+        "file-system"
+      ],
+      "gapTags": [
+        "operating systems",
+        "layer mapping"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "A file open usually requires a controlled system-call transition into kernel services.",
+          "isCorrect": true,
+          "rationale": "This identifies the protection-boundary crossing."
+        },
+        {
+          "id": "b",
+          "text": "Every ordinary helper function automatically switches to kernel mode.",
+          "isCorrect": false,
+          "rationale": "Most ordinary function calls remain in user space.",
+          "misconceptionID": "all-functions-are-syscalls"
+        },
+        {
+          "id": "c",
+          "text": "The file system is implemented entirely inside the CPU cache.",
+          "isCorrect": false,
+          "rationale": "The file system manages persistent storage through OS and device layers.",
+          "misconceptionID": "filesystem-is-cache"
+        },
+        {
+          "id": "d",
+          "text": "A system call is just a compiler optimization with no OS involvement.",
+          "isCorrect": false,
+          "rationale": "A system call explicitly requests an OS service.",
+          "misconceptionID": "syscall-is-compiler"
+        }
+      ],
+      "explanation": "Opening a file normally requests an OS/file-system service and crosses the user/kernel boundary through a system call. An ordinary helper call stays within the program's current privilege level.",
+      "kind": "compare",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q006",
+      "revision": 1,
+      "prompt": "Which statement best distinguishes a process from a thread?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "process-thread"
+      ],
+      "gapTags": [
+        "operating systems",
+        "concept conflation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Threads usually share a process's memory; processes provide broader isolation boundaries.",
+          "isCorrect": true,
+          "rationale": "This captures the important resource and sharing distinction."
+        },
+        {
+          "id": "b",
+          "text": "A process is a single CPU register, while a thread is a disk block.",
+          "isCorrect": false,
+          "rationale": "Both are OS execution abstractions.",
+          "misconceptionID": "process-thread-are-hardware-objects"
+        },
+        {
+          "id": "c",
+          "text": "A process is always a source-code file and a thread is always a compiler.",
+          "isCorrect": false,
+          "rationale": "A program file can be launched into a process, but they are not identical.",
+          "misconceptionID": "program-file-is-process"
+        },
+        {
+          "id": "d",
+          "text": "Threads cannot share data with one another.",
+          "isCorrect": false,
+          "rationale": "Threads in one process commonly share address space.",
+          "misconceptionID": "threads-have-isolated-address-spaces"
+        }
+      ],
+      "explanation": "A process provides a protected resource and address-space context. Threads are execution paths within a process and commonly share that process's memory while keeping separate execution state.",
+      "kind": "compare",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q007",
+      "revision": 1,
+      "prompt": "During a context switch from thread A to thread B on one CPU, what must the OS do?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "scheduling",
+        "process-thread",
+        "registers"
+      ],
+      "gapTags": [
+        "operating systems",
+        "causality"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Save A's execution state and restore B's execution state.",
+          "isCorrect": true,
+          "rationale": "That is the core context-switch operation."
+        },
+        {
+          "id": "b",
+          "text": "Compile B's source code from scratch on every switch.",
+          "isCorrect": false,
+          "rationale": "Scheduling switches execution state; it does not compile programs.",
+          "misconceptionID": "context-switch-is-compilation"
+        },
+        {
+          "id": "c",
+          "text": "Copy every file on disk into B's registers.",
+          "isCorrect": false,
+          "rationale": "Only relevant execution state is saved/restored.",
+          "misconceptionID": "context-switch-copies-storage"
+        },
+        {
+          "id": "d",
+          "text": "Make A and B execute the same instruction simultaneously on the same single CPU.",
+          "isCorrect": false,
+          "rationale": "A context switch multiplexes time; it is not simultaneous execution on one CPU.",
+          "misconceptionID": "multiplexing-is-parallelism"
+        }
+      ],
+      "explanation": "The OS saves enough execution state for A and restores B's saved state, allowing the CPU to resume B. This multiplexes one CPU but costs time.",
+      "kind": "trace",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q008",
+      "revision": 1,
+      "prompt": "A process accesses a virtual page whose mapping is not currently available. What can happen next?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "virtual-memory",
+        "process-thread"
+      ],
+      "gapTags": [
+        "operating systems",
+        "representation",
+        "layer mapping"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "A page fault transfers control to the OS to resolve or reject the access.",
+          "isCorrect": true,
+          "rationale": "This is the normal virtual-memory mechanism."
+        },
+        {
+          "id": "b",
+          "text": "The cache silently becomes the process's new address space.",
+          "isCorrect": false,
+          "rationale": "Cache and virtual-memory mappings are different mechanisms.",
+          "misconceptionID": "cache-is-virtual-memory"
+        },
+        {
+          "id": "c",
+          "text": "The CPU must power off because every page fault is fatal.",
+          "isCorrect": false,
+          "rationale": "Many page faults are recoverable.",
+          "misconceptionID": "page-fault-always-crashes"
+        },
+        {
+          "id": "d",
+          "text": "The program automatically receives a physical disk address as its pointer.",
+          "isCorrect": false,
+          "rationale": "The OS maintains mappings; a disk address is not directly handed to the program as a normal pointer.",
+          "misconceptionID": "virtual-address-is-disk-address"
+        }
+      ],
+      "explanation": "The CPU/OS can raise a page fault so the kernel can establish or repair the mapping, perhaps loading data from storage. A page fault is not automatically a crash.",
+      "kind": "predict",
+      "transferLevel": "transfer",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q009",
+      "revision": 1,
+      "prompt": "What does a file system add beyond raw persistent storage?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "file-system",
+        "system-calls"
+      ],
+      "gapTags": [
+        "operating systems",
+        "representation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "It provides named, structured files and manages their metadata and allocation.",
+          "isCorrect": true,
+          "rationale": "That is the abstraction a file system provides over storage."
+        },
+        {
+          "id": "b",
+          "text": "It turns persistent storage into CPU registers.",
+          "isCorrect": false,
+          "rationale": "Storage remains a separate, slower resource.",
+          "misconceptionID": "filesystem-is-registers"
+        },
+        {
+          "id": "c",
+          "text": "It guarantees that all data stays in RAM forever.",
+          "isCorrect": false,
+          "rationale": "A file system manages persistence, not permanent RAM residency.",
+          "misconceptionID": "filesystem-is-ram"
+        },
+        {
+          "id": "d",
+          "text": "It replaces the kernel's protection boundary.",
+          "isCorrect": false,
+          "rationale": "File systems operate under OS/kernel control.",
+          "misconceptionID": "filesystem-replaces-kernel"
+        }
+      ],
+      "explanation": "A file system organizes storage into named objects, directories, metadata, allocation rules, and operations such as open, read, write, and close.",
+      "kind": "compare",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    },
+    {
+      "id": "osarch-q010",
+      "revision": 1,
+      "prompt": "A developer says: 'The program has a virtual address, so that must be the exact location in the RAM chip.' What is wrong with this explanation?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "virtual-memory",
+        "memory-hierarchy"
+      ],
+      "gapTags": [
+        "operating systems",
+        "representation",
+        "concept conflation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "A virtual address is translated to a physical location by the memory-management machinery; it is not itself a RAM location.",
+          "isCorrect": true,
+          "rationale": "This preserves the distinction between the process view and physical memory."
+        },
+        {
+          "id": "b",
+          "text": "Virtual addresses are just another name for cache lines.",
+          "isCorrect": false,
+          "rationale": "Cache lines are hardware storage units, not process address-space identifiers.",
+          "misconceptionID": "virtual-address-is-cache-line"
+        },
+        {
+          "id": "c",
+          "text": "Virtual addresses always point directly to disk sectors.",
+          "isCorrect": false,
+          "rationale": "Virtual memory may use storage during paging, but pointers are not disk-sector addresses.",
+          "misconceptionID": "virtual-address-is-disk-sector"
+        },
+        {
+          "id": "d",
+          "text": "The OS does not participate in address translation.",
+          "isCorrect": false,
+          "rationale": "The OS establishes page tables and protection policy, with hardware performing much of the translation.",
+          "misconceptionID": "os-not-in-memory-mapping"
+        }
+      ],
+      "explanation": "A virtual address belongs to a process's address-space view. The OS and hardware translate it through page tables to a physical frame; the mapping can change and the page may not currently be in RAM.",
+      "kind": "debug",
+      "transferLevel": "transfer",
+      "sourceRefs": [
+        "os-arch-note"
+      ]
+    }
+  ],
+  "tags": [
+    "operating systems",
+    "computer architecture",
+    "systems",
+    "programming fundamentals"
+  ],
+  "markdownPath": "notes/os-computer-architecture.md"
+}
