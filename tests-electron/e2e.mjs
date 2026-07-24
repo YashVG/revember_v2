@@ -28,6 +28,17 @@ let app = await launch();
 try {
   let window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  const lectureNote = window.getByRole("textbox", { name: "Lecture note", exact: true });
+  await lectureNote.waitFor();
+  await lectureNote.fill("A quick note from the homepage must stay local.");
+  await window.getByRole("status").filter({ hasText: /^Saved$/ }).waitFor();
+  const homepageCaptureFiles = (await readdir(path.join(knowledgeRoot, "captures"))).filter((name) => name.endsWith(".json"));
+  assert.equal(homepageCaptureFiles.length, 1, "the lecture note pad must save a local draft automatically");
+  const homepageCapture = JSON.parse(await readFile(path.join(knowledgeRoot, "captures", homepageCaptureFiles[0]), "utf8"));
+  assert.equal(homepageCapture.rawText, "A quick note from the homepage must stay local.");
+  await window.screenshot({ path: path.join(root, "work", "homepage-note-saved-e2e.png"), fullPage: true });
+  await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy" }).waitFor();
   assert.equal(await window.getByText("Local JSON").isVisible(), true);
 
@@ -126,7 +137,7 @@ try {
 
   await window.getByRole("button", { name: "Plan", exact: true }).click();
   await window.getByRole("heading", { name: "Plan", exact: true }).waitFor();
-  await window.getByRole("button", { name: "New exam", exact: true }).click();
+  await window.getByRole("button", { name: "Create exam plan", exact: true }).click();
   const planEditor = window.getByRole("dialog", { name: "New exam plan", exact: true });
   await planEditor.waitFor();
   const calendar = await window.evaluate(() => {
@@ -160,11 +171,7 @@ try {
   assert.equal(savedPlan.plans[0].examName, "V1 E2E Exam");
   assert.equal(savedPlan.plans[0].targetDate, calendar.targetDate);
   assert.deepEqual(savedPlan.plans[0].topicIDs, ["ble"]);
-  const todaySessions = window.getByLabel("Today's planned sessions", { exact: true });
-  await todaySessions.waitFor();
-  const plannedSession = todaySessions.getByRole("button", { name: /V1 E2E Exam/ });
-  await plannedSession.waitFor();
-  await plannedSession.click();
+  await window.getByRole("button", { name: "Start session", exact: true }).click();
   const reviewShell = window.locator(".review-shell");
   await reviewShell.waitFor();
   const sessionProgress = await window.locator(".review-top span").textContent();
@@ -176,6 +183,11 @@ try {
   await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
   assert.deepEqual(JSON.parse(await readFile(progressPath, "utf8")), progressAfterPlan, "opening and exiting a planned session must not write review evidence");
   assert.equal(JSON.parse(await readFile(progressPath, "utf8")).topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt, existingDueAt);
+
+  await window.getByRole("button", { name: "Revember", exact: true }).click();
+  await window.getByText("V1 E2E Exam", { exact: true }).waitFor();
+  await window.getByText(/\d+ due checks?/, { exact: true }).waitFor();
+  await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
 
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
@@ -212,6 +224,7 @@ try {
   app = await launch();
   window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   const reloaded = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(reloaded.planner.plans.length, 1);
@@ -262,8 +275,10 @@ try {
 
   const captureDirectory = path.join(knowledgeRoot, "captures");
   const captureFiles = (await readdir(captureDirectory)).filter((name) => name.endsWith(".json"));
-  assert.deepEqual(captureFiles.length, 1);
-  const capturePath = path.join(captureDirectory, captureFiles[0]);
+  assert.deepEqual(captureFiles.length, 2);
+  const captureFile = (await Promise.all(captureFiles.map(async (fileName) => ({ fileName, capture: JSON.parse(await readFile(path.join(captureDirectory, fileName), "utf8")) })))).find(({ capture }) => capture.title === "BLE exact-text note");
+  assert.ok(captureFile, "the explicitly authored note must be present alongside the homepage draft");
+  const capturePath = path.join(captureDirectory, captureFile.fileName);
   const savedCaptureBytes = await readFile(capturePath);
   const savedCapture = JSON.parse(savedCaptureBytes.toString("utf8"));
   assert.equal(savedCapture.title, "BLE exact-text note");
@@ -275,9 +290,11 @@ try {
   assert.equal((await stat(capturePath)).mode & 0o777, 0o600, "private capture files must be owner-readable only");
 
   const captureSummaries = await window.evaluate(() => window.revember.listCaptureSummaries());
-  assert.equal(captureSummaries.length, 1);
-  assert.equal(Object.hasOwn(captureSummaries[0], "rawText"), false, "capture summaries must not expose raw note text");
-  assert.equal(JSON.stringify(captureSummaries[0]).includes(concisePoint), false, "capture summaries must not expose concise-point text");
+  assert.equal(captureSummaries.length, 2);
+  const authoredSummary = captureSummaries.find((capture) => capture.title === "BLE exact-text note");
+  assert.ok(authoredSummary);
+  assert.equal(Object.hasOwn(authoredSummary, "rawText"), false, "capture summaries must not expose raw note text");
+  assert.equal(JSON.stringify(authoredSummary).includes(concisePoint), false, "capture summaries must not expose concise-point text");
   const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
 
@@ -293,6 +310,7 @@ try {
   app = await launch();
   window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByRole("button", { name: "Notes", exact: true }).click();
   await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();

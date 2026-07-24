@@ -18,6 +18,7 @@ let tray: Tray | null = null;
 let state: RevemberState;
 let notificationTimer: NodeJS.Timeout | undefined;
 let pendingRoute: string | undefined;
+const DEFAULT_ZOOM_FACTOR = 1.15;
 
 if (process.env.REVEMBER_USER_DATA_PATH) {
   app.setPath("userData", path.resolve(process.env.REVEMBER_USER_DATA_PATH));
@@ -100,6 +101,7 @@ function createWindow(): void {
       sandbox: true
     }
   });
+  mainWindow.webContents.setZoomFactor(DEFAULT_ZOOM_FACTOR);
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
@@ -192,7 +194,8 @@ function createMenu(): void {
     {
       label: "View", submenu: [
         { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, { type: "separator" },
-        { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }
+        { label: "Reset Zoom (115%)", accelerator: "CmdOrCtrl+0", click: () => mainWindow?.webContents.setZoomFactor(DEFAULT_ZOOM_FACTOR) },
+        { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }
       ]
     },
     { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, ...(process.platform === "darwin" ? [{ type: "separator" as const }, { role: "front" as const }] : [])] }

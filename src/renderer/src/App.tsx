@@ -10,6 +10,7 @@ import {
   Folder,
   Gauge,
   GitBranch,
+  House,
   Lightbulb,
   Lock,
   Play,
@@ -32,11 +33,11 @@ import {
   progressSummary,
   weakConceptIDs
 } from "../../../shared/domain";
-import { examSessionDates } from "../../../shared/planner";
 import { KnowledgeGraph } from "./KnowledgeGraph";
 import { PlannerPage } from "./components/PlannerPage";
 import { CardWorkspace } from "./components/CardWorkspace";
 import { NotesPage } from "./components/NotesPage";
+import { HomePage } from "./components/HomePage";
 import { capitalize, Eyebrow, MasteryRing, Tag } from "./components/ui";
 import { Modal } from "./components/modal";
 import { CheckIn, ReviewSession } from "./components/ReviewFlow";
@@ -44,7 +45,7 @@ import { InlineError } from "./components/review-ui";
 import { toErrorMessage } from "./utils";
 
 type TopicMode = "concepts" | "graph" | "cards" | "check-in";
-type GlobalView = "topic" | "plan" | "notes";
+type GlobalView = "home" | "topic" | "plan" | "notes";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
@@ -53,7 +54,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<DueReviewItem[] | null>(null);
-  const [globalView, setGlobalView] = useState<GlobalView>("topic");
+  const [globalView, setGlobalView] = useState<GlobalView>("home");
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence: string; token: string }>();
 
   const startReview = useCallback((minutes = 3) => {
@@ -121,11 +122,10 @@ export function App() {
             snapshot={snapshot}
             selectedTopicID={selectedTopic?.id}
             onSelect={(id) => { setGlobalView("topic"); setSelectedTopicID(id); }}
-            onStartReview={() => startReview(3)}
+            onOpenHome={() => setGlobalView("home")}
             onOpenPlanner={() => setGlobalView("plan")}
             onOpenNotes={() => setGlobalView("notes")}
             globalView={globalView}
-            onStartPlanSession={startPlanReview}
           />
           <main className="main-stage">
             <div className="toolbar-actions">
@@ -133,7 +133,7 @@ export function App() {
               <button className="icon-button" title="Capture learning checkpoint" onClick={() => setCheckpointOpen(true)}><SquarePen size={16} /></button>
               <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}><Cog size={16} /></button>
             </div>
-            {globalView === "plan" ? <PlannerPage snapshot={snapshot} onSnapshot={setSnapshot} onStartSession={startPlanReview} /> : globalView === "notes" ? <NotesPage snapshot={snapshot} onCreateCardFromPoint={(topicID, sentence) => {
+            {globalView === "home" ? <HomePage snapshot={snapshot} onOpenNotes={() => setGlobalView("notes")} /> : globalView === "plan" ? <PlannerPage snapshot={snapshot} onSnapshot={setSnapshot} onStartSession={startPlanReview} /> : globalView === "notes" ? <NotesPage snapshot={snapshot} onCreateCardFromPoint={(topicID, sentence) => {
               setSelectedTopicID(topicID);
               setMode("cards");
               setCardSeed({ topicID, sentence, token: crypto.randomUUID() });
@@ -161,29 +161,19 @@ export function App() {
   );
 }
 
-function Sidebar({ snapshot, selectedTopicID, onSelect, onStartReview, onOpenPlanner, onOpenNotes, globalView, onStartPlanSession }: {
+function Sidebar({ snapshot, selectedTopicID, onSelect, onOpenHome, onOpenPlanner, onOpenNotes, globalView }: {
   snapshot: AppSnapshot;
   selectedTopicID?: string;
   onSelect: (id: string) => void;
-  onStartReview: () => void;
+  onOpenHome: () => void;
   onOpenPlanner: () => void;
   onOpenNotes: () => void;
   globalView: GlobalView;
-  onStartPlanSession: (plan: StoredExamPlan) => void;
 }) {
-  const due = dueReviewItems(snapshot);
-  const overallAttempts = snapshot.progress.reviewEvents.length;
-  const overallCorrect = snapshot.progress.reviewEvents.filter((event) => event.isCorrect).length;
-  const mastery = overallAttempts ? overallCorrect / overallAttempts : 0;
-  const todayPlans = snapshot.planner.plans.filter((plan) => !plan.archivedAt && planSessionIsToday(plan));
   return (
     <aside className="sidebar">
       <Logo />
-      <button className="today-card" onClick={onStartReview}>
-        <div><Eyebrow>Today</Eyebrow><strong>{due.length} due {due.length === 1 ? "check" : "checks"}</strong><span>Estimated {Math.max(1, Math.ceil(due.length * 0.75))} min</span></div>
-        <MasteryRing value={mastery} size={62} />
-      </button>
-      {todayPlans.length > 0 && <div className="planned-session-list" aria-label="Today's planned sessions">{todayPlans.map((plan) => <button key={plan.id} className="planned-session" onClick={() => onStartPlanSession(plan)}><span><Eyebrow>Planned session</Eyebrow><strong>{plan.examName}</strong><small>Today · {plan.topicIDs.length} {plan.topicIDs.length === 1 ? "topic" : "topics"}</small></span><Play size={15} fill="currentColor" /></button>)}</div>}
+      <button className={`plan-nav ${globalView === "home" ? "selected" : ""}`} onClick={onOpenHome}><House /><span>Home</span></button>
       <button className={`plan-nav ${globalView === "plan" ? "selected" : ""}`} onClick={onOpenPlanner}><CalendarIcon /><span>Plan</span></button>
       <button className={`plan-nav ${globalView === "notes" ? "selected" : ""}`} onClick={onOpenNotes}><SquarePen /><span>Notes</span></button>
       <Eyebrow>Topics</Eyebrow>
@@ -199,7 +189,6 @@ function Sidebar({ snapshot, selectedTopicID, onSelect, onStartReview, onOpenPla
           );
         })}
       </div>
-      <div className="sidebar-footer"><Lock size={13} /> Local files only</div>
     </aside>
   );
 }
@@ -293,14 +282,12 @@ function CheckpointDialog({ snapshot, onClose }: { snapshot: AppSnapshot; onClos
   </Modal>;
 }
 
-function Logo() { return <div className="logo"><div className="logo-mark"><i /><i /><i /></div><div><strong>Revember</strong><span>Fundamentals cockpit</span></div></div>; }
+function Logo() {
+  const wordmark = <span>Revember</span>;
+  return <div className="logo">{wordmark}</div>;
+}
 function Metric({ icon, label, value, caption, color }: { icon: ReactNode; label: string; value: string; caption: string; color: string }) { return <section className={`surface metric ${color}`}><div>{icon}</div><span><Eyebrow>{label}</Eyebrow><strong>{value}</strong><small>{caption}</small></span></section>; }
 function ErrorToast({ message }: { message: string }) { return <div className="error-toast"><CircleAlert /> <span>{message}</span></div>; }
 function LoadingScreen() { return <div className="loading"><Logo /><RefreshCw className="spin" /></div>; }
 function EmptyKnowledge({ root }: { root: string }) { return <div className="empty-state"><BookOpen /><h1>No Topics</h1><p>Add JSON topic files to <code>{root}/topics</code>, then reload.</p></div>; }
 function CalendarIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></svg>; }
-function planSessionIsToday(plan: StoredExamPlan): boolean {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: plan.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-  const today = `${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`;
-  try { return examSessionDates(plan).includes(today); } catch { return false; }
-}
