@@ -18,8 +18,16 @@ import type {
   LearnerCapture,
   SaveCaptureInput
 } from "../shared/types";
+import {
+  array,
+  nonEmptyExactString,
+  nonNegativeInteger,
+  oneOf,
+  positiveInteger,
+  record,
+  strictIdentifier
+} from "./input-validation";
 
-const safeID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const captureFileName = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.json$/;
 const editableStatuses = new Set<CaptureStatus>(["draft", "ready"]);
 const storedStatuses = new Set<CaptureStatus>(["draft", "ready", "archived"]);
@@ -70,7 +78,7 @@ export class CaptureStore {
   }
 
   get(rawID: unknown): LearnerCapture {
-    return structuredClone(this.readCapture(identifier(rawID, "capture id"), true));
+    return structuredClone(this.readCapture(strictIdentifier(rawID, "capture id"), true));
   }
 
   save(rawInput: unknown, now = new Date(), validateTopicID?: (topicID: string) => void): LearnerCapture {
@@ -130,7 +138,7 @@ export class CaptureStore {
   }
 
   archive(rawID: unknown, rawExpectedRevision: unknown, now = new Date()): LearnerCapture {
-    const id = identifier(rawID, "capture id");
+    const id = strictIdentifier(rawID, "capture id");
     const expectedRevision = nonNegativeInteger(rawExpectedRevision, "expectedRevision");
     const timestamp = isoTimestamp(now, "Capture archive timestamp");
     const existing = this.readCapture(id, true);
@@ -195,7 +203,7 @@ export class CaptureStore {
   }
 
   private filePath(id: string): string {
-    const safe = identifier(id, "capture id");
+    const safe = strictIdentifier(id, "capture id");
     const candidate = path.join(this.directoryPath, `${safe}.json`);
     assertContained(this.directoryPath, candidate);
     return candidate;
@@ -229,16 +237,16 @@ export function normalizeCapture(value: unknown): LearnerCapture {
   const concisePoints = array(raw.concisePoints, "capture concisePoints").map((point, index) => {
     const entry = record(point, `capture concisePoints[${index}]`);
     return {
-      id: identifier(entry.id, `capture concisePoints[${index}].id`),
+      id: strictIdentifier(entry.id, `capture concisePoints[${index}].id`),
       text: nonEmptyExactString(entry.text, `capture concisePoints[${index}].text`)
     };
   });
   assertUniquePointIDs(concisePoints);
   return {
     schemaVersion: 1,
-    id: identifier(raw.id, "capture id"),
+    id: strictIdentifier(raw.id, "capture id"),
     revision: positiveInteger(raw.revision, "capture revision"),
-    topicID: identifier(raw.topicID, "capture topicID"),
+    topicID: strictIdentifier(raw.topicID, "capture topicID"),
     title: nonEmptyExactString(raw.title, "capture title"),
     rawText: stringValue(raw.rawText, "capture rawText"),
     concisePoints,
@@ -253,16 +261,16 @@ function parseSaveInput(value: unknown): SaveCaptureInput {
   const points = array(raw.concisePoints, "concisePoints").map((point, index) => {
     const entry = record(point, `concisePoints[${index}]`);
     return {
-      ...(entry.id === undefined ? {} : { id: identifier(entry.id, `concisePoints[${index}].id`) }),
+      ...(entry.id === undefined ? {} : { id: strictIdentifier(entry.id, `concisePoints[${index}].id`) }),
       text: nonEmptyExactString(entry.text, `concisePoints[${index}].text`)
     };
   });
   const suppliedIDs = points.flatMap((point) => point.id === undefined ? [] : [point.id]);
   if (new Set(suppliedIDs).size !== suppliedIDs.length) throw new Error("Capture point IDs must be unique.");
   return {
-    ...(raw.id === undefined ? {} : { id: identifier(raw.id, "capture id") }),
+    ...(raw.id === undefined ? {} : { id: strictIdentifier(raw.id, "capture id") }),
     expectedRevision: nonNegativeInteger(raw.expectedRevision, "expectedRevision"),
-    topicID: identifier(raw.topicID, "topicID"),
+    topicID: strictIdentifier(raw.topicID, "topicID"),
     title: nonEmptyExactString(raw.title, "title"),
     rawText: stringValue(raw.rawText, "rawText"),
     concisePoints: points,
@@ -298,46 +306,9 @@ function assertContained(parentPath: string, childPath: string): void {
   throw new Error("Capture path escapes the active knowledge root.");
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object.`);
-  return value as Record<string, unknown>;
-}
-
-function array(value: unknown, label: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
-  return value;
-}
-
-function identifier(value: unknown, label: string): string {
-  const id = nonEmptyExactString(value, label);
-  if (id !== id.trim()) throw new Error(`${label} cannot start or end with whitespace.`);
-  if (!safeID.test(id)) throw new Error(`${label} is invalid.`);
-  return id;
-}
-
-function nonEmptyExactString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string.`);
-  return value;
-}
-
 function stringValue(value: unknown, label: string): string {
   if (typeof value !== "string") throw new Error(`${label} must be a string.`);
   return value;
-}
-
-function nonNegativeInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`${label} must be a non-negative integer.`);
-  return value as number;
-}
-
-function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) throw new Error(`${label} must be a positive integer.`);
-  return value as number;
-}
-
-function oneOf<T extends string>(value: unknown, allowed: Set<T>, label: string): T {
-  if (typeof value !== "string" || !allowed.has(value as T)) throw new Error(`${label} is invalid.`);
-  return value as T;
 }
 
 function isoString(value: unknown, label: string): string {

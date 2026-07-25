@@ -8,8 +8,7 @@ import type {
   UpsertExamPlanInput
 } from "../shared/types";
 import { validateTimeZone } from "../shared/planner";
-
-const safeID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+import { array, identifier, nonEmptyString, nonNegativeInteger, positiveInteger, record } from "./input-validation";
 
 export class PlannerRevisionConflictError extends Error {
   readonly code = "PLANNER_REVISION_CONFLICT" as const;
@@ -182,41 +181,10 @@ function assertExpectedRevision(expected: number, actual: number): void {
   if (expected !== actual) throw new PlannerRevisionConflictError(expected, actual);
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object.`);
-  return value as Record<string, unknown>;
-}
-
-function array(value: unknown, label: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
-  return value;
-}
-
-function identifier(value: unknown, label: string): string {
-  const id = nonEmptyString(value, label);
-  if (!safeID.test(id)) throw new Error(`${label} is invalid.`);
-  return id;
-}
-
-function nonEmptyString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string.`);
-  return value.trim();
-}
-
 function stringIDs(value: unknown, label: string): string[] {
   const values = array(value, label).map((item, index) => identifier(item, `${label}[${index}]`));
   if (new Set(values).size !== values.length) throw new Error(`${label} cannot contain duplicates.`);
   return values;
-}
-
-function nonNegativeInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`${label} must be a non-negative integer.`);
-  return value as number;
-}
-
-function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) throw new Error(`${label} must be a positive integer.`);
-  return value as number;
 }
 
 function isoDate(value: unknown, label: string): string {

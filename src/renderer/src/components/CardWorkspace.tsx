@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Check, Pencil, Play, Plus, X } from "lucide-react";
+import { Archive, Check, Pencil, Play, Plus } from "lucide-react";
 import type { AppSnapshot, KnowledgeTopic, Question, QuestionDraft, QuestionEdit } from "../../../../shared/types";
 import { activeQuestions } from "../../../../shared/domain";
+import { ConfirmationDialog } from "./ConfirmationDialog";
 import { Eyebrow, Tag } from "./ui";
 import { InlineError } from "./review-ui";
-import { useDialogFocus } from "./useDialogFocus";
-import { toErrorMessage } from "../utils";
+import { Modal } from "./modal";
+import { resolveRevisionConflict } from "../utils";
 
 type CardForm = {
   sentence: string;
@@ -14,6 +15,9 @@ type CardForm = {
   conceptID: string;
   explanation: string;
 };
+
+const CARD_CONFLICT_MESSAGE =
+  "This topic changed somewhere else. Reload it, then reopen the card and try again; your form is still here.";
 
 function initialForm(topic: KnowledgeTopic, question?: Question, seedSentence?: string): CardForm {
   const correct = question?.choices.find((choice) => choice.isCorrect);
@@ -85,7 +89,6 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
   const requestClose = useCallback(() => {
     if (!dirty || window.confirm("Discard your unsaved card changes?")) onClose();
   }, [dirty, onClose]);
-  const dialog = useDialogFocus(requestClose);
   const sentenceIncludesAnswer = form.answer.trim() && form.sentence.includes(form.answer.trim());
   const cardID = useMemo(() => `card-${crypto.randomUUID()}`, []);
   const correctChoiceID = question?.choices.find((choice) => choice.isCorrect)?.id ?? "choice-correct";
@@ -120,32 +123,106 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
         ? await window.revember.editCard({ topicID: topic.id, expectedTopicRevision: topic.revision, questionID: question.id, expectedQuestionRevision: question.revision, card: card satisfies QuestionEdit })
         : await window.revember.createCard({ topicID: topic.id, expectedTopicRevision: topic.revision, card: { id: cardID, ...card } satisfies QuestionDraft });
       onSnapshot(result.snapshot); setSaved(result.question);
-    } catch (cause) { setError(friendlyMutationError(cause)); }
+    } catch (cause) { setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message); }
     finally { setSaving(false); }
   };
 
-  return <div className="modal-backdrop" role="presentation"><section ref={dialog.ref} onKeyDown={dialog.onKeyDown} className="settings-dialog card-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="card-editor-title">
-    <header><div><Pencil /><h2 id="card-editor-title">{question ? "Edit card" : "Create card"}</h2></div><button className="icon-button" aria-label="Close card editor" onClick={requestClose}><X /></button></header>
-    {saved ? <div className="card-saved"><Check /><h3>Card saved</h3><p>{saved.revision > 1 ? `Revision ${saved.revision} will re-enter review as a revised check.` : "It is ready for your next review."}</p><div className="dialog-footer"><button onClick={requestClose}>Done</button><button className="primary" onClick={() => onReview(saved)}><Play /> Review this card</button></div></div> : <form className="card-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      <label><span>Sentence containing the answer</span><textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder="For example: A bit is a distinguishable physical state." /></label>
-      <label><span>Answer</span><input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" /><small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "The answer appears in the sentence and will be shown as a blank during review." : "Use the exact answer once in the sentence."}</small></label>
-      <fieldset><legend>Distractors</legend>{form.distractors.map((item, index) => <label key={item.id}><span>Alternative {index + 1}</span><input value={item.text} onChange={(event) => updateDistractor(item.id, event.target.value)} placeholder="A plausible but incorrect answer" /></label>)}{!question && form.distractors.length < 3 && <button type="button" className="text-button" onClick={addDistractor}><Plus /> Add distractor</button>}{question && <small>Choice structure is fixed while editing so existing review evidence remains trustworthy.</small>}</fieldset>
-      <label><span>Linked concept <small>(optional)</small></span><select value={form.conceptID} onChange={(event) => update("conceptID", event.target.value)}><option value="">No linked concept</option>{topic.concepts.map((concept) => <option key={concept.id} value={concept.id}>{concept.title}</option>)}</select></label>
-      <label><span>Explanation</span><textarea value={form.explanation} onChange={(event) => update("explanation", event.target.value)} placeholder="Why is this answer correct?" /></label>
-      {error && <InlineError message={error} />}<div className="dialog-footer"><button type="button" onClick={requestClose}>Cancel</button><button className="primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save card"}</button></div>
-    </form>}
-  </section></div>;
+  return (
+    <Modal
+      title={question ? "Edit card" : "Create card"}
+      icon={<Pencil />}
+      className="card-editor-dialog"
+      closeOnBackdrop={false}
+      onClose={requestClose}
+    >
+      {saved ? (
+        <div className="card-saved">
+          <Check />
+          <h3>Card saved</h3>
+          <p>{saved.revision > 1 ? `Revision ${saved.revision} will re-enter review as a revised check.` : "It is ready for your next review."}</p>
+          <div className="dialog-footer">
+            <button type="button" onClick={requestClose}>Done</button>
+            <button type="button" className="primary" onClick={() => onReview(saved)}><Play /> Review this card</button>
+          </div>
+        </div>
+      ) : (
+        <form className="card-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <label>
+            <span>Sentence containing the answer</span>
+            <textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder="For example: A bit is a distinguishable physical state." />
+          </label>
+          <label>
+            <span>Answer</span>
+            <input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" />
+            <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "The answer appears in the sentence and will be shown as a blank during review." : "Use the exact answer once in the sentence."}</small>
+          </label>
+          <fieldset>
+            <legend>Distractors</legend>
+            {form.distractors.map((item, index) => (
+              <label key={item.id}>
+                <span>Alternative {index + 1}</span>
+                <input value={item.text} onChange={(event) => updateDistractor(item.id, event.target.value)} placeholder="A plausible but incorrect answer" />
+              </label>
+            ))}
+            {!question && form.distractors.length < 3 && <button type="button" className="text-button" onClick={addDistractor}><Plus /> Add distractor</button>}
+            {question && <small>Choice structure is fixed while editing so existing review evidence remains trustworthy.</small>}
+          </fieldset>
+          <label>
+            <span>Linked concept <small>(optional)</small></span>
+            <select value={form.conceptID} onChange={(event) => update("conceptID", event.target.value)}>
+              <option value="">No linked concept</option>
+              {topic.concepts.map((concept) => <option key={concept.id} value={concept.id}>{concept.title}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Explanation</span>
+            <textarea value={form.explanation} onChange={(event) => update("explanation", event.target.value)} placeholder="Why is this answer correct?" />
+          </label>
+          {error && <InlineError message={error} />}
+          <div className="dialog-footer">
+            <button type="button" onClick={requestClose}>Cancel</button>
+            <button className="primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save card"}</button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
 }
 
 function ArchiveCardDialog({ topic, question, onSnapshot, onClose }: { topic: KnowledgeTopic; question: Question; onSnapshot: (snapshot: AppSnapshot) => void; onClose: () => void }) {
-  const [error, setError] = useState<string>(); const [saving, setSaving] = useState(false);
-  const dialog = useDialogFocus(onClose);
-  const archive = async () => { try { setSaving(true); const result = await window.revember.retireCard({ topicID: topic.id, expectedTopicRevision: topic.revision, questionID: question.id, expectedQuestionRevision: question.revision }); onSnapshot(result.snapshot); onClose(); } catch (cause) { setError(friendlyMutationError(cause)); } finally { setSaving(false); } };
-  return <div className="modal-backdrop" role="presentation"><section ref={dialog.ref} onKeyDown={dialog.onKeyDown} className="settings-dialog confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="archive-card-title"><header><div><Archive /><h2 id="archive-card-title">Archive card</h2></div><button className="icon-button" aria-label="Close archive dialog" onClick={onClose}><X /></button></header><div className="confirm-body"><p>Archive this card? It will no longer appear in active review, while its past evidence stays readable.</p><strong>{question.prompt}</strong>{error && <InlineError message={error} />}<div className="dialog-footer"><button onClick={onClose}>Cancel</button><button className="danger-button" disabled={saving} onClick={() => void archive()}>{saving ? "Archiving…" : "Archive card"}</button></div></div></section></div>;
-}
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const archive = async () => {
+    try {
+      setSaving(true);
+      const result = await window.revember.retireCard({
+        topicID: topic.id,
+        expectedTopicRevision: topic.revision,
+        questionID: question.id,
+        expectedQuestionRevision: question.revision
+      });
+      onSnapshot(result.snapshot);
+      onClose();
+    } catch (cause) {
+      setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
-function friendlyMutationError(cause: unknown): string {
-  const message = toErrorMessage(cause);
-  if (/revision conflict|changed while/i.test(message)) return "This topic changed somewhere else. Reload it, then reopen the card and try again; your form is still here.";
-  return message;
+  return (
+    <ConfirmationDialog
+      title="Archive card"
+      icon={<Archive />}
+      confirmLabel="Archive card"
+      pendingLabel="Archiving…"
+      isConfirming={saving}
+      error={error}
+      onConfirm={() => void archive()}
+      onClose={onClose}
+    >
+      <p>Archive this card? It will no longer appear in active review, while its past evidence stays readable.</p>
+      <strong>{question.prompt}</strong>
+    </ConfirmationDialog>
+  );
 }

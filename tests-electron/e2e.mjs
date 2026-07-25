@@ -38,6 +38,7 @@ try {
   assert.equal(homepageCapture.rawText, "A quick note from the homepage must stay local.");
   await window.screenshot({ path: path.join(root, "work", "homepage-note-saved-e2e.png"), fullPage: true });
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
+  await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy" }).waitFor();
   assert.equal(await window.getByText("Local JSON").isVisible(), true);
@@ -133,60 +134,9 @@ try {
   assert.equal(progress.schemaVersion, 2);
   assert.equal(progress.reviewEvents.length, 1);
   assert.equal(progress.reviewEvents[0].questionID, "ble-q001");
-  const existingDueAt = progress.topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt;
 
-  await window.getByRole("button", { name: "Plan", exact: true }).click();
-  await window.getByRole("heading", { name: "Plan", exact: true }).waitFor();
-  await window.getByRole("button", { name: "Create exam plan", exact: true }).click();
-  const planEditor = window.getByRole("dialog", { name: "New exam plan", exact: true });
-  await planEditor.waitFor();
-  const calendar = await window.evaluate(() => {
-    const formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    });
-    const format = (date) => {
-      const parts = formatter.formatToParts(date);
-      const part = (type) => parts.find((item) => item.type === type)?.value;
-      return `${part("year")}-${part("month")}-${part("day")}`;
-    };
-    const target = new Date();
-    target.setDate(target.getDate() + 2);
-    return { today: format(new Date()), targetDate: format(target) };
-  });
-  await planEditor.getByLabel("Exam name", { exact: true }).fill("V1 E2E Exam");
-  await planEditor.getByLabel("Exam date", { exact: true }).fill(calendar.targetDate);
-  await planEditor.getByLabel("Revision sessions", { exact: true }).fill("2");
-  const previewDates = await planEditor.locator(".projection-preview li span").allTextContents();
-  assert.ok(previewDates.includes(calendar.today), "the saved plan must include a session today");
-  await planEditor.getByRole("button", { name: "Save plan", exact: true }).click();
-  await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
-  assert.deepEqual(JSON.parse(await readFile(progressPath, "utf8")), progress, "creating an exam plan must not mutate review evidence or schedules");
-  const progressAfterPlan = JSON.parse(await readFile(progressPath, "utf8"));
-  assert.equal(progressAfterPlan.topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt, existingDueAt);
-  const savedPlan = JSON.parse(await readFile(path.join(temporaryRoot, "planner.json"), "utf8"));
-  assert.equal(savedPlan.plans.length, 1);
-  assert.equal(savedPlan.plans[0].examName, "V1 E2E Exam");
-  assert.equal(savedPlan.plans[0].targetDate, calendar.targetDate);
-  assert.deepEqual(savedPlan.plans[0].topicIDs, ["ble"]);
-  await window.getByRole("button", { name: "Start session", exact: true }).click();
-  const reviewShell = window.locator(".review-shell");
-  await reviewShell.waitFor();
-  const sessionProgress = await window.locator(".review-top span").textContent();
-  const sessionCount = /^1 of (\d+)$/.exec(sessionProgress?.trim() ?? "")?.[1];
-  assert.ok(sessionCount, "a planned session must disclose its review-item count");
-  assert.ok(Number(sessionCount) <= 4, "a planned session must retain the four-card cap");
-  assert.equal(await reviewShell.locator(".review-context strong").textContent(), "Bluetooth Low Energy");
-  await window.getByRole("button", { name: "Exit Review", exact: true }).click();
-  await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
-  assert.deepEqual(JSON.parse(await readFile(progressPath, "utf8")), progressAfterPlan, "opening and exiting a planned session must not write review evidence");
-  assert.equal(JSON.parse(await readFile(progressPath, "utf8")).topics.ble.reviewCardsByQuestionID["ble-q001"].dueAt, existingDueAt);
-
-  await window.getByRole("button", { name: "Revember", exact: true }).click();
-  await window.getByText("V1 E2E Exam", { exact: true }).waitFor();
-  await window.getByText(/\d+ due checks?/, { exact: true }).waitFor();
+  await window.getByRole("button", { name: "Home", exact: true }).click();
+  await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
 
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
@@ -224,16 +174,12 @@ try {
   app = await launch();
   window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   const reloaded = await window.evaluate(() => window.revember.getSnapshot());
-  assert.equal(reloaded.planner.plans.length, 1);
-  assert.equal(reloaded.planner.plans[0].examName, "V1 E2E Exam");
   assert.equal(reloaded.progress.reviewEvents.length, 2);
   assert.equal(reloaded.progress.topics.ble.reviewCardsByQuestionID[authoredEvent.questionID].dueAt, authoredSchedule.dueAt);
-  await window.getByRole("button", { name: "Plan", exact: true }).click();
-  await window.getByRole("heading", { name: "V1 E2E Exam", exact: true }).waitFor();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("button", { name: "Cards", exact: true }).click();
   await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
 
@@ -262,7 +208,7 @@ try {
   await noteEditor.getByRole("combobox", { name: /^Topic/ }).selectOption({ label: "Bluetooth Low Energy" });
   await noteEditor.getByLabel("Title", { exact: true }).fill("BLE exact-text note");
   await noteEditor.getByRole("textbox", { name: /^Raw text/ }).fill(noteRawText);
-  await noteEditor.getByRole("button", { name: "Add concise point", exact: true }).click();
+  await noteEditor.getByRole("button", { name: "Add point", exact: true }).click();
   await noteEditor.getByLabel("Concise point 1", { exact: true }).fill(concisePoint);
   await window.keyboard.press(process.platform === "darwin" ? "Meta+S" : "Control+S");
   try {
@@ -298,7 +244,7 @@ try {
   const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
 
-  await noteEditor.getByRole("button", { name: "Create Card from Point", exact: true }).click();
+  await noteEditor.getByRole("button", { name: "Create card", exact: true }).click();
   await window.getByRole("dialog", { name: "Create card", exact: true }).waitFor();
   const pointCardEditor = window.locator(".card-editor-dialog");
   assert.equal(await pointCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), concisePoint);
@@ -310,12 +256,13 @@ try {
   app = await launch();
   window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByRole("button", { name: "Notes", exact: true }).click();
   await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
-  const savedNoteRow = window.locator(".note-row", { hasText: "BLE exact-text note" });
-  await savedNoteRow.getByRole("button", { name: "Open", exact: true }).click();
+  await window.getByRole("button", { name: /BLE exact-text note/ }).click();
+  await window.getByRole("button", { name: "Edit", exact: true }).click();
   const reopenedNoteEditor = window.getByRole("dialog", { name: "Edit note", exact: true });
   await reopenedNoteEditor.waitFor();
   assert.equal(await reopenedNoteEditor.getByLabel("Title", { exact: true }).inputValue(), "BLE exact-text note");

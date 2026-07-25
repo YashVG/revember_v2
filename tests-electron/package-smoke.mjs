@@ -40,8 +40,10 @@ try {
   }));
   assert.deepEqual(metadata, { isPackaged: true, name: "Revember", version: "0.2.0" });
   const window = await packagedApp.firstWindow();
+  await window.getByRole("button", { name: "Topics", exact: true }).click();
+  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy" }).waitFor();
-  assert.equal(await window.getByText("Fundamentals cockpit").isVisible(), true);
+  assert.equal(await window.getByText("Retrieval Cockpit").isVisible(), true);
   console.log(`Packaged Electron smoke passed: ${executablePath}`);
 } finally {
   await packagedApp.close();

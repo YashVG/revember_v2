@@ -2,8 +2,17 @@ import path from "node:path";
 import { mutateTopicJson, type TopicFileLockOptions, type TopicMutationResult } from "../topic-authoring/index.js";
 import { normalizeTopic, validateTopic } from "../shared/domain";
 import type { CreateCardInput, EditCardInput, QuestionDraft, QuestionEdit, RetireCardInput } from "../shared/types";
-
-const safeID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+import {
+  array,
+  booleanValue,
+  nonEmptyString,
+  nonNegativeInteger,
+  oneOf,
+  positiveInteger,
+  record,
+  recordArray,
+  strictIdentifier
+} from "./input-validation";
 const questionKinds = new Set(["multipleChoice", "freeRecall", "explain", "predict", "compare", "trace", "debug"]);
 const transferLevels = new Set(["recall", "application", "transfer"]);
 const difficulties = new Set(["intro", "medium", "hard"]);
@@ -111,7 +120,7 @@ export async function retireTopicCard(knowledgeRootPath: string, rawInput: unkno
 function parseCreateCardInput(value: unknown): CreateCardInput {
   const input = record(value, "Create card input");
   return {
-    topicID: identifier(input.topicID, "topicID"),
+    topicID: strictIdentifier(input.topicID, "topicID"),
     expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision"),
     card: parseQuestionDraft(input.card, true) as QuestionDraft
   };
@@ -120,7 +129,7 @@ function parseCreateCardInput(value: unknown): CreateCardInput {
 function parseEditCardInput(value: unknown): EditCardInput {
   const input = record(value, "Edit card input");
   return {
-    topicID: identifier(input.topicID, "topicID"),
+    topicID: strictIdentifier(input.topicID, "topicID"),
     expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision"),
     questionID: nonEmptyString(input.questionID, "questionID"),
     expectedQuestionRevision: positiveInteger(input.expectedQuestionRevision, "expectedQuestionRevision"),
@@ -131,7 +140,7 @@ function parseEditCardInput(value: unknown): EditCardInput {
 function parseRetireCardInput(value: unknown): RetireCardInput {
   const input = record(value, "Retire card input");
   return {
-    topicID: identifier(input.topicID, "topicID"),
+    topicID: strictIdentifier(input.topicID, "topicID"),
     expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision"),
     questionID: nonEmptyString(input.questionID, "questionID"),
     expectedQuestionRevision: positiveInteger(input.expectedQuestionRevision, "expectedQuestionRevision")
@@ -199,54 +208,8 @@ function assertCardReferences(topic: Record<string, unknown>, card: QuestionDraf
   }
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object.`);
-  return value as Record<string, unknown>;
-}
-
-function recordArray(value: unknown, label: string): Record<string, unknown>[] {
-  return array(value, label).map((item) => record(item, label));
-}
-
-function array(value: unknown, label: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
-  return value;
-}
-
-function identifier(value: unknown, label: string): string {
-  const id = nonEmptyString(value, label);
-  if (value !== id) throw new Error(`${label} cannot start or end with whitespace.`);
-  if (!safeID.test(id)) throw new Error(`${label} must contain only letters, numbers, hyphens, and underscores.`);
-  return id;
-}
-
-function nonEmptyString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string.`);
-  return value.trim();
-}
-
 function stringValues(value: unknown, label: string): string[] {
   const values = array(value, label).map((item, index) => nonEmptyString(item, `${label}[${index}]`));
   if (new Set(values).size !== values.length) throw new Error(`${label} cannot contain duplicates.`);
   return values;
-}
-
-function nonNegativeInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`${label} must be a non-negative integer.`);
-  return value as number;
-}
-
-function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) throw new Error(`${label} must be a positive integer.`);
-  return value as number;
-}
-
-function booleanValue(value: unknown, label: string): boolean {
-  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean.`);
-  return value;
-}
-
-function oneOf(value: unknown, allowed: Set<string>, label: string): string {
-  if (typeof value !== "string" || !allowed.has(value)) throw new Error(`${label} is invalid.`);
-  return value;
 }

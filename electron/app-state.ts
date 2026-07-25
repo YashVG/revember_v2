@@ -205,7 +205,7 @@ export class RevemberState extends EventEmitter {
   }
 
   upsertExamPlan(input: UpsertExamPlanInput): PlannerMutationResult {
-    const before = JSON.stringify(this.progress);
+    const progressBefore = this.progressFingerprint();
     const store = new PlannerStore(this.settings.progressPath);
     const result = store.upsert(input, new Date(), (plan) => {
       const knownTopicIDs = new Set(this.topics.map((topic) => topic.id));
@@ -213,7 +213,7 @@ export class RevemberState extends EventEmitter {
         if (!knownTopicIDs.has(topicID)) throw new Error(`Exam plan references missing topic ${topicID}.`);
       }
       planExamReviews(plan, { topics: this.topics, progress: this.progress });
-      if (JSON.stringify(this.progress) !== before) throw new Error("Planner operations cannot mutate review progress.");
+      this.assertProgressUnchanged(progressBefore);
     });
     this.planner = result.record;
     this.errorMessage = undefined;
@@ -222,10 +222,10 @@ export class RevemberState extends EventEmitter {
   }
 
   archiveExamPlan(input: ArchiveExamPlanInput): PlannerMutationResult {
-    const before = JSON.stringify(this.progress);
+    const progressBefore = this.progressFingerprint();
     const result = new PlannerStore(this.settings.progressPath).archive(input);
     this.planner = result.record;
-    if (JSON.stringify(this.progress) !== before) throw new Error("Planner operations cannot mutate review progress.");
+    this.assertProgressUnchanged(progressBefore);
     this.errorMessage = undefined;
     this.broadcast();
     return { snapshot: this.snapshot, plan: result.plan };
@@ -255,6 +255,14 @@ export class RevemberState extends EventEmitter {
       progressPath: configuredProgressPath ?? stored.progressPath ?? this.paths.legacyProgressPath,
       notificationsEnabled: stored.notificationsEnabled ?? false
     };
+  }
+
+  private progressFingerprint(): string {
+    return JSON.stringify(this.progress);
+  }
+
+  private assertProgressUnchanged(before: string): void {
+    if (this.progressFingerprint() !== before) throw new Error("Planner operations cannot mutate review progress.");
   }
 
   private defaultKnowledgeRoot(): string {

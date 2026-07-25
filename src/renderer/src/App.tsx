@@ -4,6 +4,7 @@ import {
   Check,
   CircleAlert,
   Clock3,
+  ChevronDown,
   Cog,
   ExternalLink,
   FileJson,
@@ -23,8 +24,7 @@ import type {
   AppSnapshot,
   DueReviewItem,
   KnowledgeTopic,
-  Question,
-  StoredExamPlan
+  Question
 } from "../../../shared/types";
 import {
   activeQuestions,
@@ -34,7 +34,6 @@ import {
   weakConceptIDs
 } from "../../../shared/domain";
 import { KnowledgeGraph } from "./KnowledgeGraph";
-import { PlannerPage } from "./components/PlannerPage";
 import { CardWorkspace } from "./components/CardWorkspace";
 import { NotesPage } from "./components/NotesPage";
 import { HomePage } from "./components/HomePage";
@@ -45,7 +44,7 @@ import { InlineError } from "./components/review-ui";
 import { toErrorMessage } from "./utils";
 
 type TopicMode = "concepts" | "graph" | "cards" | "check-in";
-type GlobalView = "home" | "topic" | "plan" | "notes";
+type GlobalView = "home" | "topic" | "notes";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
@@ -57,20 +56,19 @@ export function App() {
   const [globalView, setGlobalView] = useState<GlobalView>("home");
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence: string; token: string }>();
 
+  const openReview = useCallback((items: DueReviewItem[], limit = 4) => {
+    setReviewItems(items.slice(0, limit));
+  }, []);
+
   const startReview = useCallback((minutes = 3) => {
     if (!snapshot) return;
     const capacity = Math.max(1, Math.floor(minutes * 60 / 45));
-    setReviewItems(dueReviewItems(snapshot).slice(0, capacity));
-  }, [snapshot]);
-
-  const startPlanReview = useCallback((plan: StoredExamPlan) => {
-    if (!snapshot) return;
-    setReviewItems(dueReviewItems(snapshot).filter((item) => plan.topicIDs.includes(item.topicID)).slice(0, 4));
-  }, [snapshot]);
+    openReview(dueReviewItems(snapshot), capacity);
+  }, [openReview, snapshot]);
 
   const startQuestionReview = useCallback((topic: KnowledgeTopic, question: Question) => {
     const state = snapshot?.progress.topics[topic.id]?.reviewCardsByQuestionID?.[question.id];
-    setReviewItems([{
+    openReview([{
       id: `direct:${topic.id}:${question.id}`,
       topicID: topic.id,
       questionID: question.id,
@@ -79,8 +77,8 @@ export function App() {
       ...(state?.dueAt ? { dueAt: state.dueAt } : {}),
       isNew: !state,
       isRevised: Boolean(state && state.questionRevision !== question.revision)
-    }]);
-  }, [snapshot]);
+    }], 1);
+  }, [openReview, snapshot]);
 
   useEffect(() => {
     void window.revember.getSnapshot().then((next) => {
@@ -123,7 +121,6 @@ export function App() {
             selectedTopicID={selectedTopic?.id}
             onSelect={(id) => { setGlobalView("topic"); setSelectedTopicID(id); }}
             onOpenHome={() => setGlobalView("home")}
-            onOpenPlanner={() => setGlobalView("plan")}
             onOpenNotes={() => setGlobalView("notes")}
             globalView={globalView}
           />
@@ -133,7 +130,7 @@ export function App() {
               <button className="icon-button" title="Capture learning checkpoint" onClick={() => setCheckpointOpen(true)}><SquarePen size={16} /></button>
               <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}><Cog size={16} /></button>
             </div>
-            {globalView === "home" ? <HomePage snapshot={snapshot} onOpenNotes={() => setGlobalView("notes")} /> : globalView === "plan" ? <PlannerPage snapshot={snapshot} onSnapshot={setSnapshot} onStartSession={startPlanReview} /> : globalView === "notes" ? <NotesPage snapshot={snapshot} onCreateCardFromPoint={(topicID, sentence) => {
+            {globalView === "home" ? <HomePage snapshot={snapshot} onStartReview={openReview} onOpenNotes={() => setGlobalView("notes")} /> : globalView === "notes" ? <NotesPage snapshot={snapshot} onCreateCardFromPoint={(topicID, sentence) => {
               setSelectedTopicID(topicID);
               setMode("cards");
               setCardSeed({ topicID, sentence, token: crypto.randomUUID() });
@@ -161,23 +158,25 @@ export function App() {
   );
 }
 
-function Sidebar({ snapshot, selectedTopicID, onSelect, onOpenHome, onOpenPlanner, onOpenNotes, globalView }: {
+function Sidebar({ snapshot, selectedTopicID, onSelect, onOpenHome, onOpenNotes, globalView }: {
   snapshot: AppSnapshot;
   selectedTopicID?: string;
   onSelect: (id: string) => void;
   onOpenHome: () => void;
-  onOpenPlanner: () => void;
   onOpenNotes: () => void;
   globalView: GlobalView;
 }) {
+  const [topicsOpen, setTopicsOpen] = useState(globalView === "topic");
+  useEffect(() => {
+    if (globalView === "topic") setTopicsOpen(true);
+  }, [globalView]);
   return (
     <aside className="sidebar">
       <Logo />
       <button className={`plan-nav ${globalView === "home" ? "selected" : ""}`} onClick={onOpenHome}><House /><span>Home</span></button>
-      <button className={`plan-nav ${globalView === "plan" ? "selected" : ""}`} onClick={onOpenPlanner}><CalendarIcon /><span>Plan</span></button>
       <button className={`plan-nav ${globalView === "notes" ? "selected" : ""}`} onClick={onOpenNotes}><SquarePen /><span>Notes</span></button>
-      <Eyebrow>Topics</Eyebrow>
-      <div className="topic-list">
+      <button className={`plan-nav topics-nav ${topicsOpen ? "selected" : ""}`} onClick={() => setTopicsOpen((current) => !current)}><BookOpen /><span>Topics</span><ChevronDown className={topicsOpen ? "rotated" : ""} /></button>
+      {topicsOpen && <div className="topic-list">
         {snapshot.topics.map((topic) => {
           const evidence = currentEvidence(topic, snapshot.progress);
           return (
@@ -188,7 +187,7 @@ function Sidebar({ snapshot, selectedTopicID, onSelect, onOpenHome, onOpenPlanne
             </button>
           );
         })}
-      </div>
+      </div>}
     </aside>
   );
 }
@@ -290,4 +289,3 @@ function Metric({ icon, label, value, caption, color }: { icon: ReactNode; label
 function ErrorToast({ message }: { message: string }) { return <div className="error-toast"><CircleAlert /> <span>{message}</span></div>; }
 function LoadingScreen() { return <div className="loading"><Logo /><RefreshCw className="spin" /></div>; }
 function EmptyKnowledge({ root }: { root: string }) { return <div className="empty-state"><BookOpen /><h1>No Topics</h1><p>Add JSON topic files to <code>{root}/topics</code>, then reload.</p></div>; }
-function CalendarIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></svg>; }
