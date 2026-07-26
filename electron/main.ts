@@ -155,6 +155,8 @@ function registerIPC(): void {
   ipcMain.handle("revember:get-capture", (_event, id: string) => state.getCapture(id));
   ipcMain.handle("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
   ipcMain.handle("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
+  ipcMain.handle("revember:get-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.getCaptureEnrichment(captureID, captureRevision));
+  ipcMain.handle("revember:retry-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.retryCaptureEnrichment(captureID, captureRevision));
   ipcMain.handle("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
 }
 

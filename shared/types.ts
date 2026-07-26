@@ -307,6 +307,31 @@ export interface SaveCaptureInput {
   status: Exclude<CaptureStatus, "archived">;
 }
 
+export type CaptureEnrichmentStatus = "queued" | "running" | "ready" | "failed" | "unavailable";
+
+export interface CaptureEnrichmentTakeaway {
+  text: string;
+  evidence: string;
+}
+
+export interface CaptureEnrichmentResult {
+  summary: string;
+  takeaways: CaptureEnrichmentTakeaway[];
+  openQuestions: string[];
+}
+
+/** A model response stored separately from the user-authored capture. */
+export interface CaptureEnrichment {
+  schemaVersion: 1;
+  captureID: string;
+  captureRevision: number;
+  status: CaptureEnrichmentStatus;
+  result?: CaptureEnrichmentResult;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RevemberAPI {
   getSnapshot(): Promise<AppSnapshot>;
   reload(): Promise<AppSnapshot>;
@@ -324,6 +349,8 @@ export interface RevemberAPI {
   getCapture(id: string): Promise<LearnerCapture>;
   saveCapture(input: SaveCaptureInput): Promise<LearnerCapture>;
   archiveCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
+  getCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment | undefined>;
+  retryCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment>;
   setNotificationsEnabled(enabled: boolean): Promise<AppSnapshot>;
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void;
   onNavigate(callback: (route: string) => void): () => void;

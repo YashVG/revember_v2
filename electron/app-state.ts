@@ -38,6 +38,8 @@ import { planExamReviews } from "../shared/planner";
 import { createTopicCard, editTopicCard, retireTopicCard } from "./topic-authoring";
 import { emptyPlanner, PlannerStore } from "./planner-store";
 import { CaptureStore } from "./capture-store";
+import { NoteEnrichmentCoordinator } from "./note-enrichment-coordinator";
+import type { LocalNoteModel } from "./ollama-note-model";
 
 interface StatePaths {
   settingsPath: string;
@@ -53,9 +55,11 @@ export class RevemberState extends EventEmitter {
   private errorMessage?: string;
   private watchers: FSWatcher[] = [];
   private reloadTimer?: NodeJS.Timeout;
+  private readonly noteEnrichment: NoteEnrichmentCoordinator;
 
-  constructor(private readonly paths: StatePaths) {
+  constructor(private readonly paths: StatePaths, noteModel?: LocalNoteModel) {
     super();
+    this.noteEnrichment = new NoteEnrichmentCoordinator(noteModel);
     this.settings = this.loadSettings();
     this.reloadFromDisk();
     this.startWatching();
@@ -178,15 +182,40 @@ export class RevemberState extends EventEmitter {
   }
 
   saveCapture(input: SaveCaptureInput): LearnerCapture {
-    return new CaptureStore(this.settings.knowledgeRootPath).save(input, new Date(), (topicID) => {
+    const capture = new CaptureStore(this.settings.knowledgeRootPath).save(input, new Date(), (topicID) => {
       if (!this.topics.some((topic) => topic.id === topicID)) {
         throw new Error(`Capture references missing topic ${topicID}.`);
       }
     });
+    try {
+      this.noteEnrichment.enqueue(capture, this.settings.knowledgeRootPath);
+    } catch {
+      // A model-status write must not make an already-persisted learner note fail to save.
+    }
+    return capture;
   }
 
   archiveCapture(id: string, expectedRevision: number): LearnerCapture {
     return new CaptureStore(this.settings.knowledgeRootPath).archive(id, expectedRevision);
+  }
+
+  getCaptureEnrichment(captureID: string, captureRevision: number) {
+    const enrichment = this.noteEnrichment.get(captureID, captureRevision, this.settings.knowledgeRootPath);
+    if (enrichment && enrichment.status !== "queued" && enrichment.status !== "running") return enrichment;
+    const capture = this.getCapture(captureID);
+    if (capture.revision !== captureRevision) return enrichment;
+    if (capture.status === "archived") return enrichment;
+    return enrichment
+      ? this.noteEnrichment.resume(capture, this.settings.knowledgeRootPath)
+      : this.noteEnrichment.enqueue(capture, this.settings.knowledgeRootPath);
+  }
+
+  retryCaptureEnrichment(captureID: string, captureRevision: number) {
+    const capture = this.getCapture(captureID);
+    if (capture.revision !== captureRevision) {
+      throw new Error("This note changed before its study response could be retried. Open the current revision instead.");
+    }
+    return this.noteEnrichment.retry(capture, this.settings.knowledgeRootPath);
   }
 
   async createCard(input: CreateCardInput): Promise<CardMutationResult> {
@@ -232,6 +261,7 @@ export class RevemberState extends EventEmitter {
   }
 
   dispose(): void {
+    this.noteEnrichment.dispose();
     for (const watcher of this.watchers) watcher.close();
     this.watchers = [];
     if (this.reloadTimer) clearTimeout(this.reloadTimer);

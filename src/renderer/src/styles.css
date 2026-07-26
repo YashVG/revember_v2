@@ -102,6 +102,21 @@ svg { flex: none; }
 .note-points li > span::before { content: counter(note-point) "."; display: inline-block; width: 18px; color: var(--cyan); font-weight: 700; }
 .note-points .point-card-button { justify-self: start; }
 .note-reader-empty-points { margin: 0; color: var(--secondary); font-size: 11px; line-height: 1.5; }
+.note-enrichment { display: grid; gap: 11px; margin-top: 25px; padding-top: 22px; border-top: 1px solid var(--hairline); }
+.note-enrichment .note-section-heading { margin: 0; }
+.note-enrichment-status { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--secondary); font-size: 11px; line-height: 1.5; }
+.note-enrichment-status svg { width: 14px; color: var(--cyan); }
+.note-enrichment-result { display: grid; gap: 12px; }
+.note-enrichment-result > p { margin: 0; color: var(--ink); font-size: 12px; line-height: 1.55; }
+.note-enrichment-result ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.note-enrichment-result li { display: grid; gap: 5px; padding: 10px 11px; border: 1px solid var(--control-border); border-radius: 8px; background: rgba(255,255,255,.018); }
+.note-enrichment-result li strong { color: var(--ink); font-size: 11px; line-height: 1.45; }
+.note-enrichment-result q { color: var(--secondary); font-size: 10px; line-height: 1.45; }
+.note-enrichment-questions { display: grid; gap: 7px; }
+.note-enrichment-questions > span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; }
+.note-enrichment-questions li { padding-left: 23px; }
+.note-enrichment-error { display: grid; gap: 9px; }
+.note-enrichment-error p { margin: 0; color: #ffb2ba; font-size: 11px; line-height: 1.5; }
 .note-reader-empty { min-height: 560px; display: grid; place-items: center; align-content: center; gap: 10px; padding: 30px; color: var(--secondary); text-align: center; }
 .note-reader-empty > svg { width: 32px; height: 32px; color: var(--cyan); }
 .note-reader-empty h2 { margin: 0; color: var(--ink); font-size: 17px; }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArrowLeft, FileText, LoaderCircle, Pencil, Plus, Save, X } from "lucide-react";
-import type { AppSnapshot, CaptureConcisePointInput, CaptureStatus, CaptureSummary, LearnerCapture } from "../../../../shared/types";
+import { Archive, ArrowLeft, FileText, LoaderCircle, Pencil, Plus, RefreshCw, Save, Sparkles, X } from "lucide-react";
+import type { AppSnapshot, CaptureConcisePointInput, CaptureEnrichment, CaptureStatus, CaptureSummary, LearnerCapture } from "../../../../shared/types";
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import { Eyebrow, Tag } from "./ui";
 import { InlineError } from "./review-ui";
@@ -274,9 +274,93 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onCreateCardFromPoin
           ) : (
             <p className="note-reader-empty-points">No takeaways yet.</p>
           )}
+          <NoteEnrichmentPanel capture={capture} />
         </section>
       </div>
     </article>
+  );
+}
+
+function NoteEnrichmentPanel({ capture }: { capture: LearnerCapture }) {
+  const [enrichment, setEnrichment] = useState<CaptureEnrichment>();
+  const [error, setError] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    setEnrichment(undefined);
+    setError(undefined);
+    const refresh = async () => {
+      try {
+        const next = await window.revember.getCaptureEnrichment(capture.id, capture.revision);
+        if (!alive) return;
+        setEnrichment(next);
+        if (next?.status === "queued" || next?.status === "running") timer = window.setTimeout(() => void refresh(), 1_200);
+      } catch (cause) {
+        if (alive) setError(toErrorMessage(cause));
+      }
+    };
+    void refresh();
+    return () => {
+      alive = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [capture.id, capture.revision, refreshKey]);
+
+  const retry = async () => {
+    try {
+      setRetrying(true);
+      setError(undefined);
+      setEnrichment(await window.revember.retryCaptureEnrichment(capture.id, capture.revision));
+      setRefreshKey((current) => current + 1);
+    } catch (cause) {
+      setError(toErrorMessage(cause));
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <section className="note-enrichment" aria-live="polite" aria-labelledby="note-enrichment-heading">
+      <div className="note-section-heading">
+        <Eyebrow id="note-enrichment-heading">Local study response</Eyebrow>
+        <span>llama3</span>
+      </div>
+      {error ? <InlineError message={error} /> : enrichment?.status === "ready" && enrichment.result ? (
+        <div className="note-enrichment-result">
+          <p>{enrichment.result.summary}</p>
+          {enrichment.result.takeaways.length > 0 && (
+            <ul>
+              {enrichment.result.takeaways.map((takeaway, index) => (
+                <li key={`${takeaway.evidence}-${index}`}>
+                  <strong>{takeaway.text}</strong>
+                  <q>{takeaway.evidence}</q>
+                </li>
+              ))}
+            </ul>
+          )}
+          {enrichment.result.openQuestions.length > 0 && (
+            <div className="note-enrichment-questions">
+              <span>Questions to revisit</span>
+              <ul>{enrichment.result.openQuestions.map((question) => <li key={question}>{question}</li>)}</ul>
+            </div>
+          )}
+        </div>
+      ) : enrichment?.status === "queued" || enrichment?.status === "running" ? (
+        <p className="note-enrichment-status"><LoaderCircle className="spin" /> Preparing a grounded response locally…</p>
+      ) : enrichment?.status === "failed" || enrichment?.status === "unavailable" ? (
+        <div className="note-enrichment-error">
+          <p>{enrichment.errorMessage}</p>
+          <button type="button" className="text-button" disabled={retrying} onClick={() => void retry()}>
+            <RefreshCw className={retrying ? "spin" : undefined} /> {retrying ? "Retrying…" : "Retry local response"}
+          </button>
+        </div>
+      ) : (
+        <p className="note-enrichment-status"><Sparkles /> A local study response appears after this note is saved.</p>
+      )}
+    </section>
   );
 }
 

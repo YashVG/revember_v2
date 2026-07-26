@@ -117,6 +117,8 @@ The end-to-end test launches Electron against temporary knowledge and progress p
 ## Documentation and Support
 
 - [Architecture and data contracts](docs/architecture/closed-loop-learning-system.md)
+- [Local note enrichment](docs/architecture/local-note-enrichment.md)
+- [Local intelligence research record](docs/architecture/local-intelligence-research.md)
 - [Knowledge authoring workflow](RevemberKnowledge/LEARNING_WORKFLOW.md)
 - [MCP server guide](mcp-server/README.md)
 - [Contributing](CONTRIBUTING.md)

@@ -5,6 +5,7 @@ import type {
   CardMutationResult,
   CaptureCheckpointInput,
   CaptureCheckpointResult,
+  CaptureEnrichment,
   CaptureSummary,
   CommitReviewInput,
   CommitReviewResult,
@@ -35,6 +36,8 @@ const api: RevemberAPI = {
   getCapture: (id: string) => invoke<LearnerCapture>("revember:get-capture", id),
   saveCapture: (input: SaveCaptureInput) => invoke<LearnerCapture>("revember:save-capture", input),
   archiveCapture: (id: string, expectedRevision: number) => invoke<LearnerCapture>("revember:archive-capture", id, expectedRevision),
+  getCaptureEnrichment: (captureID: string, captureRevision: number) => invoke<CaptureEnrichment | undefined>("revember:get-capture-enrichment", captureID, captureRevision),
+  retryCaptureEnrichment: (captureID: string, captureRevision: number) => invoke<CaptureEnrichment>("revember:retry-capture-enrichment", captureID, captureRevision),
   setNotificationsEnabled: (enabled: boolean) => invoke<AppSnapshot>("revember:set-notifications", enabled),
   onSnapshot: (callback) => subscribe("revember:snapshot", callback),
   onNavigate: (callback) => subscribe("revember:navigate", callback)
