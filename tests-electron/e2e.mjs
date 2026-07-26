@@ -53,12 +53,24 @@ try {
   assert.match(await graphNodes.first().getAttribute("aria-label"), /Concept:/);
 
   const graphGroup = graph.locator(":scope > g").last();
+  const graphHandle = await graph.elementHandle();
+  const graphGroupHandle = await graphGroup.elementHandle();
+  assert.ok(graphHandle);
+  assert.ok(graphGroupHandle);
+  const waitForGraphTransformChange = (previousTransform) => window.waitForFunction(
+    ([element, previous]) => element.getAttribute("transform") !== previous,
+    [graphGroupHandle, previousTransform]
+  );
+  const waitForGraphTransform = (expectedTransform) => window.waitForFunction(
+    ([element, expected]) => element.getAttribute("transform") === expected,
+    [graphGroupHandle, expectedTransform]
+  );
   const initialTransform = await graphGroup.getAttribute("transform");
   await window.getByRole("button", { name: "Zoom in" }).click();
-  await window.waitForTimeout(100);
+  await waitForGraphTransformChange(initialTransform);
   assert.notEqual(await graphGroup.getAttribute("transform"), initialTransform);
   await window.getByRole("button", { name: "Reset graph view" }).click();
-  await window.waitForTimeout(50);
+  await waitForGraphTransform("translate(0 0) scale(1)");
   assert.equal(await graphGroup.getAttribute("transform"), "translate(0 0) scale(1)");
 
   await window.getByRole("button", { name: "Fit graph to view" }).click();
@@ -67,11 +79,11 @@ try {
   await graph.focus();
   const beforeArrowPan = await graphGroup.getAttribute("transform");
   await window.keyboard.press("ArrowRight");
-  await window.waitForTimeout(50);
+  await waitForGraphTransformChange(beforeArrowPan);
   assert.notEqual(await graphGroup.getAttribute("transform"), beforeArrowPan);
   const beforeKeyboardZoom = await graphGroup.getAttribute("transform");
   await window.keyboard.press("+");
-  await window.waitForTimeout(50);
+  await waitForGraphTransformChange(beforeKeyboardZoom);
   assert.notEqual(await graphGroup.getAttribute("transform"), beforeKeyboardZoom);
 
   const graphBox = await graph.boundingBox();
@@ -85,12 +97,7 @@ try {
     clientY: graphBox.y + graphBox.height / 4,
     deltaY: -180
   });
-  const graphGroupHandle = await graphGroup.elementHandle();
-  assert.ok(graphGroupHandle);
-  await window.waitForFunction(
-    ([element, previousTransform]) => element.getAttribute("transform") !== previousTransform,
-    [graphGroupHandle, beforeWheelZoom]
-  );
+  await waitForGraphTransformChange(beforeWheelZoom);
   assert.notEqual(await graphGroup.getAttribute("transform"), beforeWheelZoom);
   assert.equal(await window.locator(".main-stage").evaluate((element) => element.scrollTop), scrollBefore);
 
@@ -98,25 +105,48 @@ try {
   await window.getByRole("button", { name: "Zoom in" }).click();
   await window.getByRole("button", { name: "Zoom in" }).click();
   const beforeDrag = await graphGroup.getAttribute("transform");
-  await window.mouse.move(graphBox.x + graphBox.width / 2, graphBox.y + graphBox.height / 5);
-  await window.mouse.down();
-  await window.mouse.move(graphBox.x + graphBox.width / 2 + 90, graphBox.y + graphBox.height / 5 + 20);
-  await window.mouse.up();
-  await window.waitForTimeout(100);
+  const dragStart = await graph.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    for (let y = 20; y <= bounds.height - 40; y += 30) {
+      for (let x = 20; x <= bounds.width - 110; x += 30) {
+        const target = document.elementFromPoint(bounds.left + x, bounds.top + y);
+        if (target && element.contains(target) && !target.closest(".graph-node")) return { x, y };
+      }
+    }
+    throw new Error("No unobstructed graph background point is available for panning");
+  });
+  await graph.dragTo(graph, {
+    sourcePosition: dragStart,
+    targetPosition: { x: dragStart.x + 90, y: dragStart.y + 20 }
+  });
+  await waitForGraphTransformChange(beforeDrag);
   assert.notEqual(await graphGroup.getAttribute("transform"), beforeDrag);
 
   const conceptFilter = window.locator(".graph-controls button").nth(0);
+  const conceptFilterHandle = await conceptFilter.elementHandle();
+  assert.ok(conceptFilterHandle);
   assert.equal(await conceptFilter.getAttribute("aria-pressed"), "true");
   await conceptFilter.click();
-  await window.waitForTimeout(100);
+  await window.waitForFunction(
+    ([filter, canvas]) => filter.getAttribute("aria-pressed") === "false"
+      && canvas.querySelectorAll(".graph-node").length === 13,
+    [conceptFilterHandle, graphHandle]
+  );
   assert.equal(await conceptFilter.getAttribute("aria-pressed"), "false");
   assert.equal(await graphNodes.count(), 13);
   await conceptFilter.click();
-  await window.waitForTimeout(100);
+  await window.waitForFunction(
+    ([filter, canvas]) => filter.getAttribute("aria-pressed") === "true"
+      && canvas.querySelectorAll(".graph-node").length === 22,
+    [conceptFilterHandle, graphHandle]
+  );
   assert.equal(await graphNodes.count(), 22);
 
   await graphNodes.first().hover();
-  await window.waitForTimeout(50);
+  await window.waitForFunction(
+    (canvas) => canvas.querySelector(".graph-node.dimmed") !== null,
+    graphHandle
+  );
   assert.ok(await graph.locator(".graph-node.dimmed").count() > 0);
   await graphNodes.nth(1).focus();
   await window.keyboard.press("Enter");
