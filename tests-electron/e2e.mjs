@@ -40,7 +40,7 @@ try {
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
   await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
-  await window.getByRole("heading", { name: "Bluetooth Low Energy" }).waitFor();
+  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   assert.equal(await window.getByText("Local JSON").isVisible(), true);
 
   await window.getByRole("button", { name: "Graph", exact: true }).click();
