@@ -323,6 +323,14 @@ try {
   await reopenedNoteEditor.getByRole("status").filter({ hasText: /^Conflict$/ }).waitFor();
   assert.equal(await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).inputValue(), localUnsavedRawText, "a conflict must retain local unsaved note text");
   assert.deepEqual(await readFile(capturePath), externalCaptureBytes, "a conflict must not overwrite the external capture revision");
+  const discardDialogPromise = window.waitForEvent("dialog");
+  const cancelEditorPromise = reopenedNoteEditor.getByRole("button", { name: "Cancel", exact: true }).click();
+  const discardDialog = await discardDialogPromise;
+  assert.equal(discardDialog.type(), "confirm");
+  assert.equal(discardDialog.message(), "Discard your unsaved note changes?");
+  await discardDialog.accept();
+  await cancelEditorPromise;
+  await reopenedNoteEditor.waitFor({ state: "detached" });
   console.log("Electron E2E passed.");
 } finally {
   try {
