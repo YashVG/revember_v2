@@ -5,6 +5,8 @@ import { ConfirmationDialog } from "./ConfirmationDialog";
 import { Eyebrow, Tag } from "./ui";
 import { InlineError } from "./review-ui";
 import { useDialogFocus } from "./useDialogFocus";
+import type { BeforeLeaveGuard } from "../navigationGuard";
+import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { resolveRevisionConflict, toErrorMessage } from "../utils";
 
 type EditorPoint = CaptureConcisePointInput;
@@ -36,9 +38,10 @@ function summaryOf(capture: LearnerCapture): CaptureSummary {
 type NotesPageProps = {
   snapshot: AppSnapshot;
   onCreateCardFromPoint: (topicID: string, sentence: string) => void;
+  onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 };
 
-export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
+export function NotesPage({ snapshot, onCreateCardFromPoint, onRegisterBeforeLeave }: NotesPageProps) {
   const [summaries, setSummaries] = useState<CaptureSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string>();
@@ -47,6 +50,8 @@ export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
   const [selectedCapture, setSelectedCapture] = useState<LearnerCapture>();
   const [editor, setEditor] = useState<LearnerCapture | "new">();
   const [archiveTarget, setArchiveTarget] = useState<CaptureSummary>();
+  const [finishingID, setFinishingID] = useState<string>();
+  const finishInFlight = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +75,7 @@ export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
     }
 
     let alive = true;
+    setSelectedCapture(undefined);
     setLoadingID(selectedID);
     // The list is metadata-only. This is the one deliberate full-record read.
     void window.revember.getCapture(selectedID)
@@ -77,7 +83,10 @@ export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
         if (alive) setSelectedCapture(capture);
       })
       .catch((cause) => {
-        if (alive) setListError(toErrorMessage(cause));
+        if (alive) {
+          setSelectedCapture(undefined);
+          setListError(toErrorMessage(cause));
+        }
       })
       .finally(() => {
         if (alive) setLoadingID(undefined);
@@ -102,6 +111,21 @@ export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
     }
   };
 
+  const finishCapture = async (capture: LearnerCapture) => {
+    if (finishInFlight.current) return;
+    try {
+      finishInFlight.current = true;
+      setFinishingID(capture.id);
+      setListError(undefined);
+      replaceSummary(await window.revember.finishCapture(capture.id, capture.revision));
+    } catch (cause) {
+      setListError(resolveRevisionConflict(cause, CAPTURE_CONFLICT_MESSAGE).message);
+    } finally {
+      finishInFlight.current = false;
+      setFinishingID(undefined);
+    }
+  };
+
   const active = summaries.filter((item) => item.status !== "archived");
   const archived = summaries.filter((item) => item.status === "archived");
 
@@ -114,6 +138,7 @@ export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
           onClose={() => setEditor(undefined)}
           onSaved={replaceSummary}
           onCreateCardFromPoint={onCreateCardFromPoint}
+          onRegisterBeforeLeave={onRegisterBeforeLeave}
         />
       </div>
     );
@@ -179,6 +204,8 @@ export function NotesPage({ snapshot, onCreateCardFromPoint }: NotesPageProps) {
                 snapshot={snapshot}
                 onEdit={() => setEditor(selectedCapture)}
                 onArchive={() => setArchiveTarget(summaryOf(selectedCapture))}
+                onFinish={() => void finishCapture(selectedCapture)}
+                finishing={finishingID === selectedCapture.id}
                 onCreateCardFromPoint={onCreateCardFromPoint}
               />
             ) : (
@@ -222,11 +249,13 @@ function NoteListItem({ note, snapshot, selected, loading, onSelect }: {
   );
 }
 
-function NoteReader({ capture, snapshot, onEdit, onArchive, onCreateCardFromPoint }: {
+function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing, onCreateCardFromPoint }: {
   capture: LearnerCapture;
   snapshot: AppSnapshot;
   onEdit: () => void;
   onArchive: () => void;
+  onFinish: () => void;
+  finishing: boolean;
   onCreateCardFromPoint: (topicID: string, sentence: string) => void;
 }) {
   return (
@@ -241,6 +270,12 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onCreateCardFromPoin
           </p>
         </div>
         <div className="note-reader-actions">
+          {capture.status === "draft" && (
+            <button className="primary" type="button" disabled={finishing || !capture.rawText.trim()} onClick={onFinish}>
+              {finishing ? <LoaderCircle className="spin" /> : <Sparkles />}
+              {finishing ? "Finishing…" : "Finish lecture"}
+            </button>
+          )}
           <button type="button" onClick={onEdit}><Pencil /> Edit</button>
           <button type="button" className="danger-button" onClick={onArchive}><Archive /> Archive</button>
         </div>
@@ -358,7 +393,12 @@ function NoteEnrichmentPanel({ capture }: { capture: LearnerCapture }) {
           </button>
         </div>
       ) : (
-        <p className="note-enrichment-status"><Sparkles /> A local study response appears after this note is saved.</p>
+        <p className="note-enrichment-status">
+          <Sparkles />
+          {capture.status === "draft"
+            ? "Finish this lecture when the note is ready for local analysis."
+            : "Preparing this finished note for local analysis…"}
+        </p>
       )}
     </section>
   );
@@ -375,12 +415,13 @@ function NoteReaderEmpty({ hasNotes, onCreate }: { hasNotes: boolean; onCreate: 
   );
 }
 
-function NoteEditor({ snapshot, capture, onClose, onSaved, onCreateCardFromPoint }: {
+function NoteEditor({ snapshot, capture, onClose, onSaved, onCreateCardFromPoint, onRegisterBeforeLeave }: {
   snapshot: AppSnapshot;
   capture?: LearnerCapture;
   onClose: () => void;
   onSaved: (capture: LearnerCapture) => void;
   onCreateCardFromPoint: (topicID: string, sentence: string) => void;
+  onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 }) {
   const [savedCapture, setSavedCapture] = useState(capture);
   const [initial, setInitial] = useState<NoteForm>(() => formFromCapture(capture, snapshot));
@@ -389,6 +430,7 @@ function NoteEditor({ snapshot, capture, onClose, onSaved, onCreateCardFromPoint
   const [error, setError] = useState<string>();
   const saveInFlight = useRef(false);
   const dirty = !sameNoteForm(form, initial);
+  useBeforeUnloadGuard(dirty);
 
   const resetToDraft = () => {
     if (saveState !== "saving") {
@@ -397,14 +439,23 @@ function NoteEditor({ snapshot, capture, onClose, onSaved, onCreateCardFromPoint
     }
   };
 
+  const confirmDiscard = useCallback(
+    () => !dirty || window.confirm("Discard your unsaved note changes?"),
+    [dirty]
+  );
   const requestClose = useCallback(() => {
-    if (!dirty || window.confirm("Discard your unsaved note changes?")) onClose();
-  }, [dirty, onClose]);
+    if (confirmDiscard()) onClose();
+  }, [confirmDiscard, onClose]);
   const dialog = useDialogFocus(requestClose);
+
+  useEffect(() => {
+    onRegisterBeforeLeave(dirty ? confirmDiscard : undefined);
+    return () => onRegisterBeforeLeave(undefined);
+  }, [confirmDiscard, dirty, onRegisterBeforeLeave]);
 
   const updateForm = (changes: Partial<NoteForm>) => {
     resetToDraft();
-    setForm((current) => ({ ...current, ...changes }));
+    setForm((current) => ({ ...current, ...changes, status: "draft" }));
   };
 
   const updatePoint = (index: number, text: string) => {
@@ -415,6 +466,10 @@ function NoteEditor({ snapshot, capture, onClose, onSaved, onCreateCardFromPoint
 
   const save = useCallback(async () => {
     if (saveInFlight.current) return;
+    if (savedCapture && !dirty) {
+      setSaveState("saved");
+      return;
+    }
     if (!form.topicID || !form.title.trim() || form.points.some((point) => !point.text.trim())) {
       setSaveState("error");
       setError("Add a topic and title. Each point needs text.");
@@ -445,7 +500,7 @@ function NoteEditor({ snapshot, capture, onClose, onSaved, onCreateCardFromPoint
     } finally {
       saveInFlight.current = false;
     }
-  }, [form, onSaved, savedCapture, snapshot]);
+  }, [dirty, form, onSaved, savedCapture, snapshot]);
 
   const saveRef = useRef(save);
   saveRef.current = save;

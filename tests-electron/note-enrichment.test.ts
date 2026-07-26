@@ -1,15 +1,17 @@
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CaptureEnrichmentResult, LearnerCapture } from "../shared/types";
 import { RevemberState } from "../electron/app-state";
 import { NoteEnrichmentCoordinator } from "../electron/note-enrichment-coordinator";
 import { NoteEnrichmentStore } from "../electron/note-enrichment-store";
 import {
+  defaultOllamaURL,
   maximumNoteSourceCharacters,
   OllamaNoteModel,
   OllamaUnavailableError,
+  resolveOllamaURL,
   truncateNoteSource,
   type LocalNoteModel
 } from "../electron/ollama-note-model";
@@ -17,6 +19,7 @@ import {
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
@@ -24,6 +27,32 @@ async function fixture() {
   const root = await fs.mkdtemp(path.join(tmpdir(), "revember-note-enrichment-"));
   roots.push(root);
   return root;
+}
+
+async function stateFixture() {
+  const root = await fixture();
+  const settingsPath = path.join(root, "app-data", "settings.json");
+  const progressPath = path.join(root, "app-data", "progress.json");
+  await fs.mkdir(path.join(root, "topics"), { recursive: true });
+  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+  await fs.writeFile(path.join(root, "topics", "bits.json"), `${JSON.stringify({
+    schemaVersion: 2,
+    revision: 1,
+    id: "bits",
+    title: "Bits",
+    summary: "Binary foundations",
+    sources: [],
+    relationships: [],
+    concepts: [],
+    gaps: [],
+    questions: []
+  }, null, 2)}\n`);
+  await fs.writeFile(settingsPath, `${JSON.stringify({
+    knowledgeRootPath: root,
+    progressPath,
+    notificationsEnabled: false
+  }, null, 2)}\n`);
+  return { root, settingsPath, progressPath };
 }
 
 function capture(overrides: Partial<LearnerCapture> = {}): LearnerCapture {
@@ -63,6 +92,65 @@ const validResult = (
 });
 
 describe("local note enrichment", () => {
+  it("allows only an explicit loopback Ollama generate endpoint", () => {
+    expect(resolveOllamaURL(undefined)).toBe(defaultOllamaURL);
+    expect(resolveOllamaURL("http://127.0.0.1:54321/api/generate"))
+      .toBe("http://127.0.0.1:54321/api/generate");
+    expect(resolveOllamaURL("http://[::1]:54321/api/generate"))
+      .toBe("http://[::1]:54321/api/generate");
+    for (const unsafeURL of [
+      "https://127.0.0.1:11434/api/generate",
+      "http://localhost:11434/api/generate",
+      "http://192.168.1.20:11434/api/generate",
+      "http://127.0.0.1:11434/other",
+      "http://user:secret@127.0.0.1:11434/api/generate",
+      "http://127.0.0.1:11434/api/generate?model=other"
+    ]) {
+      expect(() => resolveOllamaURL(unsafeURL)).toThrow(/loopback|must target/i);
+    }
+  });
+
+  it("contains an invalid Ollama override until explicit enrichment", async () => {
+    vi.stubEnv("REVEMBER_OLLAMA_URL", "https://remote.example/api/generate");
+    const { root, settingsPath, progressPath } = await stateFixture();
+    const state = new RevemberState({
+      settingsPath,
+      bundledKnowledgeRoot: root,
+      legacyProgressPath: progressPath
+    });
+    try {
+      expect(state.snapshot.topics.map(({ id }) => id)).toEqual(["bits"]);
+      const draft = state.saveCapture({
+        expectedRevision: 0,
+        topicID: "bits",
+        title: "Lecture",
+        rawText: "A bit has two possible values.",
+        concisePoints: [],
+        status: "draft"
+      });
+      expect(state.getCapture(draft.id)).toMatchObject({
+        id: draft.id,
+        rawText: draft.rawText,
+        status: "draft"
+      });
+      expect(state.getCaptureEnrichment(draft.id, draft.revision)).toBeUndefined();
+
+      const ready = state.finishCapture(draft.id, draft.revision);
+      let enrichment = state.getCaptureEnrichment(ready.id, ready.revision);
+      for (let attempt = 0; attempt < 20 && enrichment?.status !== "unavailable"; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        enrichment = state.getCaptureEnrichment(ready.id, ready.revision);
+      }
+      expect(enrichment).toMatchObject({
+        status: "unavailable",
+        errorMessage: expect.stringMatching(/Ollama or llama3 is unavailable.*retry/i)
+      });
+      expect(state.getCapture(ready.id).rawText).toBe(draft.rawText);
+    } finally {
+      state.dispose();
+    }
+  });
+
   if (process.env.REVEMBER_LIVE_CAPTURE_PATH) {
     it("returns grounded evidence from the installed Ollama model", async () => {
       const raw = JSON.parse(await fs.readFile(process.env.REVEMBER_LIVE_CAPTURE_PATH!, "utf8")) as LearnerCapture;
@@ -110,6 +198,25 @@ describe("local note enrichment", () => {
     const fileMode = (await fs.stat(path.join(root, "capture-enrichments", `${note.id}-${note.revision}.json`))).mode & 0o777;
     expect(fileMode).toBe(0o600);
     coordinator.dispose();
+  });
+
+  it("rejects a persisted ready response without any takeaways", async () => {
+    const root = await fixture();
+    const note = capture();
+
+    expect(() => new NoteEnrichmentStore(root).write({
+      schemaVersion: 1,
+      captureID: note.id,
+      captureRevision: note.revision,
+      status: "ready",
+      result: {
+        summary: "No grounded takeaways.",
+        takeaways: [],
+        openQuestions: []
+      },
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt
+    })).toThrow(/between 1 and 4 takeaways/i);
   });
 
   it("materializes exact evidence from schema-constrained source IDs", async () => {
@@ -344,6 +451,32 @@ describe("local note enrichment", () => {
     coordinator.dispose();
   });
 
+  it("contains background store failures and reports a recoverable warning", async () => {
+    const root = await fixture();
+    const warnings: string[] = [];
+    const enrichmentDirectory = path.join(root, "capture-enrichments");
+    const movedDirectory = path.join(root, "capture-enrichments-before-failure");
+    const coordinator = new NoteEnrichmentCoordinator({
+      enrich: async () => {
+        await fs.rename(enrichmentDirectory, movedDirectory);
+        await fs.writeFile(enrichmentDirectory, "blocked");
+        return validResult();
+      }
+    }, (message) => warnings.push(message));
+    const note = capture();
+
+    coordinator.enqueue(note, root);
+    await coordinator.waitForIdle();
+
+    expect(warnings).not.toHaveLength(0);
+    expect(warnings[0]).toMatch(/knowledge-folder access.*retry/i);
+    expect(JSON.parse(await fs.readFile(
+      path.join(movedDirectory, `${note.id}-${note.revision}.json`),
+      "utf8"
+    )).status).toBe("running");
+    coordinator.dispose();
+  });
+
   it("records unavailable Ollama and can retry the same revision", async () => {
     const root = await fixture();
     let attempts = 0;
@@ -466,9 +599,182 @@ describe("local note enrichment", () => {
     coordinator.dispose();
   });
 
+  it("coalesces queued revisions of one capture so only the latest runs", async () => {
+    const root = await fixture();
+    let releaseBlocker: (() => void) | undefined;
+    const calls: string[] = [];
+    const coordinator = new NoteEnrichmentCoordinator({
+      enrich: async (input) => {
+        calls.push(input.rawText);
+        if (input.rawText === "Blocker fact.") {
+          await new Promise<void>((resolve) => { releaseBlocker = resolve; });
+        }
+        return validResult(input.rawText);
+      }
+    });
+    const blocker = capture({ id: "capture-blocker", rawText: "Blocker fact.", status: "ready" });
+    const oldRevision = capture({ rawText: "Old fact.", status: "ready" });
+    const latestRevision = capture({
+      revision: 2,
+      rawText: "Latest fact.",
+      status: "ready",
+      updatedAt: "2026-07-25T10:01:00.000Z"
+    });
+
+    coordinator.enqueue(blocker, root);
+    coordinator.enqueue(oldRevision, root);
+    coordinator.enqueue(latestRevision, root);
+    releaseBlocker?.();
+    await coordinator.waitForIdle();
+
+    expect(calls).toEqual(["Blocker fact.", "Latest fact."]);
+    expect(new NoteEnrichmentStore(root).get(oldRevision.id, oldRevision.revision)).toMatchObject({
+      status: "failed",
+      errorMessage: expect.stringMatching(/newer note revision/i)
+    });
+    expect(new NoteEnrichmentStore(root).get(latestRevision.id, latestRevision.revision)).toMatchObject({
+      status: "ready",
+      result: validResult("Latest fact.")
+    });
+    coordinator.dispose();
+  });
+
+  it("cancels a running obsolete revision when a newer one is queued", async () => {
+    const root = await fixture();
+    const calls: string[] = [];
+    let firstAborted = false;
+    const coordinator = new NoteEnrichmentCoordinator({
+      enrich: async (input, signal) => {
+        calls.push(input.rawText);
+        if (input.rawText === "Old fact.") {
+          await new Promise<void>((_resolve, reject) => {
+            signal.addEventListener("abort", () => {
+              firstAborted = true;
+              reject(new Error("cancelled"));
+            }, { once: true });
+          });
+        }
+        return validResult(input.rawText);
+      }
+    });
+    const oldRevision = capture({ rawText: "Old fact.", status: "ready" });
+    const latestRevision = capture({
+      revision: 2,
+      rawText: "Latest fact.",
+      status: "ready",
+      updatedAt: "2026-07-25T10:01:00.000Z"
+    });
+
+    coordinator.enqueue(oldRevision, root);
+    coordinator.enqueue(latestRevision, root);
+    await coordinator.waitForIdle();
+
+    expect(firstAborted).toBe(true);
+    expect(calls).toEqual(["Old fact.", "Latest fact."]);
+    expect(new NoteEnrichmentStore(root).get(oldRevision.id, oldRevision.revision)).toMatchObject({
+      status: "failed",
+      errorMessage: expect.stringMatching(/newer note revision/i)
+    });
+    expect(new NoteEnrichmentStore(root).get(latestRevision.id, latestRevision.revision)?.status).toBe("ready");
+    coordinator.dispose();
+  });
+
+  it("saves drafts without analysis and analyzes only the explicitly finished revision", async () => {
+    const { root, settingsPath, progressPath } = await stateFixture();
+    const calls: string[] = [];
+    const state = new RevemberState({
+      settingsPath,
+      bundledKnowledgeRoot: root,
+      legacyProgressPath: progressPath
+    }, {
+      enrich: async (input) => {
+        calls.push(input.rawText);
+        return validResult(input.rawText);
+      }
+    });
+    try {
+      const draft = state.saveCapture({
+        expectedRevision: 0,
+        topicID: "bits",
+        title: "Lecture",
+        rawText: "A bit has two possible values.",
+        concisePoints: [],
+        status: "draft"
+      });
+      expect(calls).toEqual([]);
+      expect(state.getCaptureEnrichment(draft.id, draft.revision)).toBeUndefined();
+      expect(calls).toEqual([]);
+
+      const latestDraft = state.saveCapture({
+        id: draft.id,
+        expectedRevision: draft.revision,
+        topicID: draft.topicID,
+        title: draft.title,
+        rawText: "A bit has two values: zero and one.",
+        concisePoints: [],
+        status: "draft"
+      });
+      expect(calls).toEqual([]);
+
+      const ready = state.finishCapture(latestDraft.id, latestDraft.revision);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(ready).toMatchObject({ revision: 3, status: "ready", rawText: latestDraft.rawText });
+      expect(calls).toEqual([latestDraft.rawText]);
+      expect(new NoteEnrichmentStore(root).get(ready.id, ready.revision)?.status).toBe("ready");
+      expect(state.getCapture(draft.id).rawText).toBe(latestDraft.rawText);
+    } finally {
+      state.dispose();
+    }
+  });
+
+  it("finishes durably when initial queue storage fails and recovers after the folder is repaired", async () => {
+    const { root, settingsPath, progressPath } = await stateFixture();
+    const calls: string[] = [];
+    const state = new RevemberState({
+      settingsPath,
+      bundledKnowledgeRoot: root,
+      legacyProgressPath: progressPath
+    }, {
+      enrich: async (input) => {
+        calls.push(input.rawText);
+        return validResult(input.rawText);
+      }
+    });
+    try {
+      const draft = state.saveCapture({
+        expectedRevision: 0,
+        topicID: "bits",
+        title: "Lecture",
+        rawText: "A bit has two possible values.",
+        concisePoints: [],
+        status: "draft"
+      });
+      const blockedEnrichmentPath = path.join(root, "capture-enrichments");
+      await fs.writeFile(blockedEnrichmentPath, "not a directory");
+
+      const ready = state.finishCapture(draft.id, draft.revision);
+
+      expect(ready).toMatchObject({ revision: 2, status: "ready", rawText: draft.rawText });
+      expect(state.getCapture(draft.id)).toMatchObject({ revision: 2, status: "ready" });
+      expect(state.snapshot.errorMessage).toMatch(/storage failed.*retry/i);
+      expect(calls).toEqual([]);
+
+      await fs.rm(blockedEnrichmentPath);
+      expect(state.getCaptureEnrichment(ready.id, ready.revision)?.status).toBe("queued");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(calls).toEqual([ready.rawText]);
+      expect(new NoteEnrichmentStore(root).get(ready.id, ready.revision)?.status).toBe("ready");
+      expect(state.snapshot.errorMessage ?? "").not.toMatch(/storage failed/i);
+    } finally {
+      state.dispose();
+    }
+  });
+
   it("recreates a missing enrichment record when the current note is opened", async () => {
     const root = await fixture();
-    const note = capture();
+    const note = capture({ status: "ready" });
     const settingsPath = path.join(root, "app-data", "settings.json");
     const progressPath = path.join(root, "app-data", "progress.json");
     await fs.mkdir(path.join(root, "captures"), { recursive: true });

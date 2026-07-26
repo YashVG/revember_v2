@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { cp, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -6,11 +8,18 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(packageRoot, "dist", "index.js");
+const repositoryRoot = path.resolve(packageRoot, "..");
+const temporaryRoot = await mkdtemp(path.join(tmpdir(), "revember-mcp-stdio-"));
+const knowledgeRoot = path.join(temporaryRoot, "RevemberKnowledge");
 const client = new Client({ name: "revember-stdio-smoke", version: "0.1.0" });
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [serverPath],
   cwd: packageRoot,
+  env: {
+    REVEMBER_KNOWLEDGE_ROOT: knowledgeRoot,
+    REVEMBER_PROGRESS_PATH: path.join(temporaryRoot, "progress.json")
+  },
   stderr: "pipe"
 });
 
@@ -21,6 +30,7 @@ function textPayload(result) {
 }
 
 try {
+  await cp(path.join(repositoryRoot, "RevemberKnowledge"), knowledgeRoot, { recursive: true });
   await client.connect(transport);
 
   const { tools } = await client.listTools();
@@ -63,5 +73,6 @@ try {
 
   console.log(`Revember stdio MCP smoke passed (${tools.length} tools, ${resources.length} resources).`);
 } finally {
-  await client.close();
+  await client.close().catch(() => undefined);
+  await rm(temporaryRoot, { recursive: true, force: true });
 }

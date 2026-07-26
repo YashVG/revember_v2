@@ -1,7 +1,7 @@
 import type { CaptureEnrichmentResult } from "../shared/types";
 import { captureEnrichmentLimits } from "./note-enrichment-store";
 
-const endpoint = "http://127.0.0.1:11434/api/generate";
+export const defaultOllamaURL = "http://127.0.0.1:11434/api/generate";
 const model = "llama3";
 export const maximumNoteSourceCharacters = 12_000;
 export const localModelTimeoutMilliseconds = 120_000;
@@ -42,7 +42,10 @@ export class OllamaResponseError extends Error {
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export class OllamaNoteModel implements LocalNoteModel {
-  constructor(private readonly fetcher: Fetcher = fetch) {}
+  constructor(
+    private readonly fetcher: Fetcher = fetch,
+    private readonly configuredURL: string | undefined = process.env.REVEMBER_OLLAMA_URL
+  ) {}
 
   async enrich(input: LocalNoteModelInput, parentSignal: AbortSignal): Promise<CaptureEnrichmentResult> {
     const segments = sourceSegments(input.rawText);
@@ -62,9 +65,16 @@ export class OllamaNoteModel implements LocalNoteModel {
     const requestSignal = AbortSignal.any([parentSignal, timeoutSignal]);
     let response: Response;
     try {
+      let endpoint: string;
+      try {
+        endpoint = resolveOllamaURL(this.configuredURL);
+      } catch {
+        throw new OllamaUnavailableError();
+      }
       response = await this.fetcher(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
+        redirect: "error",
         signal: requestSignal,
         body: JSON.stringify({
           model,
@@ -110,6 +120,32 @@ export class OllamaNoteModel implements LocalNoteModel {
     }
     return materializeResponse(generated, eligibleByID, segments);
   }
+}
+
+export function resolveOllamaURL(configuredURL: string | undefined): string {
+  if (configuredURL === undefined || configuredURL.trim() === "") return defaultOllamaURL;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(configuredURL);
+  } catch {
+    throw new Error("REVEMBER_OLLAMA_URL must be a valid loopback HTTP URL.");
+  }
+  const loopbackHost = parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+  if (
+    parsed.protocol !== "http:"
+    || !loopbackHost
+    || parsed.username !== ""
+    || parsed.password !== ""
+    || parsed.pathname !== "/api/generate"
+    || parsed.search !== ""
+    || parsed.hash !== ""
+  ) {
+    throw new Error(
+      "REVEMBER_OLLAMA_URL must target http://127.0.0.1 or http://[::1] at /api/generate without credentials, query, or fragment."
+    );
+  }
+  return parsed.href;
 }
 
 interface SourceSegment {

@@ -9,6 +9,10 @@ flowchart TD
     notes["notes/*.md<br/>source explanations"]
     topics["topics/*.json<br/>versioned knowledge + assessment"]
     sessions["sessions/*.json<br/>learning checkpoints"]
+    captures["captures/*.json<br/>draft / ready learner notes"]
+    finish["Finish lecture<br/>explicit analysis boundary"]
+    ollama["local Ollama llama3<br/>optional extractive selection"]
+    enrichments["capture-enrichments/*.json<br/>revision-keyed response"]
     watcher["Debounced knowledge-folder watcher"]
     main["Electron main process<br/>validation / persistence / native surfaces"]
     preload["Isolated preload API<br/>typed IPC boundary"]
@@ -21,6 +25,7 @@ flowchart TD
     mcp --> topics
     mcp --> sessions
     topics --> watcher --> main --> preload --> app
+    app --> captures --> finish --> ollama --> enrichments --> app
     app --> progress --> brief --> codex
 ```
 
@@ -31,6 +36,8 @@ flowchart TD
 | `RevemberKnowledge/notes/*.md` | Knowledge base | MCP or direct editing | Human- and LLM-readable source explanation |
 | `RevemberKnowledge/topics/*.json` | Knowledge base | Revision-checked MCP tools or direct editing | App-readable concepts, provenance, relationships, gaps, and checks |
 | `RevemberKnowledge/sessions/*.json` | Knowledge base | `capture_learning_session` or the Electron checkpoint dialog | Durable learning-session residue |
+| `RevemberKnowledge/captures/*.json` | App | Atomic Electron main-process saves | Exact draft/ready learner notes and user-authored takeaways |
+| `RevemberKnowledge/capture-enrichments/*.json` | App | Local enrichment coordinator after Finish Lecture | Optional revision-keyed grounded study responses |
 | `~/Library/Application Support/RevemberV2/progress.json` | App | Atomic Electron main-process saves | Review-event ledger, compatibility aggregates, and derived schedules |
 | `RevemberKnowledge/.backups/` | MCP server | Automatic before replacing topic or note files | Recovery copies for authored content |
 
@@ -51,15 +58,17 @@ Array position is presentation order only. The graph never infers meaning from a
 
 ## Evidence Graph
 
-The in-app graph deliberately separates three layers:
+The in-app graph renders three node types:
 
-1. **Knowledge:** concepts and authored semantic relationships.
-2. **Assessment:** gaps, diagnostic questions, and the concepts each question assesses.
-3. **Learner:** current review-card state and recent immutable review events.
+1. **Concepts:** authored knowledge statements.
+2. **Gaps:** authored weaknesses linked to their concepts.
+3. **Questions:** active diagnostic checks linked to the concepts they assess.
 
-Derived links such as “question assesses concept” and “event updates card state” are visually distinct from authored semantic relationships. Directional authored links have arrowheads; symmetric contrasts do not. Evidence states are `untested`, `fragile`, `developing`, or `stable`; correctness is authoritative and effort rating refines only correct evidence. A later successful retrieval can therefore repair a previously fragile concept without rewriting authored knowledge.
+Authored concept relationships remain explicit graph links. Derived gap-to-concept and question-to-concept links use the default dashed treatment. Directional `prerequisite`, `partOf`, and `enables` relationships use arrowheads; symmetric `contrastsWith` links do not.
 
-Evidence is revision-bound. An event and its derived card state carry the question revision they assessed. Advancing a question revision makes older evidence stale and queues the card for fresh retrieval; historical event nodes remain visible but no longer link to or validate the current card. The learner brief reports stale attempts separately from current attempts.
+Learner events and review-card states are not graph nodes. Current review events instead produce an evidence-status overlay on question and concept nodes: `untested`, `fragile`, `developing`, or `stable`. Correctness is authoritative, and effort rating refines only correct evidence. Gap nodes remain structural `fragile` markers rather than dynamic learner-event summaries.
+
+The overlay is revision-bound. Only events whose `questionRevision` matches the active question contribute to graph status. Advancing a question revision makes its older events stale and queues the card for fresh retrieval; those events remain in the progress ledger but are not rendered in the graph. The learner brief reports stale attempts separately from current attempts.
 
 ## Progress And Scheduling
 
@@ -90,9 +99,15 @@ An incorrect choice is always persisted and scheduled as `Missed`, even if the l
 
 The scheduler lives behind the shared TypeScript domain boundary; event and card-state schemas retain stability, difficulty, and `schedulerVersion`. `reviewCardsByQuestionID` is a cache, not the canonical learning record: every newly inserted event replays that card revision's immutable history in review-time order before replacing the cache. Opening a file never silently reinterprets existing due dates. A future FSRS adapter can replay the same history under its own version without changing topic IDs, event history, the due queue, or the renderer contract.
 
-The Check-In and Today flows show the exact persisted `dueAt` and interval returned by the scheduler after a review is saved; they do not infer a generic interval from the rating label. The MCP learner brief also exposes each card's `schedulerVersion` and the distinct current scheduler versions in the progress record.
+The Check-In and review-completion flows show the exact persisted `dueAt` and interval returned by the scheduler after a review is saved; they do not infer a generic interval from the rating label. The MCP learner brief also exposes each card's `schedulerVersion` and the distinct current scheduler versions in the progress record.
 
-Due reviews sort overdue scheduled cards first and unseen questions second. A three-minute session assumes 45 seconds per question, so it selects up to four items.
+Due reviews sort overdue scheduled cards first, revised questions second, and unseen questions last. A three-minute session assumes 45 seconds per question, so it selects up to four items.
+
+## Lecture Notes And Local Analysis
+
+Today autosaves the learner's exact note as a `draft` after a 700 ms typing pause. This persistence path does not call a model. The explicit **Finish lecture** action saves the latest revision as `ready` and queues optional local analysis through Ollama `llama3`.
+
+Model output never mutates the capture, authored Markdown, or topic JSON. Revember stores it in `capture-enrichments/` under the matching capture ID and revision. The model selects bounded source-segment IDs; the main process reconstructs summary and evidence text from exact note excerpts. The queue runs one request at a time, coalesces older pending revisions, and cancels obsolete active work. See [Local Note Enrichment](local-note-enrichment.md).
 
 ## Closed-Loop MCP
 
@@ -100,7 +115,7 @@ The MCP server exposes read resources for topics, notes, sessions, validation, a
 
 `capture_learning_session` can write a session, append a Markdown checkpoint, and advance the linked topic revision as one logical operation. If a later step fails, the newly written session and note append are rolled back. `get_learner_brief` folds the event ledger, card schedules, legacy aggregates, misconceptions, gaps, and recent sessions into a compact read model for the next lesson.
 
-The server is registered globally as `revember`. Because MCP capability discovery happens when the client starts a task, rebuild the server and start a new Codex task or restart Codex after changing tools or resources.
+Clients can register the server under the name `revember`. Because MCP capability discovery happens when a client session starts, rebuild the server and restart that session after changing tools or resources.
 
 ## Live Reload And System Surfaces
 
@@ -122,5 +137,6 @@ These surfaces route through the same app state and scheduler. They do not maint
 - Topic mutations serialize within the MCP process, reject stale `expectedRevision` values, and keep topic/card revisions server-managed.
 - Progress v1 is copied before automatic migration to v2; malformed progress is quarantined instead of overwritten.
 - The app keeps the last known-good knowledge snapshot during a bad or partial topic save.
+- Draft-note autosave and model analysis are separate. An unavailable or invalid local model response cannot roll back a saved note.
 - The sandboxed renderer has no Node.js or direct filesystem access; all mutations cross a narrow `contextBridge` API.
 - Desktop notifications are created only when the user enables review reminders.

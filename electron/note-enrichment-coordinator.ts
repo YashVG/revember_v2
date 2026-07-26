@@ -15,17 +15,28 @@ interface QueueEntry {
   rootPath: string;
 }
 
-/** Runs one local model request at a time and writes each revision's result separately. */
+class NoteEnrichmentPersistenceError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "NoteEnrichmentPersistenceError";
+  }
+}
+
+/** Runs one local request at a time while keeping only the latest pending revision per note. */
 export class NoteEnrichmentCoordinator {
   private readonly queuedKeys = new Set<string>();
   private readonly queue: QueueEntry[] = [];
+  private readonly latestPendingByCapture = new Map<string, { key: string; revision: number }>();
   private readonly idleResolvers = new Set<() => void>();
   private running = false;
   private disposed = false;
   private activeAbort?: AbortController;
+  private activeCaptureKey?: string;
+  private activeEnrichmentKey?: string;
 
   constructor(
-    private readonly model: LocalNoteModel = new OllamaNoteModel()
+    private readonly model: LocalNoteModel = new OllamaNoteModel(),
+    private readonly onBackgroundError?: (message: string) => void
   ) {}
 
   enqueue(capture: LearnerCapture, rootPath: string): CaptureEnrichment {
@@ -50,6 +61,7 @@ export class NoteEnrichmentCoordinator {
     this.disposed = true;
     this.queue.length = 0;
     this.queuedKeys.clear();
+    this.latestPendingByCapture.clear();
     this.activeAbort?.abort();
     this.resolveIdle();
   }
@@ -64,19 +76,38 @@ export class NoteEnrichmentCoordinator {
     const normalizedRootPath = path.resolve(rootPath);
     const store = new NoteEnrichmentStore(normalizedRootPath);
     const key = enrichmentKey(capture, normalizedRootPath);
+    const captureKey = captureQueueKey(capture, normalizedRootPath);
     const existing = store.get(capture.id, capture.revision);
     if (this.queuedKeys.has(key)) return existing ?? queuedRecord(capture, new Date());
 
     if (existing?.status === "ready") return existing;
     if ((existing?.status === "failed" || existing?.status === "unavailable") && !replaceTerminalResult) return existing;
+    const latestPending = this.latestPendingByCapture.get(captureKey);
+    if (latestPending && latestPending.revision > capture.revision) {
+      throw new Error("A newer revision of this note is already being prepared.");
+    }
 
     const now = new Date();
     const queued = queuedRecord(capture, now, existing?.createdAt);
     store.write(queued);
+    this.supersedeOlderQueuedEntries(capture, captureKey);
+    this.latestPendingByCapture.set(captureKey, { key, revision: capture.revision });
+    if (this.activeCaptureKey === captureKey && this.activeEnrichmentKey !== key) {
+      this.activeAbort?.abort();
+    }
     this.queue.push({ capture, rootPath: normalizedRootPath });
     this.queuedKeys.add(key);
-    void this.drain();
+    this.startDrain();
     return queued;
+  }
+
+  private startDrain(): void {
+    void this.drain().catch((error) => {
+      this.running = false;
+      this.reportBackgroundFailure(error);
+      if (this.queue.length > 0 && !this.disposed) this.startDrain();
+      else this.resolveIdle();
+    });
   }
 
   private async drain(): Promise<void> {
@@ -87,15 +118,21 @@ export class NoteEnrichmentCoordinator {
         const entry = this.queue.shift();
         if (!entry || this.disposed) return;
         const key = enrichmentKey(entry.capture, entry.rootPath);
+        const captureKey = captureQueueKey(entry.capture, entry.rootPath);
         try {
           await this.enrich(entry);
+        } catch (error) {
+          this.recoverEntryFailure(entry, error);
         } finally {
           this.queuedKeys.delete(key);
+          if (this.latestPendingByCapture.get(captureKey)?.key === key) {
+            this.latestPendingByCapture.delete(captureKey);
+          }
         }
       }
     } finally {
       this.running = false;
-      if (this.queue.length > 0 && !this.disposed) void this.drain();
+      if (this.queue.length > 0 && !this.disposed) this.startDrain();
       else this.resolveIdle();
     }
   }
@@ -112,32 +149,107 @@ export class NoteEnrichmentCoordinator {
       return;
     }
 
-    this.activeAbort = new AbortController();
+    const key = enrichmentKey(entry.capture, entry.rootPath);
+    const captureKey = captureQueueKey(entry.capture, entry.rootPath);
+    const controller = new AbortController();
+    this.activeAbort = controller;
+    this.activeCaptureKey = captureKey;
+    this.activeEnrichmentKey = key;
     try {
       const modelSource = truncateNoteSource(entry.capture.rawText);
       const result = await this.model.enrich({
         title: entry.capture.title,
         rawText: modelSource
-      }, this.activeAbort.signal);
+      }, controller.signal);
       if (this.disposed) return;
+      if (this.latestPendingByCapture.get(captureKey)?.key !== key) {
+        store.write(supersededRecord(running));
+        return;
+      }
       const validated = validateResult(result, modelSource);
-      store.write({
-        ...running,
-        status: "ready",
-        result: validated,
-        updatedAt: new Date().toISOString()
-      });
+      try {
+        store.write({
+          ...running,
+          status: "ready",
+          result: validated,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        throw new NoteEnrichmentPersistenceError(error);
+      }
     } catch (error) {
       if (this.disposed) return;
+      if (this.latestPendingByCapture.get(captureKey)?.key !== key) {
+        store.write(supersededRecord(running));
+        return;
+      }
+      const persistenceFailure = error instanceof NoteEnrichmentPersistenceError;
+      if (persistenceFailure) this.reportBackgroundFailure(error);
       const unavailable = error instanceof OllamaUnavailableError;
-      const message = unavailable
+      const message = persistenceFailure
+        ? "The local study response could not be saved. Check knowledge-folder access, then retry."
+        : unavailable
         ? "Ollama or llama3 is unavailable. Start Ollama and install the model, then retry."
         : error instanceof OllamaResponseError
           ? error.message
           : "The local model returned an unusable study response. Retry it.";
       store.write(failedRecord(running, message, unavailable ? "unavailable" : "failed"));
     } finally {
-      this.activeAbort = undefined;
+      if (this.activeAbort === controller) {
+        this.activeAbort = undefined;
+        this.activeCaptureKey = undefined;
+        this.activeEnrichmentKey = undefined;
+      }
+    }
+  }
+
+  private supersedeOlderQueuedEntries(
+    capture: LearnerCapture,
+    captureKey: string
+  ): void {
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const queued = this.queue[index];
+      if (
+        captureQueueKey(queued.capture, queued.rootPath) !== captureKey
+        || queued.capture.revision >= capture.revision
+      ) continue;
+      this.queue.splice(index, 1);
+      const key = enrichmentKey(queued.capture, queued.rootPath);
+      this.queuedKeys.delete(key);
+      try {
+        const store = new NoteEnrichmentStore(queued.rootPath);
+        const record = store.get(queued.capture.id, queued.capture.revision);
+        if (record?.status === "queued") store.write(supersededRecord(record));
+      } catch (error) {
+        this.reportBackgroundFailure(error);
+      }
+    }
+  }
+
+  private recoverEntryFailure(entry: QueueEntry, error: unknown): void {
+    this.reportBackgroundFailure(error);
+    try {
+      const store = new NoteEnrichmentStore(entry.rootPath);
+      const current = store.get(entry.capture.id, entry.capture.revision)
+        ?? queuedRecord(entry.capture, new Date());
+      if (current.status === "ready" || current.status === "failed" || current.status === "unavailable") return;
+      store.write(failedRecord(
+        current,
+        "The local study response could not be saved. Check knowledge-folder access, then retry.",
+        "failed"
+      ));
+    } catch {
+      // The global snapshot warning remains available when the store itself
+      // cannot persist a terminal result.
+    }
+  }
+
+  private reportBackgroundFailure(error: unknown): void {
+    try {
+      this.onBackgroundError?.(noteEnrichmentStorageFailureMessage(error));
+    } catch {
+      // Reporting must never turn a contained background failure into a
+      // rejected drain promise.
     }
   }
 
@@ -145,6 +257,11 @@ export class NoteEnrichmentCoordinator {
     for (const resolve of this.idleResolvers) resolve();
     this.idleResolvers.clear();
   }
+}
+
+export function noteEnrichmentStorageFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Local study response storage failed. Check knowledge-folder access, then retry. ${detail}`;
 }
 
 function queuedRecord(capture: LearnerCapture, now: Date, createdAt = now.toISOString()): CaptureEnrichment {
@@ -171,15 +288,22 @@ function failedRecord(
   };
 }
 
+function supersededRecord(current: CaptureEnrichment): CaptureEnrichment {
+  return failedRecord(current, "A newer note revision replaced this local study request.", "failed");
+}
+
 function validateResult(value: unknown, source: string): CaptureEnrichmentResult {
   const result = record(value, "study response");
   requireOnlyKeys(result, ["summary", "takeaways", "openQuestions"], "study response");
   const suppliedSummary = boundedText(result.summary, "summary", captureEnrichmentLimits.maxSummaryLength);
   const rawTakeaways = array(result.takeaways, "takeaways");
   const rawQuestions = array(result.openQuestions, "open questions");
-  if (rawTakeaways.length === 0 || rawTakeaways.length > captureEnrichmentLimits.maxTakeaways) {
+  if (
+    rawTakeaways.length < captureEnrichmentLimits.minTakeaways
+    || rawTakeaways.length > captureEnrichmentLimits.maxTakeaways
+  ) {
     throw new OllamaResponseError(
-      `The local model must return between 1 and ${captureEnrichmentLimits.maxTakeaways} takeaways.`
+      `The local model must return between ${captureEnrichmentLimits.minTakeaways} and ${captureEnrichmentLimits.maxTakeaways} takeaways.`
     );
   }
   if (rawQuestions.length > captureEnrichmentLimits.maxQuestions) {
@@ -241,4 +365,8 @@ function boundedText(value: unknown, label: string, maximum: number): string {
 
 function enrichmentKey(capture: LearnerCapture, rootPath: string): string {
   return `${path.resolve(rootPath)}:${capture.id}:${capture.revision}`;
+}
+
+function captureQueueKey(capture: LearnerCapture, rootPath: string): string {
+  return `${path.resolve(rootPath)}:${capture.id}`;
 }

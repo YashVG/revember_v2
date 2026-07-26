@@ -399,7 +399,9 @@ button.compact { padding: 7px 12px; margin-left: 2px; }
 .settings-actions { display: flex; gap: 8px; margin-top: 12px; }
 .settings-actions button { border: 1px solid var(--input-border); border-radius: 7px; background: var(--control-lift); padding: 8px 11px; display: flex; align-items: center; gap: 6px; font-size: 10px; cursor: pointer; }
 .settings-actions button:hover { background: #30343c; }
+.settings-actions button:disabled { opacity: .5; cursor: default; }
 .settings-actions svg { width: 13px; }
+.settings-error { padding: 0 20px 12px; }
 .notification-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .toggle { width: 40px; height: 22px; border-radius: 22px; border: 0; background: #34373e; padding: 3px; cursor: pointer; }
 .toggle span { display: block; width: 16px; height: 16px; border-radius: 50%; background: #aaaeb7; transition: transform .2s; }
@@ -429,6 +431,14 @@ button.compact { padding: 7px 12px; margin-left: 2px; }
 .empty-state h1 { color: var(--ink); margin: 0; }
 .empty-state p { max-width: 600px; text-align: center; }
 .empty-state code { user-select: text; }
+.empty-state-actions { display: flex; gap: 9px; }
+.empty-state-actions button { min-height: 36px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--input-border); border-radius: 7px; background: var(--control-lift); padding: 8px 12px; cursor: pointer; }
+.empty-state-actions button:disabled { opacity: .5; cursor: default; }
+.empty-state-actions svg, .startup-error button svg { width: 14px; }
+.startup-error { padding: 30px; text-align: center; }
+.startup-error > svg { width: 42px; height: 42px; color: var(--ruby); }
+.startup-error h1 { margin: 0; color: var(--ink); }
+.startup-error p { max-width: 620px; margin: 0; line-height: 1.5; user-select: text; }
 
 .home-page { min-height: 100%; max-width: 1440px; padding: 34px 38px 50px; }
 .home-link { border: 0; background: transparent; padding: 4px 0; display: inline-flex; align-items: center; gap: 6px; color: var(--cyan); font-size: 13px; cursor: pointer; }
@@ -443,6 +453,8 @@ button.compact { padding: 7px 12px; margin-left: 2px; }
 .lecture-save-state svg { width: 13px; color: var(--cyan); }
 .lecture-save-state.saved { color: #89d9dc; }
 .lecture-save-state.error { color: #ff9aa4; }
+.home-finish-button { white-space: nowrap; }
+.home-finish-button svg { width: 14px; height: 14px; }
 .lecture-note-toolbar .home-link { margin-left: auto; white-space: nowrap; }
 .lecture-note textarea { width: 100%; min-height: 260px; border: 0; outline: 0; resize: vertical; background: transparent; color: var(--ink); padding: 22px 3px 12px; font: 16px/1.7 "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: .01em; user-select: text; }
 .lecture-note textarea::placeholder { color: #626873; }
@@ -489,6 +501,14 @@ button.compact { padding: 7px 12px; margin-left: 2px; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
 @media (max-width: 1120px) {
   .workspace { grid-template-columns: 245px minmax(0,1fr); }
   .sidebar { padding-inline: 13px; }
@@ -505,7 +525,8 @@ button.compact { padding: 7px 12px; margin-left: 2px; }
   .mode-area, .topic-meta, .weak-row { grid-column: 1; }
   .metric-row { grid-template-columns: 1fr; }
   .graph-layout, .checkin-layout { grid-template-columns: 1fr; }
-  .graph-selection, .insight-panel { display: none; }
+  .graph-selection { display: none; }
+  .insight-panel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .authored-card { flex-direction: column; }
   .card-actions { width: 100%; flex-direction: row; flex-wrap: wrap; }
   .card-actions button { flex: 1 1 auto; }
@@ -519,6 +540,7 @@ button.compact { padding: 7px 12px; margin-left: 2px; }
 }
 @media (max-width: 600px) {
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .insight-panel { grid-template-columns: 1fr; }
   .sidebar { height: auto; min-width: 0; position: relative; display: flex; align-items: center; gap: 7px; overflow-x: auto; padding: 8px 10px; border-right: 0; border-bottom: 1px solid #292b31; }
   .sidebar > .eyebrow { display: none; }
   .sidebar .logo { flex: none; margin: 0; padding: 8px 10px; border-radius: 8px; }

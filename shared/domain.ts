@@ -5,10 +5,12 @@ import type {
   KnowledgeTopic,
   ProgressRecord,
   Question,
+  QuestionKind,
   ReviewCardState,
   ReviewEvent,
   ReviewRating,
-  TopicProgress
+  TopicProgress,
+  TransferLevel
 } from "./types";
 
 export const schedulerVersion = "simple-v1";
@@ -156,39 +158,51 @@ function checkUnique(ids: string[], label: string, issues: string[]): void {
 }
 
 export function normalizeProgress(raw: unknown): ProgressRecord {
-  if (!raw || typeof raw !== "object") throw new Error("Progress must be a JSON object.");
-  const progress = raw as Partial<ProgressRecord>;
-  const schemaVersion = progress.schemaVersion ?? 1;
+  const progress = recordValue(raw, "Progress");
+  const schemaVersion = progress.schemaVersion === undefined
+    ? 1
+    : positiveInteger(progress.schemaVersion, "Progress schemaVersion");
   if (schemaVersion > 2) throw new Error(`Progress schema v${schemaVersion} is newer than this app supports.`);
-  const topics = Object.fromEntries(Object.entries(progress.topics ?? {}).map(([topicID, value]) => {
-    const topic = value as Partial<TopicProgress>;
-    const attemptsByQuestionID = Object.fromEntries(Object.entries(topic.attemptsByQuestionID ?? {}).map(([questionID, attempt]) => [questionID, {
-      attempts: attempt.attempts ?? 0,
-      correctAttempts: attempt.correctAttempts ?? 0,
-      ...(attempt.lastAnsweredAt ? { lastAnsweredAt: attempt.lastAnsweredAt } : {})
-    }]));
-    const reviewCardsByQuestionID = Object.fromEntries(Object.entries(topic.reviewCardsByQuestionID ?? {}).map(([questionID, card]) => [questionID, {
-      ...card,
-      schedulerVersion: card.schedulerVersion ?? schedulerVersion,
-      questionRevision: card.questionRevision ?? 1,
-      lapses: card.lapses ?? 0,
-      reviews: card.reviews ?? 0
-    }]));
+  const topicRecords = optionalRecord(progress.topics, "Progress topics");
+  const topics = Object.fromEntries(Object.entries(topicRecords).map(([topicID, value]) => {
+    const topic = recordValue(value, `Progress topic ${topicID}`);
+    const attempts = optionalRecord(topic.attemptsByQuestionID, `Progress topic ${topicID} attempts`);
+    const attemptsByQuestionID = Object.fromEntries(Object.entries(attempts).map(([questionID, value]) => {
+      const attempt = recordValue(value, `Progress attempt ${topicID}/${questionID}`);
+      const lastAnsweredAt = optionalIsoTimestamp(attempt.lastAnsweredAt, `Progress attempt ${topicID}/${questionID} lastAnsweredAt`);
+      return [questionID, {
+        attempts: optionalNonNegativeInteger(attempt.attempts, `Progress attempt ${topicID}/${questionID} attempts`),
+        correctAttempts: optionalNonNegativeInteger(attempt.correctAttempts, `Progress attempt ${topicID}/${questionID} correctAttempts`),
+        ...(lastAnsweredAt ? { lastAnsweredAt } : {})
+      }];
+    }));
+    const weakConcepts = optionalRecord(topic.weakConceptIDs, `Progress topic ${topicID} weak concepts`);
+    const weakConceptIDs = Object.fromEntries(Object.entries(weakConcepts).map(([conceptID, value]) => [
+      conceptID,
+      nonNegativeInteger(value, `Progress weak concept ${topicID}/${conceptID}`)
+    ]));
+    const reviewCards = optionalRecord(topic.reviewCardsByQuestionID, `Progress topic ${topicID} review cards`);
+    const reviewCardsByQuestionID = Object.fromEntries(Object.entries(reviewCards).map(([questionID, value]) => [
+      questionID,
+      normalizeReviewCard(value, topicID, questionID)
+    ]));
+    const lastReviewedAt = optionalIsoTimestamp(topic.lastReviewedAt, `Progress topic ${topicID} lastReviewedAt`);
     return [topicID, {
       attemptsByQuestionID,
-      weakConceptIDs: topic.weakConceptIDs ?? {},
-      ...(topic.lastReviewedAt ? { lastReviewedAt: topic.lastReviewedAt } : {}),
+      weakConceptIDs,
+      ...(lastReviewedAt ? { lastReviewedAt } : {}),
       reviewCardsByQuestionID
     }];
   }));
-  const reviewEvents = (progress.reviewEvents ?? []).map((event) => ({
-    ...event,
-    questionRevision: event.questionRevision ?? 1,
-    conceptIDs: event.conceptIDs ?? [],
-    gapTags: event.gapTags ?? [],
-    misconceptionIDs: event.misconceptionIDs ?? [],
-    sourceRefs: event.sourceRefs ?? []
-  }));
+  const rawReviewEvents = progress.reviewEvents ?? [];
+  if (!Array.isArray(rawReviewEvents)) throw new Error("Progress reviewEvents must be an array.");
+  const reviewEvents = rawReviewEvents.map((value, index) => normalizeReviewEvent(value, index));
+  const reviewEventIDs = new Set<string>();
+  for (const event of reviewEvents) {
+    const normalizedID = event.id.toLowerCase();
+    if (reviewEventIDs.has(normalizedID)) throw new Error(`Progress contains duplicate review event ID ${event.id}.`);
+    reviewEventIDs.add(normalizedID);
+  }
   return {
     schemaVersion,
     topics,
@@ -196,16 +210,251 @@ export function normalizeProgress(raw: unknown): ProgressRecord {
   };
 }
 
+const reviewEventKeys = new Set([
+  "id",
+  "topicID",
+  "questionID",
+  "questionRevision",
+  "questionKind",
+  "transferLevel",
+  "questionPrompt",
+  "choiceID",
+  "selectedChoiceText",
+  "correctChoiceID",
+  "correctChoiceText",
+  "isCorrect",
+  "rating",
+  "conceptIDs",
+  "gapTags",
+  "misconceptionIDs",
+  "sourceRefs",
+  "reviewedAt"
+]);
+
+function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
+  const label = `Progress review event ${index}`;
+  const event = recordValue(raw, label);
+  const questionKind = optionalQuestionKind(event.questionKind, `${label} questionKind`);
+  const transferLevel = optionalTransferLevel(event.transferLevel, `${label} transferLevel`);
+  const questionPrompt = optionalText(event.questionPrompt, `${label} questionPrompt`);
+  const selectedChoiceText = optionalText(event.selectedChoiceText, `${label} selectedChoiceText`);
+  const correctChoiceID = optionalNonEmptyString(event.correctChoiceID, `${label} correctChoiceID`);
+  const correctChoiceText = optionalText(event.correctChoiceText, `${label} correctChoiceText`);
+  if (typeof event.isCorrect !== "boolean") throw new Error(`${label} isCorrect must be a boolean.`);
+  if (!isReviewRating(event.rating)) throw new Error(`${label} rating is invalid.`);
+  return {
+    ...safeUnknownFields(event, reviewEventKeys, label),
+    id: nonEmptyString(event.id, `${label} id`),
+    topicID: nonEmptyString(event.topicID, `${label} topicID`),
+    questionID: nonEmptyString(event.questionID, `${label} questionID`),
+    questionRevision: event.questionRevision === undefined ? 1 : positiveInteger(event.questionRevision, `${label} questionRevision`),
+    ...(questionKind ? { questionKind } : {}),
+    ...(transferLevel ? { transferLevel } : {}),
+    ...(questionPrompt !== undefined ? { questionPrompt } : {}),
+    choiceID: nonEmptyString(event.choiceID, `${label} choiceID`),
+    ...(selectedChoiceText !== undefined ? { selectedChoiceText } : {}),
+    ...(correctChoiceID ? { correctChoiceID } : {}),
+    ...(correctChoiceText !== undefined ? { correctChoiceText } : {}),
+    isCorrect: event.isCorrect,
+    rating: event.rating,
+    conceptIDs: optionalStringArray(event.conceptIDs, `${label} conceptIDs`),
+    gapTags: optionalStringArray(event.gapTags, `${label} gapTags`),
+    misconceptionIDs: optionalStringArray(event.misconceptionIDs, `${label} misconceptionIDs`),
+    sourceRefs: optionalStringArray(event.sourceRefs, `${label} sourceRefs`),
+    reviewedAt: canonicalIsoTimestamp(event.reviewedAt, `${label} reviewedAt`)
+  };
+}
+
+function normalizeReviewCard(raw: unknown, topicID: string, questionID: string): ReviewCardState {
+  const label = `Progress review card ${topicID}/${questionID}`;
+  const card = recordValue(raw, label);
+  const cardSchedulerVersion = card.schedulerVersion ?? schedulerVersion;
+  if (typeof cardSchedulerVersion !== "string" || !cardSchedulerVersion.trim()) {
+    throw new Error(`${label} schedulerVersion must be a non-empty string.`);
+  }
+  const lastRating = card.lastRating;
+  if (lastRating !== undefined && !isReviewRating(lastRating)) {
+    throw new Error(`${label} lastRating is invalid.`);
+  }
+  const lastReviewedAt = optionalIsoTimestamp(card.lastReviewedAt, `${label} lastReviewedAt`);
+  return {
+    ...card,
+    schedulerVersion: cardSchedulerVersion,
+    questionRevision: card.questionRevision === undefined ? 1 : positiveInteger(card.questionRevision, `${label} questionRevision`),
+    dueAt: isoTimestamp(card.dueAt, `${label} dueAt`),
+    intervalDays: positiveFiniteNumber(card.intervalDays, `${label} intervalDays`),
+    stability: nonNegativeFiniteNumber(card.stability, `${label} stability`),
+    difficulty: boundedFiniteNumber(card.difficulty, 1, 10, `${label} difficulty`),
+    ...(lastRating ? { lastRating } : {}),
+    lapses: optionalNonNegativeInteger(card.lapses, `${label} lapses`),
+    reviews: optionalNonNegativeInteger(card.reviews, `${label} reviews`),
+    ...(lastReviewedAt ? { lastReviewedAt } : {})
+  } as ReviewCardState;
+}
+
+function recordValue(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object.`);
+  return value as Record<string, unknown>;
+}
+
+function optionalRecord(value: unknown, label: string): Record<string, unknown> {
+  return value === undefined ? {} : recordValue(value, label);
+}
+
+function positiveInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new Error(`${label} must be a positive integer.`);
+  return value;
+}
+
+function nonNegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer.`);
+  return value;
+}
+
+function optionalNonNegativeInteger(value: unknown, label: string): number {
+  return value === undefined ? 0 : nonNegativeInteger(value, label);
+}
+
+function nonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string.`);
+  if (value !== value.trim()) throw new Error(`${label} cannot start or end with whitespace.`);
+  return value;
+}
+
+function optionalNonEmptyString(value: unknown, label: string): string | undefined {
+  return value === undefined ? undefined : nonEmptyString(value, label);
+}
+
+function optionalText(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${label} must be a string.`);
+  return value;
+}
+
+function optionalStringArray(value: unknown, label: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`${label} must be an array of strings.`);
+  }
+  return [...value];
+}
+
+function positiveFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`${label} must be a positive finite number.`);
+  return value;
+}
+
+function nonNegativeFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`${label} must be a non-negative finite number.`);
+  return value;
+}
+
+function boundedFiniteNumber(value: unknown, low: number, high: number, label: string): number {
+  const number = nonNegativeFiniteNumber(value, label);
+  if (number < low || number > high) throw new Error(`${label} must be between ${low} and ${high}.`);
+  return number;
+}
+
+function isoTimestamp(value: unknown, label: string): string {
+  if (typeof value !== "string") throw new Error(`${label} must be an ISO timestamp.`);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  const timestamp = Date.parse(value);
+  if (!match || !Number.isFinite(timestamp)) {
+    throw new Error(`${label} must be an ISO timestamp.`);
+  }
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, offsetHourText, offsetMinuteText] = match;
+  const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute = offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth || hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) {
+    throw new Error(`${label} must be an ISO timestamp.`);
+  }
+  return new Date(timestamp).toISOString();
+}
+
+function optionalIsoTimestamp(value: unknown, label: string): string | undefined {
+  return value === undefined ? undefined : isoTimestamp(value, label);
+}
+
+function canonicalIsoTimestamp(value: unknown, label: string): string {
+  return isoTimestamp(value, label);
+}
+
+function isReviewRating(value: unknown): value is ReviewRating {
+  return value === "missed" || value === "hard" || value === "good" || value === "easy";
+}
+
+function optionalQuestionKind(value: unknown, label: string): QuestionKind | undefined {
+  if (value === undefined) return undefined;
+  if (value === "multipleChoice" || value === "freeRecall" || value === "explain" || value === "predict" ||
+      value === "compare" || value === "trace" || value === "debug") return value;
+  throw new Error(`${label} is invalid.`);
+}
+
+function optionalTransferLevel(value: unknown, label: string): TransferLevel | undefined {
+  if (value === undefined) return undefined;
+  if (value === "recall" || value === "application" || value === "transfer") return value;
+  throw new Error(`${label} is invalid.`);
+}
+
+function safeUnknownFields(
+  value: Record<string, unknown>,
+  knownKeys: ReadonlySet<string>,
+  label: string
+): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([key, item]) => {
+    if (knownKeys.has(key)) return false;
+    if (!isSafeJsonValue(item, new Set())) throw new Error(`${label} field ${key} must be JSON-safe.`);
+    return true;
+  }));
+}
+
+function isSafeJsonValue(value: unknown, ancestors: Set<object>): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (!value || typeof value !== "object") return false;
+  if (ancestors.has(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false;
+  ancestors.add(value);
+  const safe = Array.isArray(value)
+    ? value.every((item) => isSafeJsonValue(item, ancestors))
+    : Object.values(value).every((item) => isSafeJsonValue(item, ancestors));
+  ancestors.delete(value);
+  return safe;
+}
+
+export interface CurrentReviewEventIndex {
+  activeQuestions: Question[];
+  eventsByQuestionID: ReadonlyMap<string, readonly ReviewEvent[]>;
+}
+
+export function indexCurrentReviewEvents(topic: KnowledgeTopic, progress: ProgressRecord): CurrentReviewEventIndex {
+  const questions = activeQuestions(topic);
+  const currentRevisionByQuestionID = new Map(questions.map((question) => [question.id, question.revision]));
+  const eventsByQuestionID = new Map<string, ReviewEvent[]>();
+  for (const event of progress.reviewEvents) {
+    if (
+      event.topicID !== topic.id
+      || event.questionRevision !== currentRevisionByQuestionID.get(event.questionID)
+    ) continue;
+    const events = eventsByQuestionID.get(event.questionID);
+    if (events) events.push(event);
+    else eventsByQuestionID.set(event.questionID, [event]);
+  }
+  return { activeQuestions: questions, eventsByQuestionID };
+}
+
 export function currentEvidence(topic: KnowledgeTopic, progress: ProgressRecord): { attempts: number; correct: number; score: number } {
   let attempts = 0;
   let correct = 0;
-  for (const question of activeQuestions(topic)) {
-    const events = progress.reviewEvents.filter((event) =>
-      event.topicID === topic.id && event.questionID === question.id && event.questionRevision === question.revision
-    );
-    if (events.length) {
+  const evidence = indexCurrentReviewEvents(topic, progress);
+  for (const question of evidence.activeQuestions) {
+    const events = evidence.eventsByQuestionID.get(question.id);
+    if (events?.length) {
       attempts += events.length;
-      correct += events.filter((event) => event.isCorrect).length;
+      for (const event of events) if (event.isCorrect) correct += 1;
     } else if (question.revision === 1) {
       const legacy = progress.topics[topic.id]?.attemptsByQuestionID?.[question.id];
       if (legacy) {
@@ -256,27 +505,35 @@ export function correctChoice(question: Question): AnswerChoice | undefined {
 }
 
 export function weakConceptIDs(topic: KnowledgeTopic, progress: ProgressRecord): string[] {
-  const status = new Map<string, "fragile" | "developing" | "stable" | "untested">();
-  for (const concept of topic.concepts) {
-    const linked = activeQuestions(topic).filter((question) => question.conceptIDs.includes(concept.id));
-    const tested = linked.flatMap((question) => {
-      const events = progress.reviewEvents.filter((event) =>
-        event.topicID === topic.id && event.questionID === question.id && event.questionRevision === question.revision
-      );
-      const latest = events.sort((a, b) => a.reviewedAt.localeCompare(b.reviewedAt)).at(-1);
-      if (!latest) return [];
-      if (!latest.isCorrect || latest.rating === "missed") return ["fragile" as const];
-      if (latest.rating === "hard") return ["developing" as const];
-      return ["stable" as const];
-    });
-    status.set(concept.id, tested.includes("fragile") ? "fragile" : tested.includes("developing") ? "developing" : tested.length ? "stable" : "untested");
+  type ConceptStatus = "fragile" | "developing" | "stable" | "untested";
+  const rank: Record<ConceptStatus, number> = { untested: 0, stable: 1, developing: 2, fragile: 3 };
+  const status = new Map<string, ConceptStatus>(topic.concepts.map((concept) => [concept.id, "untested"]));
+  const evidence = indexCurrentReviewEvents(topic, progress);
+  for (const question of evidence.activeQuestions) {
+    const latest = latestReviewEvent(evidence.eventsByQuestionID.get(question.id));
+    if (!latest) continue;
+    const questionStatus: ConceptStatus = !latest.isCorrect || latest.rating === "missed"
+      ? "fragile"
+      : latest.rating === "hard" ? "developing" : "stable";
+    for (const conceptID of new Set(question.conceptIDs)) {
+      const current = status.get(conceptID);
+      if (current && rank[questionStatus] > rank[current]) status.set(conceptID, questionStatus);
+    }
   }
   const evidenceBacked = topic.concepts.filter((concept) => ["fragile", "developing"].includes(status.get(concept.id) ?? ""));
-  if (evidenceBacked.length) return evidenceBacked.map((concept) => concept.id);
-  return Object.entries(progress.topics[topic.id]?.weakConceptIDs ?? {})
+  const legacyBacked = Object.entries(progress.topics[topic.id]?.weakConceptIDs ?? {})
     .sort(([, a], [, b]) => b - a)
     .map(([id]) => id)
-    .filter((id) => topic.concepts.some((concept) => concept.id === id));
+    .filter((id) => status.get(id) === "untested");
+  return [...evidenceBacked.map((concept) => concept.id), ...legacyBacked];
+}
+
+function latestReviewEvent(events: readonly ReviewEvent[] | undefined): ReviewEvent | undefined {
+  let latest: ReviewEvent | undefined;
+  for (const event of events ?? []) {
+    if (!latest || latest.reviewedAt <= event.reviewedAt) latest = event;
+  }
+  return latest;
 }
 
 export function intervalLabel(state: ReviewCardState): string {

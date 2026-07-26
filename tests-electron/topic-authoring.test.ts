@@ -43,8 +43,19 @@ async function fixture() {
       conceptIDs: ["bit"],
       gapTags: [],
       choices: [
-        { id: "a", text: "A distinguishable state", isCorrect: true, futureChoice: "kept" },
-        { id: "b", text: "A whole packet", isCorrect: false }
+        {
+          id: "a",
+          text: "A distinguishable state",
+          isCorrect: true,
+          rationale: "The receiver can distinguish one state from another.",
+          futureChoice: "kept"
+        },
+        {
+          id: "b",
+          text: "A whole packet",
+          isCorrect: false,
+          misconceptionID: "bit-packet-confusion"
+        }
       ],
       explanation: "It is the smallest distinguishable state here.",
       futureQuestion: [1, 2, 3]
@@ -174,6 +185,42 @@ describe("Electron topic authoring adapter", () => {
     await expect(retireTopicCard(root, {
       topicID: "bits", expectedTopicRevision: 3, questionID: "bit-application", expectedQuestionRevision: 2
     })).rejects.toMatchObject({ code: "REVISION_CONFLICT", actualRevision: 4 });
+  });
+
+  it("deletes omitted known optionals while preserving unknown choice metadata", async () => {
+    const { root, topicPath } = await fixture();
+    const edit = await editTopicCard(root, {
+      topicID: "bits",
+      expectedTopicRevision: 1,
+      questionID: "bit-check",
+      expectedQuestionRevision: 1,
+      card: {
+        kind: "multipleChoice",
+        transferLevel: "recall",
+        prompt: "Which description best defines a bit?",
+        difficulty: "intro",
+        conceptIDs: ["bit"],
+        gapTags: [],
+        sourceRefs: ["source:chapter/1"],
+        choices: [
+          { id: "a", text: "A distinguishable physical state", isCorrect: true },
+          { id: "b", text: "A whole network packet", isCorrect: false }
+        ],
+        explanation: "A bit is the smallest distinguishable state in this model."
+      }
+    });
+    expect(edit.revision).toBe(2);
+
+    const written = JSON.parse(await fs.readFile(topicPath, "utf8"));
+    expect(written.questions[0].futureQuestion).toEqual([1, 2, 3]);
+    expect(written.questions[0].choices[0]).toMatchObject({
+      id: "a",
+      text: "A distinguishable physical state",
+      futureChoice: "kept"
+    });
+    expect(written.questions[0].choices[0]).not.toHaveProperty("rationale");
+    expect(written.questions[0].choices[1]).toMatchObject({ id: "b", text: "A whole network packet" });
+    expect(written.questions[0].choices[1]).not.toHaveProperty("misconceptionID");
   });
 
   it("runtime-validates card shapes and true concept/source references", async () => {

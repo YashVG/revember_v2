@@ -20,6 +20,7 @@ import { array, nonEmptyExactString, oneOf, positiveInteger, record, strictIdent
 
 const statuses = new Set<CaptureEnrichmentStatus>(["queued", "running", "ready", "failed", "unavailable"]);
 export const captureEnrichmentLimits = Object.freeze({
+  minTakeaways: 1,
   maxSummaryLength: 2_000,
   maxTakeaways: 4,
   maxTakeawayLength: 600,
@@ -153,8 +154,13 @@ function normalizeResult(value: unknown): CaptureEnrichmentResult {
   });
   const openQuestions = array(raw.openQuestions, "capture enrichment openQuestions")
     .map((question, index) => boundedText(question, `capture enrichment openQuestions[${index}]`, captureEnrichmentLimits.maxQuestionLength));
-  if (takeaways.length > captureEnrichmentLimits.maxTakeaways) {
-    throw new Error(`A capture enrichment can have at most ${captureEnrichmentLimits.maxTakeaways} takeaways.`);
+  if (
+    takeaways.length < captureEnrichmentLimits.minTakeaways
+    || takeaways.length > captureEnrichmentLimits.maxTakeaways
+  ) {
+    throw new Error(
+      `A ready capture enrichment must have between ${captureEnrichmentLimits.minTakeaways} and ${captureEnrichmentLimits.maxTakeaways} takeaways.`
+    );
   }
   if (openQuestions.length > captureEnrichmentLimits.maxQuestions) {
     throw new Error(`A capture enrichment can have at most ${captureEnrichmentLimits.maxQuestions} open questions.`);

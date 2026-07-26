@@ -5,23 +5,93 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
+  app:
+    name: App typecheck, unit tests, and build
     runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            mcp-server/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
+      - run: npm audit --omit=dev
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: git diff --check
+
+  electron-e2e:
+    name: Electron E2E
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build
       - run: node tests-electron/e2e.mjs
+      - run: node tests-electron/local-ai-e2e.mjs
+      - run: git diff --check
+
+  mcp:
+    name: MCP build, tests, and stdio smoke
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
       - run: npm --prefix mcp-server ci
+      - run: npm --prefix mcp-server audit --omit=dev --audit-level=high
       - run: npm --prefix mcp-server run check
+      - run: git diff --check
+
+  committed-diff:
+    name: Committed diff hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check changed lines for whitespace errors
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --check "$BASE_SHA...HEAD"
+          else
+            git diff-tree --check --no-commit-id -r HEAD
+          fi
+
+  package-smoke:
+    name: Packaged app smoke
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run test:package
       - run: git diff --check

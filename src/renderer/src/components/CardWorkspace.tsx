@@ -6,9 +6,11 @@ import { ConfirmationDialog } from "./ConfirmationDialog";
 import { Eyebrow, Tag } from "./ui";
 import { InlineError } from "./review-ui";
 import { Modal } from "./modal";
+import type { BeforeLeaveGuard } from "../navigationGuard";
+import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { resolveRevisionConflict } from "../utils";
 
-type CardForm = {
+export type CardForm = {
   sentence: string;
   answer: string;
   distractors: Array<{ id: string; text: string }>;
@@ -32,11 +34,65 @@ function initialForm(topic: KnowledgeTopic, question?: Question, seedSentence?: 
   };
 }
 
-export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, seedSentence, seedToken, onSeedConsumed }: {
+export function buildExistingCardEdit(
+  question: Question,
+  initial: CardForm,
+  form: CardForm,
+  storedPrompt: string
+): QuestionEdit | undefined {
+  const correctChoiceID = question.choices.find((choice) => choice.isCorrect)?.id;
+  const editedChoiceText = new Map([
+    ...(correctChoiceID ? [[correctChoiceID, form.answer.trim()] as const] : []),
+    ...form.distractors.map((choice) => [choice.id, choice.text.trim()] as const)
+  ]);
+  const conceptIDs = form.conceptID === initial.conceptID
+    ? question.conceptIDs
+    : [
+        ...(form.conceptID ? [form.conceptID] : []),
+        ...question.conceptIDs.filter((id) => id !== initial.conceptID && id !== form.conceptID)
+      ];
+
+  const edit: QuestionEdit = {
+    kind: question.kind,
+    transferLevel: question.transferLevel,
+    prompt: storedPrompt,
+    difficulty: question.difficulty,
+    conceptIDs,
+    gapTags: question.gapTags,
+    sourceRefs: question.sourceRefs,
+    choices: question.choices.map((choice) => ({
+      ...choice,
+      text: editedChoiceText.get(choice.id) ?? choice.text
+    })),
+    explanation: form.explanation.trim()
+  };
+  const current: QuestionEdit = {
+    kind: question.kind,
+    transferLevel: question.transferLevel,
+    prompt: question.prompt,
+    difficulty: question.difficulty,
+    conceptIDs: question.conceptIDs,
+    gapTags: question.gapTags,
+    sourceRefs: question.sourceRefs,
+    choices: question.choices,
+    explanation: question.explanation
+  };
+  return JSON.stringify(edit) === JSON.stringify(current) ? undefined : edit;
+}
+
+export function storedPromptForCard(question: Question | undefined, sentence: string, answer: string): string {
+  const prompt = sentence.trim();
+  const trimmedAnswer = answer.trim();
+  if (question && !question.prompt.includes("________")) return prompt;
+  return trimmedAnswer ? prompt.replace(trimmedAnswer, "________") : prompt;
+}
+
+export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, onRegisterBeforeLeave, seedSentence, seedToken, onSeedConsumed }: {
   topic: KnowledgeTopic;
   snapshot: AppSnapshot;
   onSnapshot: (snapshot: AppSnapshot) => void;
   onReview: (question: Question) => void;
+  onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
   seedSentence?: string;
   seedToken?: string;
   onSeedConsumed: () => void;
@@ -66,12 +122,12 @@ export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, seedSente
       <div className="card-actions"><button onClick={() => onReview(question)}><Play /> Review this card</button><button onClick={() => { setCreating(false); setEditing(question); }}><Pencil /> Edit</button><button className="danger-button" onClick={() => setRetiring(question)}><Archive /> Archive</button></div>
     </article>)}</div> : <div className="surface cards-empty"><Check /><h3>No cards yet</h3><p>Add the first check for this topic. It will enter the normal review queue after you save it.</p><button className="primary" onClick={() => { setCreateSeed(undefined); setCreating(true); }}><Plus /> Create first card</button></div>}
     {retired.length > 0 && <details className="retired-cards"><summary>{retired.length} archived {retired.length === 1 ? "card" : "cards"}</summary><ul>{retired.map((question) => <li key={question.id}>{question.prompt}</li>)}</ul></details>}
-    {(creating || editing) && <CardEditor topic={topic} snapshot={snapshot} question={editing} seedSentence={creating ? createSeed : undefined} onSnapshot={onSnapshot} onClose={() => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); }} onReview={onReview} />}
+    {(creating || editing) && <CardEditor topic={topic} snapshot={snapshot} question={editing} seedSentence={creating ? createSeed : undefined} onSnapshot={onSnapshot} onClose={() => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); }} onReview={onReview} onRegisterBeforeLeave={onRegisterBeforeLeave} />}
     {retiring && <ArchiveCardDialog topic={topic} question={retiring} onSnapshot={onSnapshot} onClose={() => setRetiring(undefined)} />}
   </section>;
 }
 
-function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClose, onReview }: {
+function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClose, onReview, onRegisterBeforeLeave }: {
   topic: KnowledgeTopic;
   snapshot: AppSnapshot;
   question?: Question;
@@ -79,16 +135,32 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
   onSnapshot: (snapshot: AppSnapshot) => void;
   onClose: () => void;
   onReview: (question: Question) => void;
+  onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 }) {
   const [initial] = useState<CardForm>(() => initialForm(topic, question, seedSentence));
   const [form, setForm] = useState<CardForm>(initial);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Question>();
-  const dirty = !saved && JSON.stringify(form) !== JSON.stringify(initial);
+  const pendingStoredPrompt = storedPromptForCard(question, form.sentence, form.answer);
+  const pendingExistingEdit = question
+    ? buildExistingCardEdit(question, initial, form, pendingStoredPrompt)
+    : undefined;
+  const dirty = !saved && (question
+    ? Boolean(pendingExistingEdit)
+    : JSON.stringify(form) !== JSON.stringify(initial));
+  useBeforeUnloadGuard(dirty);
+  const confirmDiscard = useCallback(
+    () => !dirty || window.confirm("Discard your unsaved card changes?"),
+    [dirty]
+  );
   const requestClose = useCallback(() => {
-    if (!dirty || window.confirm("Discard your unsaved card changes?")) onClose();
-  }, [dirty, onClose]);
+    if (confirmDiscard()) onClose();
+  }, [confirmDiscard, onClose]);
+  useEffect(() => {
+    onRegisterBeforeLeave(dirty ? confirmDiscard : undefined);
+    return () => onRegisterBeforeLeave(undefined);
+  }, [confirmDiscard, dirty, onRegisterBeforeLeave]);
   const sentenceIncludesAnswer = form.answer.trim() && form.sentence.includes(form.answer.trim());
   const cardID = useMemo(() => `card-${crypto.randomUUID()}`, []);
   const correctChoiceID = question?.choices.find((choice) => choice.isCorrect)?.id ?? "choice-correct";
@@ -104,9 +176,13 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
       setError("Add a sentence, answer, at least one distractor, and an explanation."); return;
     }
     const answerOccurrences = form.sentence.split(answer).length - 1;
-    if (!question && answerOccurrences !== 1) { setError("Use the answer exactly once in the sentence. This keeps the blank unambiguous."); return; }
-    const storedPrompt = answerOccurrences === 1 ? prompt.replace(answer, "________") : prompt;
-    const card = {
+    if ((!question || question.prompt.includes("________")) && answerOccurrences !== 1) {
+      setError("Use the answer exactly once in the sentence. This keeps the blank unambiguous."); return;
+    }
+    const storedPrompt = storedPromptForCard(question, prompt, answer);
+    const existingEdit = question ? buildExistingCardEdit(question, initial, form, storedPrompt) : undefined;
+    if (question && !existingEdit) return;
+    const newCard = {
       kind: "multipleChoice" as const,
       transferLevel: "recall" as const,
       prompt: storedPrompt,
@@ -120,8 +196,14 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
     try {
       setSaving(true); setError(undefined);
       const result = question
-        ? await window.revember.editCard({ topicID: topic.id, expectedTopicRevision: topic.revision, questionID: question.id, expectedQuestionRevision: question.revision, card: card satisfies QuestionEdit })
-        : await window.revember.createCard({ topicID: topic.id, expectedTopicRevision: topic.revision, card: { id: cardID, ...card } satisfies QuestionDraft });
+        ? await window.revember.editCard({
+            topicID: topic.id,
+            expectedTopicRevision: topic.revision,
+            questionID: question.id,
+            expectedQuestionRevision: question.revision,
+            card: existingEdit!
+          })
+        : await window.revember.createCard({ topicID: topic.id, expectedTopicRevision: topic.revision, card: { id: cardID, ...newCard } satisfies QuestionDraft });
       onSnapshot(result.snapshot); setSaved(result.question);
     } catch (cause) { setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message); }
     finally { setSaving(false); }
@@ -181,7 +263,7 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
           {error && <InlineError message={error} />}
           <div className="dialog-footer">
             <button type="button" onClick={requestClose}>Cancel</button>
-            <button className="primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save card"}</button>
+            <button className="primary" disabled={saving || Boolean(question && !pendingExistingEdit)} type="submit">{saving ? "Saving…" : "Save card"}</button>
           </div>
         </form>
       )}

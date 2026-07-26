@@ -18,6 +18,11 @@ export interface ClientRectLike {
   height: number;
 }
 
+export interface GraphViewportInitialization {
+  topicID: string;
+  interactionRevision: number;
+}
+
 export const GRAPH_MIN_SCALE = 0.65;
 export const GRAPH_MAX_SCALE = 3;
 export const GRAPH_ZOOM_STEP = 1.15;
@@ -72,6 +77,15 @@ export function fitViewport(nodes: GraphNode[], padding = 110): GraphViewportSta
     x: (GRAPH_VIEWBOX.width - (maxX - minX) * scale) / 2 - minX * scale,
     y: (GRAPH_VIEWBOX.height - (maxY - minY) * scale) / 2 - minY * scale
   });
+}
+
+export function canApplyFinalViewportFit(
+  initialization: GraphViewportInitialization | undefined,
+  topicID: string,
+  interactionRevision: number
+): boolean {
+  return initialization?.topicID === topicID
+    && initialization.interactionRevision === interactionRevision;
 }
 
 function clampTranslation(value: number, scale: number, size: number): number {

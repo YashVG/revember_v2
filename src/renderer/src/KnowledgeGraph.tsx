@@ -24,11 +24,13 @@ import {
   type GraphNodeKind
 } from "../../../shared/graph";
 import {
+  canApplyFinalViewportFit,
   clientPointToViewBox,
   fitViewport,
   GRAPH_DEFAULT_VIEWPORT,
   GRAPH_ZOOM_STEP,
   panViewport,
+  type GraphViewportInitialization,
   type GraphPoint,
   type GraphViewportState,
   zoomViewport
@@ -52,23 +54,33 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
   const [viewport, setViewport] = useState<GraphViewportState>(GRAPH_DEFAULT_VIEWPORT);
   const [panning, setPanning] = useState(false);
   const viewportRef = useRef(viewport);
-  const viewportInteractedRef = useRef(false);
+  const viewportInteractionRevisionRef = useRef(0);
   const lastTopicIDRef = useRef<string | undefined>(undefined);
-  const shouldFitTopicRef = useRef(true);
+  const viewportInitializationRef = useRef<GraphViewportInitialization | undefined>(undefined);
   const viewportFrameRef = useRef<number | undefined>(undefined);
   const pendingViewportRef = useRef<GraphViewportState | undefined>(undefined);
   const pointerRef = useRef<{ pointerId: number; start: GraphPoint; initial: GraphViewportState; moved: boolean } | undefined>(undefined);
 
   useEffect(() => {
-    viewportRef.current = viewport;
-  }, [viewport]);
-
-  useEffect(() => {
     const topicChanged = lastTopicIDRef.current !== topic.id;
     lastTopicIDRef.current = topic.id;
-    shouldFitTopicRef.current = topicChanged;
     setLayoutNodes(graph.nodes);
-    if (topicChanged) setViewport(fitViewport(graph.nodes));
+    if (topicChanged) {
+      const initialViewport = fitViewport(graph.nodes);
+      if (viewportFrameRef.current !== undefined) {
+        cancelAnimationFrame(viewportFrameRef.current);
+        viewportFrameRef.current = undefined;
+      }
+      pendingViewportRef.current = undefined;
+      viewportRef.current = initialViewport;
+      setViewport(initialViewport);
+      viewportInitializationRef.current = {
+        topicID: topic.id,
+        interactionRevision: viewportInteractionRevisionRef.current
+      };
+    } else {
+      viewportInitializationRef.current = undefined;
+    }
   }, [graph, topic.id]);
 
   useEffect(() => {
@@ -87,8 +99,7 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
     }));
     const seedX = new Map(nodes.map((node) => [node.id, node.x]));
     const seedY = new Map(nodes.map((node) => [node.id, node.y]));
-    const topicChanged = shouldFitTopicRef.current;
-    viewportInteractedRef.current = false;
+    const viewportInitialization = viewportInitializationRef.current;
     const simulation = forceSimulation<LayoutNode>(nodes)
       .force("charge", forceManyBody<LayoutNode>().strength(-45).distanceMax(420))
       .force("x", forceX<LayoutNode>((node) => seedX.get(node.id) ?? GRAPH_VIEWBOX.width / 2).strength(0.42))
@@ -115,8 +126,14 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
         frame = undefined;
       }
       setLayoutNodes(finalNodes);
-      if (topicChanged && !viewportInteractedRef.current) {
-        setViewport(fitViewport(finalNodes, 130));
+      if (canApplyFinalViewportFit(
+        viewportInitialization,
+        topic.id,
+        viewportInteractionRevisionRef.current
+      )) {
+        const finalViewport = fitViewport(finalNodes, 130);
+        viewportRef.current = finalViewport;
+        setViewport(finalViewport);
       }
     });
     publish();
@@ -124,22 +141,34 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
       simulation.stop();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [graph]);
+  }, [graph, topic.id]);
 
   useEffect(() => () => {
     if (viewportFrameRef.current !== undefined) cancelAnimationFrame(viewportFrameRef.current);
   }, []);
 
   const queueViewport = useCallback((next: GraphViewportState) => {
-    viewportInteractedRef.current = true;
-    const clamped = next;
-    viewportRef.current = clamped;
-    pendingViewportRef.current = clamped;
+    viewportInteractionRevisionRef.current += 1;
+    viewportRef.current = next;
+    pendingViewportRef.current = next;
     if (viewportFrameRef.current !== undefined) return;
     viewportFrameRef.current = requestAnimationFrame(() => {
       viewportFrameRef.current = undefined;
-      if (pendingViewportRef.current) setViewport(pendingViewportRef.current);
+      const pendingViewport = pendingViewportRef.current;
+      pendingViewportRef.current = undefined;
+      if (pendingViewport) setViewport(pendingViewport);
     });
+  }, []);
+
+  const applyViewport = useCallback((next: GraphViewportState) => {
+    viewportInteractionRevisionRef.current += 1;
+    if (viewportFrameRef.current !== undefined) {
+      cancelAnimationFrame(viewportFrameRef.current);
+      viewportFrameRef.current = undefined;
+    }
+    pendingViewportRef.current = undefined;
+    viewportRef.current = next;
+    setViewport(next);
   }, []);
 
   const visibleNodes = layoutNodes.filter((node) => visible[node.kind]);
@@ -199,7 +228,7 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
   };
 
   const zoomAroundCenter = (factor: number) => {
-    queueViewport(zoomViewport(viewportRef.current, factor, { x: GRAPH_VIEWBOX.width / 2, y: GRAPH_VIEWBOX.height / 2 }));
+    applyViewport(zoomViewport(viewportRef.current, factor, { x: GRAPH_VIEWBOX.width / 2, y: GRAPH_VIEWBOX.height / 2 }));
   };
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<SVGSVGElement>) => {
@@ -216,7 +245,7 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
       const delta = event.key === "ArrowLeft" ? { x: distance, y: 0 }
         : event.key === "ArrowRight" ? { x: -distance, y: 0 }
           : event.key === "ArrowUp" ? { x: 0, y: distance } : { x: 0, y: -distance };
-      queueViewport(panViewport(viewportRef.current, delta));
+      applyViewport(panViewport(viewportRef.current, delta));
     }
   };
 
@@ -236,8 +265,8 @@ export function KnowledgeGraph({ topic, snapshot }: { topic: KnowledgeTopic; sna
           onClick={() => toggle(kind)}
         >{kind === "concept" ? <Lightbulb /> : kind === "gap" ? <CircleAlert /> : <Check />} {kind === "question" ? "Check" : capitalize(kind)}</button>)}
         <button aria-label="Zoom out" title="Zoom out" onClick={() => zoomAroundCenter(1 / GRAPH_ZOOM_STEP)}><Minus /></button>
-        <button aria-label="Fit graph to view" title="Fit graph to view" onClick={() => queueViewport(fitViewport(visibleNodes))}><Maximize2 /></button>
-        <button aria-label="Reset graph view" title="Reset graph view" onClick={() => queueViewport(GRAPH_DEFAULT_VIEWPORT)}><RotateCcw /></button>
+        <button aria-label="Fit graph to view" title="Fit graph to view" onClick={() => applyViewport(fitViewport(visibleNodes))}><Maximize2 /></button>
+        <button aria-label="Reset graph view" title="Reset graph view" onClick={() => applyViewport(GRAPH_DEFAULT_VIEWPORT)}><RotateCcw /></button>
         <button aria-label="Zoom in" title="Zoom in" onClick={() => zoomAroundCenter(GRAPH_ZOOM_STEP)}><Plus /></button>
       </div>
     </section>

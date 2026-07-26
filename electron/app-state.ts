@@ -37,9 +37,21 @@ import {
 import { planExamReviews } from "../shared/planner";
 import { createTopicCard, editTopicCard, retireTopicCard } from "./topic-authoring";
 import { emptyPlanner, PlannerStore } from "./planner-store";
-import { CaptureStore } from "./capture-store";
-import { NoteEnrichmentCoordinator } from "./note-enrichment-coordinator";
+import { CaptureRevisionConflictError, CaptureStore } from "./capture-store";
+import {
+  NoteEnrichmentCoordinator,
+  noteEnrichmentStorageFailureMessage
+} from "./note-enrichment-coordinator";
 import type { LocalNoteModel } from "./ollama-note-model";
+import {
+  booleanValue,
+  nonEmptyExactString,
+  nonNegativeInteger,
+  oneOf,
+  positiveInteger,
+  record,
+  strictIdentifier
+} from "./input-validation";
 
 interface StatePaths {
   settingsPath: string;
@@ -47,19 +59,26 @@ interface StatePaths {
   legacyProgressPath: string;
 }
 
+const reviewRatings = new Set<CommitReviewInput["rating"]>(["missed", "hard", "good", "easy"]);
+
 export class RevemberState extends EventEmitter {
   private topics: KnowledgeTopic[] = [];
   private progress: ProgressRecord = emptyProgress();
   private planner: PlannerRecord = emptyPlanner();
   private settings: AppSettings;
   private errorMessage?: string;
+  private settingsWarning?: string;
+  private backgroundWarning?: string;
   private watchers: FSWatcher[] = [];
   private reloadTimer?: NodeJS.Timeout;
   private readonly noteEnrichment: NoteEnrichmentCoordinator;
 
   constructor(private readonly paths: StatePaths, noteModel?: LocalNoteModel) {
     super();
-    this.noteEnrichment = new NoteEnrichmentCoordinator(noteModel);
+    this.noteEnrichment = new NoteEnrichmentCoordinator(noteModel, (message) => {
+      this.backgroundWarning = message;
+      this.broadcast();
+    });
     this.settings = this.loadSettings();
     this.reloadFromDisk();
     this.startWatching();
@@ -71,7 +90,7 @@ export class RevemberState extends EventEmitter {
       progress: this.progress,
       planner: this.planner,
       settings: this.settings,
-      errorMessage: this.errorMessage,
+      errorMessage: this.errorMessage ?? this.backgroundWarning ?? this.settingsWarning,
       platform: process.platform
     });
   }
@@ -83,25 +102,23 @@ export class RevemberState extends EventEmitter {
   }
 
   setKnowledgeRoot(knowledgeRootPath: string): AppSnapshot {
-    this.settings.knowledgeRootPath = path.resolve(expandHome(knowledgeRootPath));
-    this.saveSettings();
-    return this.reload();
+    return this.switchKnowledgeRoot(path.resolve(expandHome(knowledgeRootPath)));
   }
 
   resetKnowledgeRoot(): AppSnapshot {
-    this.settings.knowledgeRootPath = this.defaultKnowledgeRoot();
-    this.saveSettings();
-    return this.reload();
+    return this.switchKnowledgeRoot(this.defaultKnowledgeRoot());
   }
 
-  setNotificationsEnabled(enabled: boolean): AppSnapshot {
+  setNotificationsEnabled(rawEnabled: unknown): AppSnapshot {
+    const enabled = booleanValue(rawEnabled, "notificationsEnabled");
     this.settings.notificationsEnabled = enabled;
     this.saveSettings();
     this.broadcast();
     return this.snapshot;
   }
 
-  commitReview(input: CommitReviewInput): CommitReviewResult {
+  commitReview(rawInput: unknown): CommitReviewResult {
+    const input = normalizeCommitReviewInput(rawInput);
     const topic = this.topics.find((candidate) => candidate.id === input.topicID);
     const question = topic?.questions.find((candidate) => candidate.id === input.questionID && !candidate.retiredAt);
     if (!topic || !question || question.revision !== input.questionRevision) {
@@ -109,8 +126,7 @@ export class RevemberState extends EventEmitter {
     }
     const choice = question.choices.find((candidate) => candidate.id === input.choiceID);
     if (!choice) throw new Error("The selected answer no longer exists.");
-    const reviewedAt = input.reviewedAt ? new Date(input.reviewedAt) : new Date();
-    if (Number.isNaN(reviewedAt.getTime())) throw new Error("The review timestamp is invalid.");
+    const reviewedAt = input.reviewedAt ?? new Date().toISOString();
     const answer = correctChoice(question);
     const event: ReviewEvent = {
       id: input.eventID.toLowerCase(),
@@ -130,7 +146,7 @@ export class RevemberState extends EventEmitter {
       gapTags: question.gapTags,
       misconceptionIDs: choice.misconceptionID ? [choice.misconceptionID] : [],
       sourceRefs: question.sourceRefs,
-      reviewedAt: reviewedAt.toISOString()
+      reviewedAt
     };
     const existing = this.progress.reviewEvents.find((candidate) => candidate.id.toLowerCase() === event.id);
     const candidate = structuredClone(this.progress);
@@ -182,15 +198,47 @@ export class RevemberState extends EventEmitter {
   }
 
   saveCapture(input: SaveCaptureInput): LearnerCapture {
-    const capture = new CaptureStore(this.settings.knowledgeRootPath).save(input, new Date(), (topicID) => {
+    return new CaptureStore(this.settings.knowledgeRootPath).save(input, new Date(), (topicID) => {
       if (!this.topics.some((topic) => topic.id === topicID)) {
         throw new Error(`Capture references missing topic ${topicID}.`);
       }
     });
+  }
+
+  finishCapture(rawID: unknown, rawExpectedRevision: unknown): LearnerCapture {
+    const id = strictIdentifier(rawID, "capture id");
+    const expectedRevision = nonNegativeInteger(rawExpectedRevision, "expectedRevision");
+    const store = new CaptureStore(this.settings.knowledgeRootPath);
+    const current = store.get(id);
+    if (current.revision !== expectedRevision) {
+      throw new CaptureRevisionConflictError(expectedRevision, current.revision);
+    }
+    if (current.status === "archived") throw new Error("Archived notes cannot be finished.");
+    if (!current.rawText.trim()) throw new Error("Add note text before finishing this lecture.");
+
+    const capture = current.status === "ready"
+      ? current
+      : store.save({
+        id: current.id,
+        expectedRevision: current.revision,
+        topicID: current.topicID,
+        title: current.title,
+        rawText: current.rawText,
+        concisePoints: current.concisePoints,
+        status: "ready"
+      }, new Date(), (topicID) => {
+        if (!this.topics.some((topic) => topic.id === topicID)) {
+          throw new Error(`Capture references missing topic ${topicID}.`);
+        }
+      });
     try {
       this.noteEnrichment.enqueue(capture, this.settings.knowledgeRootPath);
-    } catch {
-      // A model-status write must not make an already-persisted learner note fail to save.
+      this.backgroundWarning = undefined;
+    } catch (error) {
+      // The learner-authored revision is already durably Ready. Queue storage
+      // is best-effort and can be retried after the knowledge folder is fixed.
+      this.backgroundWarning = noteEnrichmentStorageFailureMessage(error);
+      this.broadcast();
     }
     return capture;
   }
@@ -204,10 +252,15 @@ export class RevemberState extends EventEmitter {
     if (enrichment && enrichment.status !== "queued" && enrichment.status !== "running") return enrichment;
     const capture = this.getCapture(captureID);
     if (capture.revision !== captureRevision) return enrichment;
-    if (capture.status === "archived") return enrichment;
-    return enrichment
+    if (capture.status !== "ready") return enrichment;
+    const scheduled = enrichment
       ? this.noteEnrichment.resume(capture, this.settings.knowledgeRootPath)
       : this.noteEnrichment.enqueue(capture, this.settings.knowledgeRootPath);
+    if (this.backgroundWarning) {
+      this.backgroundWarning = undefined;
+      this.broadcast();
+    }
+    return scheduled;
   }
 
   retryCaptureEnrichment(captureID: string, captureRevision: number) {
@@ -215,7 +268,11 @@ export class RevemberState extends EventEmitter {
     if (capture.revision !== captureRevision) {
       throw new Error("This note changed before its study response could be retried. Open the current revision instead.");
     }
-    return this.noteEnrichment.retry(capture, this.settings.knowledgeRootPath);
+    if (capture.status !== "ready") throw new Error("Finish this lecture before requesting a local study response.");
+    const enrichment = this.noteEnrichment.retry(capture, this.settings.knowledgeRootPath);
+    this.backgroundWarning = undefined;
+    this.broadcast();
+    return enrichment;
   }
 
   async createCard(input: CreateCardInput): Promise<CardMutationResult> {
@@ -269,10 +326,12 @@ export class RevemberState extends EventEmitter {
 
   private loadSettings(): AppSettings {
     let stored: Partial<AppSettings> = {};
-    try {
-      stored = JSON.parse(readFileSync(this.paths.settingsPath, "utf8")) as Partial<AppSettings>;
-    } catch {
-      // The settings file is optional on first launch.
+    if (existsSync(this.paths.settingsPath)) {
+      try {
+        stored = normalizeStoredSettings(JSON.parse(readFileSync(this.paths.settingsPath, "utf8")));
+      } catch (error) {
+        this.settingsWarning = this.quarantineInvalidSettings(error);
+      }
     }
     const configuredKnowledgeRoot = process.env.REVEMBER_KNOWLEDGE_ROOT
       ? path.resolve(expandHome(process.env.REVEMBER_KNOWLEDGE_ROOT))
@@ -285,6 +344,17 @@ export class RevemberState extends EventEmitter {
       progressPath: configuredProgressPath ?? stored.progressPath ?? this.paths.legacyProgressPath,
       notificationsEnabled: stored.notificationsEnabled ?? false
     };
+  }
+
+  private quarantineInvalidSettings(error: unknown): string {
+    const detail = error instanceof Error ? error.message : String(error);
+    try {
+      const quarantine = artifactPath(this.paths.settingsPath, "corrupt");
+      renameSync(this.paths.settingsPath, quarantine);
+      return `Settings were invalid and moved to ${path.basename(quarantine)}. Revember is using safe defaults: ${detail}`;
+    } catch {
+      return `Settings were invalid. Revember is using safe defaults for this session: ${detail}`;
+    }
   }
 
   private progressFingerprint(): string {
@@ -318,21 +388,48 @@ export class RevemberState extends EventEmitter {
     }
   }
 
-  private saveSettings(): void {
+  private saveSettings(settings = this.settings): void {
     mkdirSync(path.dirname(this.paths.settingsPath), { recursive: true });
-    writeJson(this.paths.settingsPath, this.settings);
+    writeJson(this.paths.settingsPath, settings);
   }
 
   private reloadFromDisk(): void {
     try {
-      this.topics = this.loadTopics();
-      this.progress = this.loadProgress();
-      const planner = new PlannerStore(this.settings.progressPath).load();
-      this.planner = planner.record;
-      this.errorMessage = planner.warning;
+      const loaded = this.readDiskState(this.settings);
+      this.topics = loaded.topics;
+      this.progress = loaded.progress;
+      this.planner = loaded.planner;
+      this.errorMessage = [this.settingsWarning, loaded.warning].filter(Boolean).join(" ") || undefined;
     } catch (error) {
       this.errorMessage = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  private switchKnowledgeRoot(knowledgeRootPath: string): AppSnapshot {
+    const candidateSettings = { ...this.settings, knowledgeRootPath };
+    const loaded = this.readDiskState(candidateSettings);
+    this.saveSettings(candidateSettings);
+    this.settings = candidateSettings;
+    this.topics = loaded.topics;
+    this.progress = loaded.progress;
+    this.planner = loaded.planner;
+    this.errorMessage = loaded.warning;
+    this.backgroundWarning = undefined;
+    this.startWatching();
+    this.broadcast();
+    return this.snapshot;
+  }
+
+  private readDiskState(settings: AppSettings): {
+    topics: KnowledgeTopic[];
+    progress: ProgressRecord;
+    planner: PlannerRecord;
+    warning?: string;
+  } {
+    const topics = this.loadTopics(settings.knowledgeRootPath);
+    const progress = this.loadProgress(settings.progressPath);
+    const planner = new PlannerStore(settings.progressPath).load();
+    return { topics, progress, planner: planner.record, warning: planner.warning };
   }
 
   private finishCardMutation(topicID: string, questionID: string, rawTopic: Record<string, unknown>): CardMutationResult {
@@ -346,8 +443,8 @@ export class RevemberState extends EventEmitter {
     return { snapshot: this.snapshot, topic, question };
   }
 
-  private loadTopics(): KnowledgeTopic[] {
-    const topicsDirectory = path.join(this.settings.knowledgeRootPath, "topics");
+  private loadTopics(knowledgeRootPath = this.settings.knowledgeRootPath): KnowledgeTopic[] {
+    const topicsDirectory = path.join(knowledgeRootPath, "topics");
     if (!existsSync(topicsDirectory)) return [];
     return readdirSync(topicsDirectory)
       .filter((fileName) => fileName.toLowerCase().endsWith(".json") && !fileName.startsWith("."))
@@ -359,29 +456,36 @@ export class RevemberState extends EventEmitter {
       });
   }
 
-  private loadProgress(): ProgressRecord {
-    if (!existsSync(this.settings.progressPath)) return emptyProgress();
+  private loadProgress(progressPath = this.settings.progressPath): ProgressRecord {
+    if (!existsSync(progressPath)) return emptyProgress();
     let raw: unknown;
     try {
-      raw = JSON.parse(readFileSync(this.settings.progressPath, "utf8"));
+      raw = JSON.parse(readFileSync(progressPath, "utf8"));
     } catch (error) {
-      const quarantine = artifactPath(this.settings.progressPath, "corrupt");
-      renameSync(this.settings.progressPath, quarantine);
+      const quarantine = artifactPath(progressPath, "corrupt");
+      renameSync(progressPath, quarantine);
       throw new Error(`Progress was unreadable and moved to ${path.basename(quarantine)}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const progress = normalizeProgress(raw);
+    let progress: ProgressRecord;
+    try {
+      progress = normalizeProgress(raw);
+    } catch (error) {
+      const quarantine = artifactPath(progressPath, "corrupt");
+      renameSync(progressPath, quarantine);
+      throw new Error(`Progress was invalid and moved to ${path.basename(quarantine)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     if (progress.schemaVersion < 2) {
-      const backup = artifactPath(this.settings.progressPath, "pre-v2-backup");
-      copyFileSync(this.settings.progressPath, backup);
+      const backup = artifactPath(progressPath, "pre-v2-backup");
+      copyFileSync(progressPath, backup);
       progress.schemaVersion = 2;
-      this.writeProgress(progress);
+      this.writeProgress(progress, progressPath);
     }
     return progress;
   }
 
-  private writeProgress(progress: ProgressRecord): void {
-    mkdirSync(path.dirname(this.settings.progressPath), { recursive: true });
-    writeJson(this.settings.progressPath, progress);
+  private writeProgress(progress: ProgressRecord, progressPath = this.settings.progressPath): void {
+    mkdirSync(path.dirname(progressPath), { recursive: true });
+    writeJson(progressPath, progress);
   }
 
   private refreshFromDiskAndWatch(): void {
@@ -413,6 +517,30 @@ export class RevemberState extends EventEmitter {
   }
 }
 
+function normalizeCommitReviewInput(rawInput: unknown): CommitReviewInput {
+  const input = record(rawInput, "review input");
+  const reviewedAt = optionalCanonicalTimestamp(input.reviewedAt, "reviewedAt");
+  return {
+    topicID: strictIdentifier(input.topicID, "topicID"),
+    questionID: nonEmptyExactString(input.questionID, "questionID"),
+    questionRevision: positiveInteger(input.questionRevision, "questionRevision"),
+    choiceID: nonEmptyExactString(input.choiceID, "choiceID"),
+    rating: oneOf(input.rating, reviewRatings, "rating"),
+    eventID: strictIdentifier(input.eventID, "eventID"),
+    ...(reviewedAt ? { reviewedAt } : {})
+  };
+}
+
+function optionalCanonicalTimestamp(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${label} must be an ISO timestamp.`);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== value) {
+    throw new Error(`${label} must be a canonical ISO timestamp.`);
+  }
+  return value;
+}
+
 function atomicWrite(filePath: string, contents: string): void {
   const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
@@ -421,6 +549,21 @@ function atomicWrite(filePath: string, contents: string): void {
 
 function writeJson(filePath: string, value: unknown): void {
   atomicWrite(filePath, JSON.stringify(value, null, 2) + "\n");
+}
+
+function normalizeStoredSettings(value: unknown): Partial<AppSettings> {
+  const raw = record(value, "Settings");
+  return {
+    ...(raw.knowledgeRootPath === undefined ? {} : {
+      knowledgeRootPath: path.resolve(expandHome(nonEmptyExactString(raw.knowledgeRootPath, "settings knowledgeRootPath")))
+    }),
+    ...(raw.progressPath === undefined ? {} : {
+      progressPath: path.resolve(expandHome(nonEmptyExactString(raw.progressPath, "settings progressPath")))
+    }),
+    ...(raw.notificationsEnabled === undefined ? {} : {
+      notificationsEnabled: booleanValue(raw.notificationsEnabled, "settings notificationsEnabled")
+    })
+  };
 }
 
 function artifactPath(filePath: string, kind: string): string {

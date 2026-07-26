@@ -348,6 +348,7 @@ export interface RevemberAPI {
   listCaptureSummaries(): Promise<CaptureSummary[]>;
   getCapture(id: string): Promise<LearnerCapture>;
   saveCapture(input: SaveCaptureInput): Promise<LearnerCapture>;
+  finishCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   archiveCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   getCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment | undefined>;
   retryCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment>;

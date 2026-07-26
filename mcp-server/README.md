@@ -99,6 +99,8 @@ The server communicates over stdio, so it should not print normal logs to stdout
 
 `npm run test:transport` launches the built server exactly as an MCP client does, verifies its advertised tools/resources, validates the live knowledge root, and reads the learner brief without mutating authored knowledge.
 
+The server does not start an HTTP listener or expose static-file routes. See the repository [security policy](../SECURITY.md#dependency-audit-status) for the current SDK dependency-audit status and stdio-only mitigation.
+
 ## Resources
 
 - `revember://topics` lists topic metadata, schema versions, revisions, and active/retired card counts.

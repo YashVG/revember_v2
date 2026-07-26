@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Circle, FileText, LoaderCircle } from "lucide-react";
+import { ArrowUpRight, Circle, FileText, LoaderCircle, Sparkles } from "lucide-react";
 import type { AppSnapshot, DueReviewItem, LearnerCapture } from "../../../../shared/types";
 import { dueReviewItems } from "../../../../shared/domain";
 import { Eyebrow } from "./ui";
 import { toErrorMessage } from "../utils";
+import { reviewItemDurationLabel } from "../presentation";
+import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 
 const NOTE_SAVE_DELAY_MS = 700;
 
@@ -14,18 +16,30 @@ type HomePageProps = {
   snapshot: AppSnapshot;
   onOpenNotes: () => void;
   onStartReview: (items: DueReviewItem[]) => void;
+  onRegisterBeforeLeave: (handler: (() => Promise<boolean>) | undefined) => void;
 };
 
-export function HomePage({ snapshot, onOpenNotes, onStartReview }: HomePageProps) {
+export function HomePage({ snapshot, onOpenNotes, onStartReview, onRegisterBeforeLeave }: HomePageProps) {
   const [topicID, setTopicID] = useState(snapshot.topics[0]?.id ?? "");
   const [noteText, setNoteText] = useState("");
   const [savedCapture, setSavedCapture] = useState<LearnerCapture>();
   const [saveState, setSaveState] = useState<SaveState>("ready");
   const [saveError, setSaveError] = useState<string>();
-  const saveInFlight = useRef(false);
-  const lastSavedText = useRef("");
+  const [finishing, setFinishing] = useState(false);
+  const noteTextRef = useRef(noteText);
+  const topicIDRef = useRef(topicID);
+  const savedCaptureRef = useRef<LearnerCapture | undefined>(undefined);
+  const lastSavedFingerprint = useRef("");
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const finishInFlight = useRef(false);
   const today = useMemo(() => new Date(), []);
   const due = useMemo(() => dueReviewItems(snapshot), [snapshot]);
+  const hasUnsavedChanges = Boolean(noteText.trim() || savedCapture)
+    && noteFingerprint(topicID, noteText) !== lastSavedFingerprint.current;
+  useBeforeUnloadGuard(hasUnsavedChanges);
+  noteTextRef.current = noteText;
+  topicIDRef.current = topicID;
+  savedCaptureRef.current = savedCapture;
 
   useEffect(() => {
     if (!snapshot.topics.some((topic) => topic.id === topicID)) {
@@ -33,39 +47,86 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview }: HomePageProps
     }
   }, [snapshot.topics, topicID]);
 
-  const saveNote = useCallback(async () => {
-    if (saveInFlight.current || !noteText.trim() || !topicID || noteText === lastSavedText.current) return;
+  const saveNote = useCallback((): Promise<LearnerCapture | undefined> => {
+    const operation = saveQueue.current.then(async () => {
+      const rawText = noteTextRef.current;
+      const currentTopicID = topicIDRef.current;
+      const fingerprint = noteFingerprint(currentTopicID, rawText);
+      if ((!rawText.trim() && !savedCaptureRef.current) || !currentTopicID || fingerprint === lastSavedFingerprint.current) {
+        return savedCaptureRef.current;
+      }
+      try {
+        setSaveState("saving");
+        setSaveError(undefined);
+        const current = savedCaptureRef.current;
+        const saved = await window.revember.saveCapture({
+          ...(current ? { id: current.id } : {}),
+          expectedRevision: current?.revision ?? 0,
+          topicID: currentTopicID,
+          title: `Lecture note · ${today.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+          rawText,
+          concisePoints: current?.concisePoints.map((point) => ({ id: point.id, text: point.text })) ?? [],
+          status: "draft"
+        });
+        savedCaptureRef.current = saved;
+        setSavedCapture(saved);
+        lastSavedFingerprint.current = fingerprint;
+        setSaveState(noteFingerprint(topicIDRef.current, noteTextRef.current) === fingerprint ? "saved" : "ready");
+        return saved;
+      } catch (cause) {
+        setSaveState("error");
+        setSaveError(toErrorMessage(cause));
+        throw cause;
+      }
+    });
+    saveQueue.current = operation.then(() => undefined, () => undefined);
+    return operation;
+  }, [today]);
+
+  useEffect(() => {
+    if ((!noteText.trim() && !savedCapture) || noteFingerprint(topicID, noteText) === lastSavedFingerprint.current) return;
+    const timer = window.setTimeout(() => void saveNote().catch(() => undefined), NOTE_SAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [noteText, saveNote, savedCapture, topicID]);
+
+  const beforeLeave = useCallback(async () => {
     try {
-      saveInFlight.current = true;
-      setSaveState("saving");
+      await saveNote();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [saveNote]);
+
+  useEffect(() => {
+    onRegisterBeforeLeave(hasUnsavedChanges ? beforeLeave : undefined);
+    return () => onRegisterBeforeLeave(undefined);
+  }, [beforeLeave, hasUnsavedChanges, onRegisterBeforeLeave]);
+
+  const finishLecture = async () => {
+    if (finishInFlight.current) return;
+    try {
+      finishInFlight.current = true;
+      setFinishing(true);
       setSaveError(undefined);
-      const saved = await window.revember.saveCapture({
-        ...(savedCapture ? { id: savedCapture.id } : {}),
-        expectedRevision: savedCapture?.revision ?? 0,
-        topicID,
-        title: `Lecture note · ${today.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
-        rawText: noteText,
-        concisePoints: savedCapture?.concisePoints.map((point) => ({ id: point.id, text: point.text })) ?? [],
-        status: "draft"
-      });
-      setSavedCapture(saved);
-      lastSavedText.current = noteText;
+      const saved = await saveNote();
+      if (!saved) throw new Error("Add note text before finishing this lecture.");
+      const finished = await window.revember.finishCapture(saved.id, saved.revision);
+      savedCaptureRef.current = finished;
+      setSavedCapture(finished);
       setSaveState("saved");
     } catch (cause) {
       setSaveState("error");
       setSaveError(toErrorMessage(cause));
     } finally {
-      saveInFlight.current = false;
+      finishInFlight.current = false;
+      setFinishing(false);
     }
-  }, [noteText, savedCapture, today, topicID]);
-
-  useEffect(() => {
-    if (!noteText.trim() || noteText === lastSavedText.current) return;
-    const timer = window.setTimeout(() => void saveNote(), NOTE_SAVE_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [noteText, saveNote]);
+  };
 
   const noteStatus = saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Could not save";
+  const currentReady = savedCapture?.status === "ready"
+    && noteFingerprint(topicID, noteText) === lastSavedFingerprint.current;
 
   return (
     <div className="home-page">
@@ -86,7 +147,16 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview }: HomePageProps
               {noteStatus}
             </span>
           )}
-          <button className="home-link" type="button" onClick={() => void saveNote().finally(onOpenNotes)}>
+          <button
+            className="primary home-finish-button"
+            type="button"
+            disabled={!noteText.trim() || saveState === "saving" || finishing || currentReady}
+            onClick={() => void finishLecture()}
+          >
+            {finishing ? <LoaderCircle className="spin" /> : <Sparkles />}
+            {finishing ? "Finishing…" : currentReady ? "Lecture finished" : "Finish lecture"}
+          </button>
+          <button className="home-link" type="button" onClick={onOpenNotes}>
             Open notes <ArrowUpRight />
           </button>
         </div>
@@ -101,7 +171,7 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview }: HomePageProps
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
               event.preventDefault();
-              void saveNote();
+              void saveNote().catch(() => undefined);
             }
           }}
           placeholder="Start typing…"
@@ -144,11 +214,11 @@ function FocusDrawer({
         </div>
         <div className="focus-task-list" aria-label={`${due.length} due checks`}>
           {due.length > 0 ? (
-            due.slice(0, 3).map((item, index) => (
+            due.slice(0, 3).map((item) => (
               <button className="focus-task" key={item.id} type="button" onClick={() => onStartReview([item])}>
                 <Circle />
                 <span>{item.question.prompt}</span>
-                <small>{estimateMinutes(index)}m</small>
+                <small>{reviewItemDurationLabel()}</small>
               </button>
             ))
           ) : (
@@ -165,6 +235,6 @@ function FocusDrawer({
   );
 }
 
-function estimateMinutes(index: number): number {
-  return [45, 35, 25][index] ?? 20;
+function noteFingerprint(topicID: string, rawText: string): string {
+  return `${topicID}\u0000${rawText}`;
 }

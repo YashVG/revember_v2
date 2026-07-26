@@ -1,3 +1,4 @@
+import { indexCurrentReviewEvents } from "./domain";
 import type { KnowledgeTopic, ProgressRecord, ReviewRating } from "./types";
 
 export type GraphNodeKind = "concept" | "gap" | "question";
@@ -54,6 +55,16 @@ export function buildGraph(topic: KnowledgeTopic, progress: ProgressRecord): Gra
   const links: GraphLink[] = [];
   const width = 1000;
   const conceptY = 320;
+  const evidence = indexCurrentReviewEvents(topic, progress);
+  const latestForQuestion = new Map<string, typeof progress.reviewEvents[number]>();
+  for (const question of evidence.activeQuestions) {
+    const events = evidence.eventsByQuestionID.get(question.id);
+    for (const event of events ?? []) {
+      const questionLatest = latestForQuestion.get(question.id);
+      if (!questionLatest || questionLatest.reviewedAt <= event.reviewedAt) latestForQuestion.set(question.id, event);
+    }
+  }
+  const conceptStatuses = evidenceStatusesByConcept(topic, evidence.activeQuestions, latestForQuestion);
   topic.concepts.forEach((concept, index) => {
     nodes.push({
       id: `concept:${concept.id}`,
@@ -61,7 +72,7 @@ export function buildGraph(topic: KnowledgeTopic, progress: ProgressRecord): Gra
       kind: "concept",
       title: concept.title,
       subtitle: concept.firstPrinciples,
-      status: evidenceStatus(topic.id, concept.id, topic, progress),
+      status: conceptStatuses.get(concept.id) ?? "untested",
       x: position(index, topic.concepts.length, 70, width - 70),
       y: conceptY + (index % 2 ? 20 : -20)
     });
@@ -82,12 +93,9 @@ export function buildGraph(topic: KnowledgeTopic, progress: ProgressRecord): Gra
       links.push({ id: `gap:${gap.id}->${conceptID}`, sourceID: `gap:${gap.id}`, targetID: `concept:${conceptID}`, kind: "gapConcept" });
     }
   });
-  const activeQuestions = topic.questions.filter((question) => !question.retiredAt);
-  activeQuestions.forEach((question, index) => {
+  evidence.activeQuestions.forEach((question, index) => {
     const linked = question.conceptIDs.map((id) => nodes.find((node) => node.id === `concept:${id}`)?.x).filter((x): x is number => x !== undefined);
-    const latest = progress.reviewEvents
-      .filter((event) => event.topicID === topic.id && event.questionID === question.id && event.questionRevision === question.revision)
-      .sort((a, b) => a.reviewedAt.localeCompare(b.reviewedAt)).at(-1);
+    const latest = latestForQuestion.get(question.id);
     nodes.push({
       id: `question:${question.id}`,
       rawID: question.id,
@@ -95,7 +103,7 @@ export function buildGraph(topic: KnowledgeTopic, progress: ProgressRecord): Gra
       title: question.prompt,
       subtitle: `${question.transferLevel} · revision ${question.revision}`,
       status: latest ? ratingStatus(latest.rating, latest.isCorrect) : "untested",
-      x: clamp((linked.length ? average(linked) : position(index, activeQuestions.length, 65, width - 65)) + ((index % 5) - 2) * 18, 60, width - 60),
+      x: clamp((linked.length ? average(linked) : position(index, evidence.activeQuestions.length, 65, width - 65)) + ((index % 5) - 2) * 18, 60, width - 60),
       y: 510 + (index % 3) * 78
     });
     for (const conceptID of question.conceptIDs) {
@@ -113,19 +121,23 @@ export function buildGraph(topic: KnowledgeTopic, progress: ProgressRecord): Gra
   return { nodes, links };
 }
 
-function evidenceStatus(topicID: string, conceptID: string, topic: KnowledgeTopic, progress: ProgressRecord): EvidenceStatus {
-  const questionIDs = new Set(topic.questions.filter((question) => !question.retiredAt && question.conceptIDs.includes(conceptID)).map((question) => question.id));
-  const events = progress.reviewEvents.filter((event) => event.topicID === topicID && questionIDs.has(event.questionID));
-  const latestByQuestion = new Map<string, typeof events[number]>();
-  for (const event of events) {
-    const current = latestByQuestion.get(event.questionID);
-    if (!current || current.reviewedAt < event.reviewedAt) latestByQuestion.set(event.questionID, event);
+function evidenceStatusesByConcept(
+  topic: KnowledgeTopic,
+  questions: KnowledgeTopic["questions"],
+  latestByQuestion: ReadonlyMap<string, ProgressRecord["reviewEvents"][number]>
+): Map<string, EvidenceStatus> {
+  const rank: Record<EvidenceStatus, number> = { untested: 0, stable: 1, developing: 2, fragile: 3 };
+  const statuses = new Map<string, EvidenceStatus>(topic.concepts.map((concept) => [concept.id, "untested"]));
+  for (const question of questions) {
+    const latest = latestByQuestion.get(question.id);
+    if (!latest) continue;
+    const status = ratingStatus(latest.rating, latest.isCorrect);
+    for (const conceptID of new Set(question.conceptIDs)) {
+      const current = statuses.get(conceptID);
+      if (current && rank[status] > rank[current]) statuses.set(conceptID, status);
+    }
   }
-  const statuses = [...latestByQuestion.values()].map((event) => ratingStatus(event.rating, event.isCorrect));
-  if (statuses.includes("fragile")) return "fragile";
-  if (statuses.includes("developing")) return "developing";
-  if (statuses.length) return "stable";
-  return "untested";
+  return statuses;
 }
 
 function ratingStatus(rating: ReviewRating, isCorrect: boolean): EvidenceStatus {

@@ -28,13 +28,22 @@ sessions/*.json
 
 Durable learning checkpoints. Session schema version 1 records what changed, the linked topic and topic revision when available, confirmed concepts, misconceptions, open questions, source references, and optional Markdown detail.
 
-The app reads topic files from:
+The app loads authored review material directly from:
 
 ```text
 topics/*.json
 ```
 
-Codex should update Markdown notes first when preserving general knowledge, then compile the relevant structured review material into JSON. Concept array order is presentation order only: knowledge-graph semantics must be authored in `relationships`, never inferred from adjacency. The app watches this folder and reloads valid topic saves automatically; it retains its last valid snapshot if a file is temporarily malformed. The app reads JSON directly and does not call a database, NLP backend, or AI service.
+Codex should update Markdown notes first when preserving general knowledge, then compile the relevant structured review material into JSON. Concept array order is presentation order only: knowledge-graph semantics must be authored in `relationships`, never inferred from adjacency. The app watches this folder and reloads valid topic saves automatically; it retains its last valid snapshot if a file is temporarily malformed. The topic loader reads JSON directly; that loading path uses no database, NLP backend, or AI service.
+
+This direct-read rule applies to authored topics. Learner lecture notes use a separate capture workflow:
+
+```text
+captures/*.json             -> exact local note and user-authored takeaways
+capture-enrichments/*.json  -> optional revision-keyed local study response
+```
+
+Typing autosaves a `draft` capture and does not run analysis. **Finish lecture** marks that revision `ready` and can send a bounded projection to the local Ollama `llama3` model. Revember stores the result separately, reconstructs its claims from exact source segments, and never changes `topics/*.json`, `notes/*.md`, or the original capture text. Ollama is optional; the rest of the app works when it is unavailable.
 
 The registered local MCP server is the preferred mutation path because it provides atomic writes, backups, validation, and optimistic topic revisions. Read the topic first, pass its current `revision` as `expectedRevision`, and refresh after a conflict. The main focused tools are `upsert_concept`, `upsert_card`, `retire_card`, `update_markdown_explanation`, and `capture_learning_session`; `get_learner_brief` closes the loop by reading local progress back into the next lesson.
 

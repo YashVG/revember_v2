@@ -24,11 +24,7 @@ case "$MODE" in
   --install|install)
     ensure_dependencies
     npm run package
-    APP_BUNDLE="$(find "$ROOT_DIR/release" -type d -name Revember.app -prune -print -quit)"
-    if [[ -z "$APP_BUNDLE" ]]; then
-      echo "Packaged Revember.app was not found under $ROOT_DIR/release" >&2
-      exit 1
-    fi
+    APP_BUNDLE="$("$ROOT_DIR/script/resolve_packaged_app.sh")"
     INSTALL_DIR="/Applications"
     if [[ ! -w "$INSTALL_DIR" ]]; then
       INSTALL_DIR="$HOME/Applications"
@@ -50,8 +46,7 @@ case "$MODE" in
     exec /usr/bin/log stream --info --style compact --predicate 'process == "Revember"'
     ;;
   --verify|verify)
-    ensure_dependencies
-    npm run check
+    npm run verify
     node tests-electron/e2e.mjs
     ;;
   *)

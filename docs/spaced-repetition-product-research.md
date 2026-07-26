@@ -1,8 +1,27 @@
 # Revember v2 Spaced Repetition Product Research
 
-## Product Brief
+**Status:** the research below guided the current product. It is retained as design rationale, not as a current implementation plan.
 
-Revember v2 should be a local desktop app for turning first-principles learning sessions into durable technical memory. The app should not feel like a generic flashcard tool. It should feel like a focused fundamentals cockpit: a small daily queue, direct checks, immediate correction, and a visible map of weak concepts.
+## Current Implementation
+
+| Research direction | Current state |
+| --- | --- |
+| Due-first Today surface and short review queue | Implemented |
+| Missed, Hard, Good, and Easy ratings | Implemented |
+| Transparent local scheduler and exact next-review time | Implemented as `simple-v1` |
+| Revision-bound immutable review events | Implemented |
+| Per-choice rationales, gap tags, and misconception IDs | Implemented |
+| Authored concept relationships and learner-evidence graph | Implemented |
+| Codex handoff through local files and stdio MCP | Implemented |
+| Keyboard answer shortcuts and session-repair animation | Deferred |
+| Difficulty unlocking and adaptive success targeting | Deferred |
+| FSRS scheduling adapter | Deferred; the event schema preserves a migration path |
+
+The source of truth for present behavior is [Closed-Loop Learning Architecture](architecture/closed-loop-learning-system.md).
+
+## Original Product Brief
+
+Revember v2 was proposed as a local desktop app for turning first-principles learning sessions into durable technical memory. The intended experience was a focused fundamentals cockpit: a small daily queue, direct checks, immediate correction, and a visible map of weak concepts.
 
 The app should optimize for solidifying knowledge, not vague familiarity. The primary loop is:
 
@@ -19,7 +38,7 @@ The spacing effect is one of the strongest findings in learning research. Cepeda
 
 Sources:
 - Cepeda et al., 2006, distributed practice meta-analysis: https://www.evullab.org/pdf/CepedaPashlerVulWixtedRohrer-PB-2006.pdf
-- Cepeda et al., 2008, optimal spacing depends on retention interval: https://journals.sagepub.com/doi/10.1111/j.1467-9280.2008.02209.x
+- Cepeda et al., 2008, optimal spacing depends on retention interval: https://pubmed.ncbi.nlm.nih.gov/19076480/
 
 Design implication:
 - Make the first screen "Due Now", not "All Topics".
@@ -31,9 +50,9 @@ Design implication:
 Practice testing and retrieval practice produce stronger long-term learning than rereading. Karpicke and Roediger showed that repeated retrieval had a large effect on long-term retention even when learners thought repeated study felt better. Dunlosky et al. also rated practice testing and distributed practice as highly useful techniques.
 
 Sources:
-- Karpicke and Roediger, 2008, retrieval practice: https://www.science.org/doi/10.1126/science.1152408
-- Dunlosky et al., 2013, effective learning techniques review: https://journals.sagepub.com/doi/10.1177/1529100612453266
-- Roediger and Butler, 2011, retrieval practice review: https://www.sciencedirect.com/science/article/pii/S1364661310002081
+- Karpicke and Roediger, 2008, retrieval practice: https://profiles.wustl.edu/en/publications/the-critical-importance-of-retrieval-for-learning/
+- Dunlosky et al., 2013, effective learning techniques review: https://pubmed.ncbi.nlm.nih.gov/26173288/
+- Roediger and Butler, 2011, retrieval practice review: https://pubmed.ncbi.nlm.nih.gov/20951630/
 
 Design implication:
 - Concepts are reference material, but the default action should be "Check me".
@@ -150,8 +169,8 @@ Design implication:
 Gamification can help when it supports meaningful progress, feedback, and competence. It becomes weak when points replace learning.
 
 Sources:
-- Deterding et al., gamification definition: https://dl.acm.org/doi/10.1145/2181037.2181040
-- Sailer et al., gamification and motivation: https://www.sciencedirect.com/science/article/pii/S074756321630855X
+- Deterding et al., gamification definition: https://pdfs.semanticscholar.org/1768/99ac1f3d4ab0b836b5f62eae511cb79a09b3.pdf
+- Sailer et al., gamification and motivation: https://d-nb.info/1309619042/34
 
 Good Revember mechanics:
 - Mastery rings per concept.
@@ -232,82 +251,25 @@ Revember should have three primary surfaces:
 - After session: "You closed: Link Layer vs GATT."
 - Show next review date as a satisfying lock-in moment.
 
-## Knowledge JSON Implications
+## Knowledge JSON Outcome
 
-The current `ble.json` should eventually evolve from simple concept/question storage into scheduling-ready cards.
+The proposed card and progress split is now implemented with a richer contract:
 
-Recommended additions:
+- schema-v2 topics keep diagnostic cards in `questions`;
+- cards have stable IDs and revisions, kinds, transfer levels, concepts, gap tags, source references, rationales, and misconception IDs;
+- progress schema v2 keeps immutable `reviewEvents` separate from derived `reviewCardsByQuestionID` schedules;
+- question revision changes make old evidence stale without deleting its history.
 
-```json
-{
-  "cards": [
-    {
-      "id": "ble-link-layer-role",
-      "conceptIDs": ["link-layer"],
-      "type": "multipleChoice",
-      "prompt": "Which BLE layer owns radio packet exchange?",
-      "choices": [
-        {
-          "id": "a",
-          "text": "Link Layer",
-          "isCorrect": true,
-          "rationale": "Correct. This layer owns packet timing and connection mechanics."
-        },
-        {
-          "id": "b",
-          "text": "GATT",
-          "isCorrect": false,
-          "misconceptionTag": "application-vs-transport",
-          "rationale": "GATT structures app-visible values after a connection exists."
-        }
-      ],
-      "successCriteria": "Can distinguish transport mechanics from app data model."
-    }
-  ]
-}
-```
+See [Closed-Loop Learning Architecture](architecture/closed-loop-learning-system.md) and the [MCP topic schema](../mcp-server/README.md#topic-schema) for the current fields.
 
-Progress should track scheduling separately:
+## Historical Build Order
 
-```json
-{
-  "cardID": "ble-link-layer-role",
-  "intervalDays": 4,
-  "dueAt": "2026-06-07T09:00:00Z",
-  "lastRating": "good",
-  "lapseCount": 1,
-  "weakConceptIDs": ["link-layer"]
-}
-```
-
-## Recommended Build Order
-
-1. Add Today queue
-   - due cards
-   - estimated time
-   - start session
-
-2. Add answer ratings
-   - Missed, Hard, Good, Easy
-   - save next due date
-
-3. Add scheduling
-   - local progress schema migration
-   - due sorting
-   - weak concept prioritization
-
-4. Upgrade question explanations
-   - per-choice rationale
-   - misconception tags
-   - concept gap panel
-
-5. Redesign UI
-   - dark cockpit visual system
-   - topic map
-   - polished check-in flow
-
-6. Add Codex handoff format
-   - after learning sessions, Codex can append concepts, gaps, and cards to topic JSON.
+1. **Today queue — implemented.** It shows due items, time estimates, and the review action.
+2. **Answer ratings — implemented.** A review saves the answer, effort rating, and next due date together.
+3. **Local scheduling — implemented.** Progress migration, due sorting, and revision-bound evidence live in the shared domain.
+4. **Diagnostic explanations — implemented.** Cards support choice rationales, misconceptions, gap tags, and concept links.
+5. **Dark cockpit UI — partially implemented.** Today, topic, graph, cards, and Check-In share the visual system; visual release evidence remains separate.
+6. **Codex handoff — implemented.** The stdio MCP server authors topics and reads the learner brief through local files.
 
 ## One-Sentence Product Strategy
 

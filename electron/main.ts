@@ -1,9 +1,22 @@
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, shell, Tray } from "electron";
+import { pathToFileURL } from "node:url";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  Notification,
+  shell,
+  Tray,
+  type IpcMainInvokeEvent
+} from "electron";
 import { dueReviewItems, nextDueAt } from "../shared/domain";
 import type {
   AppSnapshot,
   ArchiveExamPlanInput,
+  CaptureCheckpointInput,
   CommitReviewInput,
   CreateCardInput,
   EditCardInput,
@@ -12,12 +25,18 @@ import type {
   UpsertExamPlanInput
 } from "../shared/types";
 import { RevemberState } from "./app-state";
+import {
+  isSafeExternalURL,
+  isTrustedRendererURL,
+  type RendererDocumentPolicy
+} from "./security-policy";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let state: RevemberState;
 let notificationTimer: NodeJS.Timeout | undefined;
 let pendingRoute: string | undefined;
+let rendererDocumentPolicy: RendererDocumentPolicy | undefined;
 const DEFAULT_ZOOM_FACTOR = 1.15;
 
 if (process.env.REVEMBER_USER_DATA_PATH) {
@@ -84,6 +103,15 @@ app.on("before-quit", () => {
 });
 
 function createWindow(): void {
+  const developmentURL = process.env.ELECTRON_RENDERER_URL;
+  const packagedDocumentPath = path.join(__dirname, "../renderer/index.html");
+  const rendererURL = developmentURL
+    ? new URL(developmentURL).href
+    : pathToFileURL(packagedDocumentPath).href;
+  rendererDocumentPolicy = {
+    documentURL: rendererURL,
+    allowDevelopmentOrigin: Boolean(developmentURL)
+  };
   mainWindow = new BrowserWindow({
     width: 1420,
     height: 900,
@@ -113,23 +141,22 @@ function createWindow(): void {
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    const current = mainWindow?.webContents.getURL();
-    if (current && new URL(url).origin === new URL(current).origin) return;
+    if (rendererDocumentPolicy && isTrustedRendererURL(url, rendererDocumentPolicy)) return;
     event.preventDefault();
     openExternal(url);
   });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  if (developmentURL) {
+    void mainWindow.loadURL(rendererURL);
   } else {
-    void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+    void mainWindow.loadFile(packagedDocumentPath);
   }
 }
 
 function registerIPC(): void {
-  ipcMain.handle("revember:get-snapshot", () => state.snapshot);
-  ipcMain.handle("revember:reload", () => state.reload());
-  ipcMain.handle("revember:choose-knowledge-root", async () => {
+  handleTrusted("revember:get-snapshot", () => state.snapshot);
+  handleTrusted("revember:reload", () => state.reload());
+  handleTrusted("revember:choose-knowledge-root", async () => {
     const options: Electron.OpenDialogOptions = {
       title: "Choose Revember Knowledge Folder",
       properties: ["openDirectory", "createDirectory"]
@@ -139,25 +166,59 @@ function registerIPC(): void {
       : await dialog.showOpenDialog(options);
     return result.canceled || !result.filePaths[0] ? state.snapshot : state.setKnowledgeRoot(result.filePaths[0]);
   });
-  ipcMain.handle("revember:reset-knowledge-root", () => state.resetKnowledgeRoot());
-  ipcMain.handle("revember:open-knowledge-root", async () => {
+  handleTrusted("revember:reset-knowledge-root", () => state.resetKnowledgeRoot());
+  handleTrusted("revember:open-knowledge-root", async () => {
     const error = await shell.openPath(state.snapshot.settings.knowledgeRootPath);
     if (error) throw new Error(error);
   });
-  ipcMain.handle("revember:commit-review", (_event, input: CommitReviewInput) => state.commitReview(input));
-  ipcMain.handle("revember:capture-checkpoint", (_event, input) => state.captureCheckpoint(input));
-  ipcMain.handle("revember:create-card", (_event, input: CreateCardInput) => state.createCard(input));
-  ipcMain.handle("revember:edit-card", (_event, input: EditCardInput) => state.editCard(input));
-  ipcMain.handle("revember:retire-card", (_event, input: RetireCardInput) => state.retireCard(input));
-  ipcMain.handle("revember:upsert-exam-plan", (_event, input: UpsertExamPlanInput) => state.upsertExamPlan(input));
-  ipcMain.handle("revember:archive-exam-plan", (_event, input: ArchiveExamPlanInput) => state.archiveExamPlan(input));
-  ipcMain.handle("revember:list-capture-summaries", () => state.listCaptureSummaries());
-  ipcMain.handle("revember:get-capture", (_event, id: string) => state.getCapture(id));
-  ipcMain.handle("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
-  ipcMain.handle("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
-  ipcMain.handle("revember:get-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.getCaptureEnrichment(captureID, captureRevision));
-  ipcMain.handle("revember:retry-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.retryCaptureEnrichment(captureID, captureRevision));
-  ipcMain.handle("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
+  handleTrusted("revember:commit-review", (_event, input: CommitReviewInput) => state.commitReview(input));
+  handleTrusted("revember:capture-checkpoint", (_event, input: CaptureCheckpointInput) => state.captureCheckpoint(input));
+  handleTrusted("revember:create-card", (_event, input: CreateCardInput) => state.createCard(input));
+  handleTrusted("revember:edit-card", (_event, input: EditCardInput) => state.editCard(input));
+  handleTrusted("revember:retire-card", (_event, input: RetireCardInput) => state.retireCard(input));
+  handleTrusted("revember:upsert-exam-plan", (_event, input: UpsertExamPlanInput) => state.upsertExamPlan(input));
+  handleTrusted("revember:archive-exam-plan", (_event, input: ArchiveExamPlanInput) => state.archiveExamPlan(input));
+  handleTrusted("revember:list-capture-summaries", () => state.listCaptureSummaries());
+  handleTrusted("revember:get-capture", (_event, id: string) => state.getCapture(id));
+  handleTrusted("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
+  handleTrusted("revember:finish-capture", (_event, id: string, expectedRevision: number) => state.finishCapture(id, expectedRevision));
+  handleTrusted("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
+  handleTrusted("revember:get-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.getCaptureEnrichment(captureID, captureRevision));
+  handleTrusted("revember:retry-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.retryCaptureEnrichment(captureID, captureRevision));
+  handleTrusted("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
+}
+
+function handleTrusted<TArguments extends unknown[], TResult>(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: TArguments) => TResult | Promise<TResult>
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedRenderer(event);
+    return handler(event, ...(args as TArguments));
+  });
+}
+
+function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
+  const trustedContents = mainWindow?.webContents;
+  if (
+    !trustedContents
+    || trustedContents.isDestroyed()
+    || event.sender !== trustedContents
+  ) {
+    throw new Error("Revember rejected an IPC request from an untrusted renderer.");
+  }
+  const senderFrame = event.senderFrame;
+  const trustedFrame = trustedContents.mainFrame;
+  if (
+    !senderFrame
+    || senderFrame.detached
+    || senderFrame.isDestroyed()
+    || senderFrame.frameTreeNodeId !== trustedFrame.frameTreeNodeId
+    || !rendererDocumentPolicy
+    || !isTrustedRendererURL(senderFrame.url, rendererDocumentPolicy)
+  ) {
+    throw new Error("Revember rejected an IPC request from an untrusted renderer.");
+  }
 }
 
 function createMenu(): void {
@@ -236,7 +297,9 @@ function scheduleNotification(snapshot: AppSnapshot): void {
   const due = dueReviewItems(snapshot);
   const dueAt = nextDueAt(snapshot);
   if (!due.length && !dueAt) return;
-  const delay = due.length ? 60_000 : Math.max(60_000, new Date(dueAt!).getTime() - Date.now());
+  const dueTimestamp = dueAt ? Date.parse(dueAt) : Number.NaN;
+  if (!due.length && !Number.isFinite(dueTimestamp)) return;
+  const delay = due.length ? 60_000 : Math.max(60_000, dueTimestamp - Date.now());
   notificationTimer = setTimeout(() => {
     const latest = state.snapshot;
     const count = dueReviewItems(latest).length;
@@ -256,6 +319,7 @@ function scheduleNotification(snapshot: AppSnapshot): void {
 function routeURL(url: string): void {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== "revember:") return;
     if (parsed.hostname === "topic") sendRoute(`topic:${parsed.pathname.replace(/^\//, "")}`);
     else if (parsed.hostname === "review") sendRoute(`review:${Math.max(1, Number(parsed.searchParams.get("minutes")) || 3)}`);
   } catch {
@@ -286,5 +350,8 @@ function routeCommand(label: string, route: string, accelerator?: string) {
 }
 
 function openExternal(url: string): void {
-  void shell.openExternal(url);
+  if (!isSafeExternalURL(url)) return;
+  void shell.openExternal(url).catch(() => {
+    // Refusing or failing to open a browser must not destabilize the app.
+  });
 }
