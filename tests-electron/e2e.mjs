@@ -150,7 +150,7 @@ try {
   assert.ok(await graph.locator(".graph-node.dimmed").count() > 0);
   await graphNodes.nth(1).focus();
   await window.keyboard.press("Enter");
-  assert.equal(await window.getByRole("heading", { name: "Bytes", exact: true }).isVisible(), true);
+  await window.getByRole("heading", { name: "Bytes", exact: true }).waitFor();
 
   await window.getByRole("button", { name: /Operating Systems and Computer Architecture/ }).click();
   await window.getByRole("heading", { name: "Operating Systems and Computer Architecture", exact: true }).waitFor();
