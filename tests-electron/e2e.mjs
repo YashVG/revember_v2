@@ -78,9 +78,19 @@ try {
   assert.ok(graphBox);
   const scrollBefore = await window.locator(".main-stage").evaluate((element) => element.scrollTop);
   const beforeWheelZoom = await graphGroup.getAttribute("transform");
-  await window.mouse.move(graphBox.x + graphBox.width / 2, graphBox.y + graphBox.height / 4);
-  await window.mouse.wheel(0, -180);
-  await window.waitForTimeout(100);
+  await graph.dispatchEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    clientX: graphBox.x + graphBox.width / 2,
+    clientY: graphBox.y + graphBox.height / 4,
+    deltaY: -180
+  });
+  const graphGroupHandle = await graphGroup.elementHandle();
+  assert.ok(graphGroupHandle);
+  await window.waitForFunction(
+    ([element, previousTransform]) => element.getAttribute("transform") !== previousTransform,
+    [graphGroupHandle, beforeWheelZoom]
+  );
   assert.notEqual(await graphGroup.getAttribute("transform"), beforeWheelZoom);
   assert.equal(await window.locator(".main-stage").evaluate((element) => element.scrollTop), scrollBefore);
 
