@@ -230,9 +230,9 @@ export function App() {
             ) : globalView === "home" ? <HomePage
               key={snapshot.settings.knowledgeRootPath}
               snapshot={snapshot}
-              onStartReview={(items) => void leaveCurrent(() => openReview(items))}
-              onOpenNotes={() => void leaveCurrent(() => {
-                setNotesTopicID(undefined);
+              onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
+              onOpenNotes={(topicID) => void leaveCurrent(() => {
+                setNotesTopicID(topicID);
                 setNotesCaptureID(undefined);
                 setNotesVisitKey((current) => current + 1);
                 setGlobalView("notes");

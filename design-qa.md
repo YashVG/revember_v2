@@ -95,6 +95,93 @@ passed
 
 ---
 
+# Home review-day design QA — 29 July 2026
+
+## Evidence
+
+- Source visual truth: `/Users/yash/.codex/generated_images/019fa8b2-f696-7fe0-a29c-ea8fec2896ca/exec-3386f61b-c00d-4750-af49-bb5679c5eb35.png`.
+- Rendered implementation: `/tmp/revember-home-review-implementation-final.png`.
+- Side-by-side comparison: `/tmp/revember-home-review-comparison-final.png`.
+- State: the local Electron preview at `localhost:5173`, Home selected, with 12 due questions across Bluetooth Low Energy, Operating Systems and Computer Architecture, and Test.
+- Viewport and density normalization: the source is 1602 × 981 pixels; it was normalized to 1253 × 768. The Electron desktop capture is 1253 × 768; the desktop capture service does not expose a separate CSS scale factor, so both visible product regions were compared at their captured 1× raster dimensions, including the same window chrome.
+
+## Comparison history
+
+### Pass 1 — blocked
+
+- [P2] At the live desktop width, `Your review is ready` wrapped to two lines while the selected source direction keeps it as one calm display line. The Home content also sat too far from the sidebar and lacked the session-topic icon treatment.
+
+### Fixes applied
+
+- Reduced the review-day page’s horizontal inset and tuned the display scale/letter spacing so the hero heading remains on one line at the captured desktop size.
+- Kept the live queue data, added the existing Lucide topic icons, and made the continuation destination open the selected topic’s Notes reader directly.
+
+### Pass 2 — passed
+
+The final side-by-side comparison preserves the source’s single, quiet review action, two-column hierarchy, vertical divider, thin after-review rule, and restrained cyan emphasis. The implementation shows a third session row only because the live queue contains a third topic; that is intentional live content rather than a hierarchy mismatch.
+
+## Focused interaction evidence
+
+- `Start 9-minute review` opened the complete queue as `1 of 12`, matching the duration/copy on Home rather than the former four-question batch.
+- `Open Bluetooth Low Energy notes` opened the Bluetooth Low Energy note reader directly, with the existing selected note and section navigation intact.
+
+## Fidelity surfaces
+
+- **Fonts and typography:** System typography, compact uppercase eyebrow, one-line display heading, and muted body copy match the visual hierarchy. The long operating-systems topic truncates cleanly in its live-data row rather than forcing a wider or taller session panel.
+- **Spacing and layout rhythm:** The hero, session preview, and after-review strip align on a calm vertical rhythm with no competing card or permanent note editor.
+- **Colors and visual tokens:** Existing near-black surfaces, hairline dividers, muted secondary text, and cyan action/color tokens match the source direction.
+- **Image quality and assets:** The target contains no bespoke raster assets. Existing Lucide icons are used for the review and topic rows; there are no substituted image or CSS-art assets.
+- **Copy and content:** Queue count, estimated minutes, session topic counts, and the notes destination are derived from current app data. The exact words adapt to the current topics while retaining the selected flow’s intent.
+
+## Final result
+
+passed
+
+---
+
+# Notes reader design QA — 29 July 2026
+
+## Evidence
+
+- Source visual truth: `/Users/yash/.codex/generated_images/019fa8b2-f696-7fe0-a29c-ea8fec2896ca/exec-ef41ef7b-4fde-4a9a-8515-3b1f62062d45.png`
+- Rendered implementation: `/var/folders/tl/tt4y5n1s3t7_y_wxp1pcn2300000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-29 at 3.45.51 PM.jpeg`
+- Side-by-side comparison: `/tmp/revember-notes-reader-comparison.png`
+- State: Bluetooth Low Energy note reader, dark desktop layout, one source section visible, `Read all` off, section menu closed.
+- Source dimensions: 1672 × 941 pixels. Implementation capture: 461 × 283 pixels from the desktop-app capture service. The source was downscaled to 503 × 283 for the comparison; this is a structural comparison, not a 1:1 pixel-density claim.
+
+## Focused interaction evidence
+
+- Opened `All sections`; the menu exposed all six sections with the current section marked.
+- Selected section 4; the compact progress row and source text changed together.
+- Activated `Next`; the reader advanced to `5 / 6`, updated the inline section label, and swapped the visible source text.
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain for the selected direction.
+
+- The duplicate display-sized section heading and the ambiguous source status/retry strip were removed.
+- The current section title is now the semantic heading beside `1 / 6`; the source begins directly with its original text.
+- The section menu, `Read all`, and `Make question` actions occupy one compact row without competing with the prose.
+- The footer keeps the review-like progression controls visible while the original text retains a constrained reading width.
+
+## Fidelity surfaces
+
+- **Fonts and typography:** The section label is now compact and subordinate to the note title; original source text has a larger, more open reading rhythm. Generic fallback labels such as `Section 1` are content-derived when an organizer title is unavailable, not a layout regression.
+- **Spacing and layout rhythm:** The outer source card and duplicate header were removed. The toolbar, prose column, and footer now form a single reading flow with no unused panel between controls and text.
+- **Colors and visual tokens:** The implementation keeps the existing near-black surfaces, hairline dividers, muted utility actions, and cyan current-section/primary-action treatment from the chosen direction.
+- **Image quality and assets:** The target contains no bespoke imagery. Existing Lucide icons remain consistent with the rest of the app; no new image or placeholder asset was introduced.
+- **Copy and content:** `Read all`, `All sections`, `Make question`, and `1 of 6` describe the actual reader behavior. The original source text remains verbatim.
+
+## Follow-up polish
+
+- [P3] When local organization supplies descriptive section titles, they will replace generic deterministic fallback names such as `Section 1`; no visual change is needed for the reader layout.
+
+## Final result
+
+passed
+
+---
+
 # Question library and authoring QA
 
 ## Evidence
@@ -124,6 +211,25 @@ passed
 - **Colors and visual tokens:** Existing near-black surfaces, cyan primary action, muted helpers, and ruby archive treatment remain consistent with Revember.
 - **Image quality and assets:** The supplied references contain no imagery. The existing Lucide icon system provides consistent pencil, play, and archive symbols.
 - **Copy and content:** `Question`, `New question`, and the helper text accurately describe the authoring and review behavior.
+
+## Final result
+
+passed
+
+---
+
+# Notes header removal follow-up — 29 July 2026
+
+## Evidence
+
+- Source visual truth: the user-provided desktop capture requesting removal of the page-level `Notes` title and helper text.
+- Rendered implementation: `/var/folders/tl/tt4y5n1s3t7_y_wxp1pcn2300000gn/T/com.openai.sky.CUAService/Electron Screenshot 2026-07-29 at 3.57.23 PM.jpeg`.
+- Viewport and state: 1254 × 768 desktop window, Bluetooth Low Energy → BLE test, with a selected topic and six-section source reader.
+- Focused comparison: the notes-content region was inspected against the supplied capture. A direct pixel match is intentionally not expected because removing the old header is the requested visual delta.
+
+## Result
+
+The page-level heading and helper copy are gone, so the topic index and note reader begin immediately beneath the app chrome. `New note` remains available in the topic chooser and directly beneath the selected topic heading. Typography, spacing, existing dark tokens, icons, and copy remain consistent with the selected reader direction; no image asset is involved. No P0, P1, or P2 visual issue was introduced by the denser layout.
 
 ## Final result
 

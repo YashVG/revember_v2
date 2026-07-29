@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Archive, ArrowLeft, BookOpen, ChevronLeft, ChevronRight, FileText, List, LoaderCircle, Pencil, Plus, RefreshCw, Save, Sparkles } from "lucide-react";
+import { Archive, ArrowLeft, BookOpen, ChevronDown, ChevronLeft, ChevronRight, FileText, LoaderCircle, Pencil, Plus, Save, Sparkles } from "lucide-react";
 import { segmentNoteDeterministically, type NoteReadingChunk, type NoteSourceBlock } from "../../../../shared/note-segmentation";
 import type { AppSnapshot, CaptureReadingChunk, CaptureSegmentation, CaptureStatus, CaptureSummary, LearnerCapture } from "../../../../shared/types";
 import { ConfirmationDialog } from "./ConfirmationDialog";
-import { Eyebrow, Tag } from "./ui";
+import { Eyebrow } from "./ui";
 import { InlineError } from "./review-ui";
 import { useDialogFocus } from "./useDialogFocus";
 import type { BeforeLeaveGuard } from "../navigationGuard";
@@ -181,15 +181,6 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
 
   return (
     <div className="notes-page">
-      <header className="notes-heading">
-        <div>
-          <h1>Notes</h1>
-          <p>{selectedTopic ? "Read a note. Edit its source when needed." : "Choose a topic to browse its notes."}</p>
-        </div>
-        <button className="primary" type="button" disabled={snapshot.topics.length === 0} onClick={() => setEditor("new")}>
-          <Plus /> New note
-        </button>
-      </header>
       {listError && <InlineError message={listError} />}
       {loading ? (
         <div className="surface notes-loading"><LoaderCircle className="spin" /> Loading note metadata…</div>
@@ -200,7 +191,12 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
               <Eyebrow id="notes-topics-heading">Topics</Eyebrow>
               <h2>Where do you want to review your notes?</h2>
             </div>
-            <span>{snapshot.topics.length}</span>
+            <div className="notes-topic-browser-actions">
+              <span>{snapshot.topics.length}</span>
+              <button className="primary" type="button" disabled={snapshot.topics.length === 0} onClick={() => setEditor("new")}>
+                <Plus /> New note
+              </button>
+            </div>
           </div>
           {snapshot.topics.length > 0 ? (
             <nav className="notes-topic-list" aria-label="Notes topics">
@@ -235,6 +231,11 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
               </div>
               <span>{topicNotes.length}</span>
             </div>
+            {topicNotes.length > 0 && (
+              <button className="primary notes-index-new-note" type="button" onClick={() => setEditor("new")}>
+                <Plus /> New note
+              </button>
+            )}
             {topicNotes.length > 0 ? (
               <nav className="notes-index-list">
                 {topicNotes.map((note) => (
@@ -328,11 +329,11 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing,
     <article className="note-reader-content">
       <header className="note-reader-header">
         <div>
-          <Eyebrow>{capture.origin === "ollama" ? "AI · " : ""}{capture.status === "ready" ? "Ready" : "Draft"} · v{capture.revision}</Eyebrow>
           <h2>{capture.title}</h2>
           <p className="note-reader-meta">
-            <Tag>{topicTitle(snapshot, capture.topicID)}</Tag>
-            <span>{new Date(capture.updatedAt).toLocaleDateString()}</span>
+            <span>{topicTitle(snapshot, capture.topicID)}</span>
+            <span aria-hidden="true">·</span>
+            <time dateTime={capture.updatedAt}>{new Date(capture.updatedAt).toLocaleDateString()}</time>
           </p>
         </div>
         <div className="note-reader-actions">
@@ -369,24 +370,16 @@ function NoteSourceReader({ capture, onCreateQuestionFromNote }: {
     [capture.rawText]
   );
   const [segmentation, setSegmentation] = useState<CaptureSegmentation>();
-  const [segmentationError, setSegmentationError] = useState<string>();
-  const [retrying, setRetrying] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [activeSourceBlockID, setActiveSourceBlockID] = useState<string>();
   const [readAll, setReadAll] = useState(false);
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
   const outlineRef = useRef<HTMLDetailsElement>(null);
   const focusHeadingAfterNavigation = useRef(false);
-  const captureKey = `${capture.id}:${capture.revision}`;
-  const currentCaptureKey = useRef(captureKey);
-  currentCaptureKey.current = captureKey;
 
   useEffect(() => {
     let alive = true;
     let timer: number | undefined;
     setSegmentation(undefined);
-    setSegmentationError(undefined);
-    setRetrying(false);
 
     if (capture.status !== "ready") {
       return () => {
@@ -399,13 +392,10 @@ function NoteSourceReader({ capture, onCreateQuestionFromNote }: {
         const next = await window.revember.getCaptureSegmentation(capture.id, capture.revision);
         if (!alive) return;
         setSegmentation(next);
-        setSegmentationError(undefined);
         if (next?.status === "queued" || next?.status === "running") {
           timer = window.setTimeout(() => void refresh(), 1_200);
         }
-      } catch (cause) {
-        if (alive) setSegmentationError(toErrorMessage(cause));
-      }
+      } catch {}
     };
 
     void refresh();
@@ -413,7 +403,7 @@ function NoteSourceReader({ capture, onCreateQuestionFromNote }: {
       alive = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [capture.id, capture.revision, capture.status, refreshKey]);
+  }, [capture.id, capture.revision, capture.status]);
 
   const sections = useMemo(
     () => materializeReadingSections(
@@ -489,25 +479,6 @@ function NoteSourceReader({ capture, onCreateQuestionFromNote }: {
     navigateTo(nextIndex);
   };
 
-  const retry = async () => {
-    const requestedCaptureKey = captureKey;
-    try {
-      setRetrying(true);
-      setSegmentationError(undefined);
-      const next = await window.revember.retryCaptureSegmentation(capture.id, capture.revision);
-      if (currentCaptureKey.current !== requestedCaptureKey) return;
-      setSegmentation(next);
-      setRefreshKey((current) => current + 1);
-    } catch (cause) {
-      if (currentCaptureKey.current === requestedCaptureKey) {
-        setSegmentationError(toErrorMessage(cause));
-      }
-    } finally {
-      if (currentCaptureKey.current === requestedCaptureKey) setRetrying(false);
-    }
-  };
-
-  const status = segmentationStatusCopy(capture.status, segmentation, segmentationError);
   const displayedTitle = readAll ? "All source" : activeSection?.title ?? "Source";
   const displayedText = readAll
     ? capture.rawText
@@ -516,71 +487,60 @@ function NoteSourceReader({ capture, onCreateQuestionFromNote }: {
   return (
     <section
       className="note-source note-source-reader"
-      aria-labelledby="note-source-heading"
+      aria-labelledby="note-source-section-heading"
       onKeyDown={handleKeyDown}
     >
-      <div className="note-source-reader-topline">
-        <div className="note-section-heading">
-          <Eyebrow id="note-source-heading">Source</Eyebrow>
-        </div>
-        <div className="note-source-segmentation-status" aria-live="polite" role="status">
-          {(segmentation?.status === "queued" || segmentation?.status === "running") && <LoaderCircle className="spin" />}
-          <span>{status}</span>
-          {(segmentation?.status === "failed" || segmentation?.status === "unavailable" || segmentationError) && capture.status === "ready" && (
-            <button type="button" disabled={retrying} onClick={() => void retry()}>
-              {retrying ? <LoaderCircle className="spin" /> : <RefreshCw />}
-              {retrying ? "Retrying…" : "Retry"}
-            </button>
-          )}
-        </div>
-      </div>
-
       {capture.rawText.length > 0 ? (
         <>
           <div className="note-source-reader-toolbar">
-            <details ref={outlineRef} className="note-source-outline">
-              <summary><List /> Outline</summary>
-              <nav aria-label="Source section outline">
-                {sections.map((section, index) => (
-                  <button
-                    key={section.id}
-                    type="button"
-                    aria-current={!readAll && index === activeIndex ? "page" : undefined}
-                    onClick={() => navigateTo(index)}
-                  >
-                    <span>{index + 1}</span>
-                    <span className="note-source-outline-title">{section.title}</span>
-                  </button>
-                ))}
-              </nav>
-            </details>
-            <button
-              className="note-source-read-all"
-              type="button"
-              data-active={readAll ? "true" : undefined}
-              onClick={toggleReadAll}
-            >
-              {readAll ? "One section" : "Read all"}
-            </button>
-            <button
-              className="note-source-create-question"
-              type="button"
-              onClick={() => onCreateQuestionFromNote(capture.topicID, activeSection?.text ?? capture.rawText)}
-            >
-              <Plus /> Make question
-            </button>
+            <div className="note-source-progress">
+              <span>{readAll ? "All" : `${activeIndex + 1} / ${sections.length}`}</span>
+              <h3 id="note-source-section-heading" ref={sectionHeadingRef} tabIndex={-1}>{displayedTitle}</h3>
+            </div>
+            <div className="note-source-toolbar-actions">
+              <button
+                className="note-source-read-all"
+                type="button"
+                data-active={readAll ? "true" : undefined}
+                onClick={toggleReadAll}
+              >
+                {readAll ? "One section" : "Read all"}
+              </button>
+              <details ref={outlineRef} className="note-source-outline">
+                <summary>All sections <ChevronDown /></summary>
+                <nav aria-label="Source section outline">
+                  {sections.map((section, index) => (
+                    <button
+                      key={section.id}
+                      type="button"
+                      aria-current={!readAll && index === activeIndex ? "page" : undefined}
+                      onClick={() => navigateTo(index)}
+                    >
+                      <span>{index + 1}</span>
+                      <span className="note-source-outline-title">{section.title}</span>
+                    </button>
+                  ))}
+                </nav>
+              </details>
+              <button
+                className="note-source-create-question"
+                type="button"
+                onClick={() => onCreateQuestionFromNote(capture.topicID, activeSection?.text ?? capture.rawText)}
+              >
+                <Plus /> Make question
+              </button>
+            </div>
           </div>
 
-          <div className="note-source-section">
-            <h3 ref={sectionHeadingRef} tabIndex={-1}>{displayedTitle}</h3>
+          <div className="note-source-copy">
             <div className="note-source-text">{displayedText}</div>
           </div>
 
           <div className="note-source-navigation" aria-label="Source section navigation">
+            <span>{readAll ? "All source" : `${activeIndex + 1} of ${sections.length}`}</span>
             <button type="button" disabled={readAll || activeIndex === 0} onClick={() => navigateTo(activeIndex - 1)}>
               <ChevronLeft /> Previous
             </button>
-            <span>{readAll ? "All" : `${activeIndex + 1} / ${sections.length}`}</span>
             <button type="button" disabled={readAll || activeIndex === sections.length - 1} onClick={() => navigateTo(activeIndex + 1)}>
               Next <ChevronRight />
             </button>
@@ -638,25 +598,6 @@ function sectionTitle(title: string | undefined, text: string, index: number): s
   const heading = firstLine.match(/^#{1,6}\s+(.+)$/u)?.[1]?.trim();
   if (!heading) return `Section ${index + 1}`;
   return heading.length > 64 ? `${heading.slice(0, 61).trimEnd()}…` : heading;
-}
-
-function segmentationStatusCopy(
-  captureStatus: LearnerCapture["status"],
-  segmentation: CaptureSegmentation | undefined,
-  error: string | undefined
-): string {
-  if (captureStatus !== "ready") return "Instant";
-  if (error) return "Instant";
-  if (segmentation?.status === "queued" || segmentation?.status === "running") return "Organizing…";
-  if (segmentation?.status === "ready") {
-    return segmentation.chunks?.some((chunk) => chunk.title)
-      ? "Organized"
-      : "Instant";
-  }
-  if (segmentation?.status === "failed" || segmentation?.status === "unavailable") {
-    return "Instant";
-  }
-  return "Organizing…";
 }
 
 function NoteReaderEmpty({ topicTitle, hasNotes, onCreate }: { topicTitle: string; hasNotes: boolean; onCreate: () => void }) {

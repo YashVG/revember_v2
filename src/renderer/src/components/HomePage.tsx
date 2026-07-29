@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Circle, FileText, LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bluetooth, BookOpen, FileText, LoaderCircle, MonitorCog, Play, Sparkles } from "lucide-react";
 import type { AppSnapshot, DueReviewItem, LearnerCapture } from "../../../../shared/types";
 import { dueReviewItems } from "../../../../shared/domain";
 import { Eyebrow } from "./ui";
 import { toErrorMessage } from "../utils";
-import { reviewItemDurationLabel } from "../presentation";
+import { REVIEW_SECONDS_PER_ITEM } from "../presentation";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 
 const NOTE_SAVE_DELAY_MS = 700;
@@ -14,7 +14,7 @@ type ReviewItems = ReturnType<typeof dueReviewItems>;
 
 type HomePageProps = {
   snapshot: AppSnapshot;
-  onOpenNotes: () => void;
+  onOpenNotes: (topicID?: string) => void;
   onStartReview: (items: DueReviewItem[]) => void;
   onRegisterBeforeLeave: (handler: (() => Promise<boolean>) | undefined) => void;
 };
@@ -127,9 +127,21 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview, onRegisterBefor
   const currentReady = savedCapture?.status === "ready"
     && noteFingerprint(topicID, noteText) === lastSavedFingerprint.current;
 
+  if (due.length > 0) {
+    return (
+      <div className="home-page home-review-page">
+        <ReviewReadyHome due={due} onStartReview={onStartReview} onOpenNotes={onOpenNotes} />
+      </div>
+    );
+  }
+
   return (
-    <div className="home-page">
-      <FocusDrawer due={due} onStartReview={onStartReview} />
+    <div className="home-page home-capture-page">
+      <section className="home-capture-intro" aria-labelledby="home-capture-heading">
+        <Eyebrow>Start here</Eyebrow>
+        <h1 id="home-capture-heading">Capture what you learned</h1>
+        <p>Write a note now. When you are ready, turn its strongest ideas into questions.</p>
+      </section>
 
       <section className="lecture-note" aria-labelledby="lecture-note-heading">
         <div className="lecture-note-toolbar">
@@ -155,7 +167,7 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview, onRegisterBefor
             {finishing ? <LoaderCircle className="spin" /> : <Sparkles />}
             {finishing ? "Finishing…" : currentReady ? "Lecture finished" : "Finish lecture"}
           </button>
-          <button className="home-link" type="button" onClick={onOpenNotes}>
+          <button className="home-link" type="button" onClick={() => onOpenNotes(topicID)}>
             Open notes <ArrowUpRight />
           </button>
         </div>
@@ -183,55 +195,85 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview, onRegisterBefor
   );
 }
 
-type FocusDrawerProps = {
+type ReviewReadyHomeProps = {
   due: ReviewItems;
   onStartReview: (items: DueReviewItem[]) => void;
+  onOpenNotes: (topicID?: string) => void;
 };
 
-function FocusDrawer({
+function ReviewReadyHome({
   due,
-  onStartReview
-}: FocusDrawerProps) {
+  onStartReview,
+  onOpenNotes
+}: ReviewReadyHomeProps) {
+  const sessionTopics = summarizeSessionTopics(due);
+  const reviewMinutes = Math.max(1, Math.round((due.length * REVIEW_SECONDS_PER_ITEM) / 60));
+  const continuationTopic = sessionTopics[0]?.title;
+
   return (
-    <section className="focus-drawer" aria-labelledby="focus-drawer-title">
-      <span className="focus-drawer-handle" aria-hidden="true" />
-      <header className="focus-drawer-header">
-        <div>
-          <span className="focus-kicker">Today</span>
-          <h1 id="focus-drawer-title">Study focus</h1>
-        </div>
-        {due.length > 0 && (
-          <button type="button" className="focus-review-button" onClick={() => onStartReview(due)}>
-            Review
+    <section className="home-review-ready" aria-labelledby="home-review-ready-title">
+      <div className="home-review-overview">
+        <div className="home-review-copy">
+          <Eyebrow>Today</Eyebrow>
+          <h1 id="home-review-ready-title">Your review is ready</h1>
+          <p>
+            {due.length} {due.length === 1 ? "question is" : "questions are"} ready. A focused session takes about {reviewMinutes} {reviewMinutes === 1 ? "minute" : "minutes"}.
+          </p>
+          <button type="button" className="primary home-review-start" onClick={() => onStartReview(due)}>
+            <Play />
+            Start {reviewMinutes}-minute review
           </button>
-        )}
-      </header>
-      <div className="focus-drawer-body">
-        <div className="focus-count">
-          <strong>{due.length}</strong>
-          <span>due</span>
         </div>
-        <div className="focus-task-list" aria-label={`${due.length} due checks`}>
-          {due.length > 0 ? (
-            due.slice(0, 3).map((item) => (
-              <button className="focus-task" key={item.id} type="button" onClick={() => onStartReview([item])}>
-                <Circle />
-                <span>{item.question.prompt}</span>
-                <small>{reviewItemDurationLabel()}</small>
-              </button>
-            ))
-          ) : (
-            <p className="focus-empty">Nothing due</p>
-          )}
-          {due.length > 3 && (
-            <button className="focus-more" type="button" onClick={() => onStartReview(due)}>
-              + {due.length - 3} more
-            </button>
-          )}
-        </div>
+
+        <aside className="home-session-preview" aria-label="In this session">
+          <h2>In this session</h2>
+          <ul>
+            {sessionTopics.map((topic) => (
+              <li key={topic.id}>
+                <SessionTopicIcon title={topic.title} />
+                <span>{topic.title}</span>
+                <strong>{topic.count}</strong>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      </div>
+
+      <div className="home-after-review">
+        <span>After review</span>
+        <button type="button" onClick={() => onOpenNotes(sessionTopics[0]?.id)}>
+          <FileText />
+          {continuationTopic ? `Open ${continuationTopic} notes` : "Open notes"}
+          <ArrowRight />
+        </button>
       </div>
     </section>
   );
+}
+
+type SessionTopic = {
+  id: string;
+  title: string;
+  count: number;
+};
+
+function summarizeSessionTopics(items: ReviewItems): SessionTopic[] {
+  const topics = new Map<string, SessionTopic>();
+  for (const item of items) {
+    const current = topics.get(item.topicID);
+    if (current) current.count += 1;
+    else topics.set(item.topicID, { id: item.topicID, title: item.topic.title, count: 1 });
+  }
+  return [...topics.values()];
+}
+
+function SessionTopicIcon({ title }: { title: string }) {
+  const normalizedTitle = title.toLowerCase();
+  if (normalizedTitle.includes("bluetooth")) return <Bluetooth aria-hidden="true" />;
+  if (normalizedTitle.includes("operating systems") || normalizedTitle.includes("computer architecture")) {
+    return <MonitorCog aria-hidden="true" />;
+  }
+  return <BookOpen aria-hidden="true" />;
 }
 
 function noteFingerprint(topicID: string, rawText: string): string {
