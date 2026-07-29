@@ -49,7 +49,7 @@ export function examSessionDates(input: Pick<ExamPlanInput, "targetDate" | "sess
   const target = parsePlannerDate(input.targetDate, "targetDate");
   const today = localPlannerDate(now, input.timeZone);
   const todayDay = parsePlannerDate(today, "today");
-  const availableDays = daysBetween(todayDay, target);
+  const availableDays = target - todayDay;
 
   if (availableDays <= 0) {
     throw new RangeError("targetDate must be after today in the selected time zone.");
@@ -131,10 +131,6 @@ function parsePlannerDate(value: string, label: string): number {
     throw new RangeError(`${label} must be a real calendar date.`);
   }
   return Math.floor(timestamp / 86_400_000);
-}
-
-function daysBetween(startDay: number, endDay: number): number {
-  return endDay - startDay;
 }
 
 function formatPlannerDate(day: number): PlannerDate {

@@ -64,7 +64,7 @@ function normalizeChoiceText(value: string): string {
 const CARD_CONFLICT_MESSAGE =
   "This topic changed somewhere else. Reload it, then reopen the question and try again; your form is still here.";
 
-function initialForm(topic: KnowledgeTopic, question?: Question, seedSentence?: string): CardForm {
+function initialForm(question?: Question, seedSentence?: string): CardForm {
   const correct = question?.choices.find((choice) => choice.isCorrect);
   return {
     sentence: seedSentence ?? (question && correct ? question.prompt.replace("________", correct.text) : question?.prompt ?? ""),
@@ -95,21 +95,22 @@ export function buildExistingCardEdit(
         ...question.conceptIDs.filter((id) => id !== initial.conceptID && id !== form.conceptID)
       ];
 
+  const current = questionEditFrom(question);
   const edit: QuestionEdit = {
-    kind: question.kind,
-    transferLevel: question.transferLevel,
+    ...current,
     prompt: storedPrompt,
-    difficulty: question.difficulty,
     conceptIDs,
-    gapTags: question.gapTags,
-    sourceRefs: question.sourceRefs,
     choices: question.choices.map((choice) => ({
       ...choice,
       text: editedChoiceText.get(choice.id) ?? choice.text
     })),
     explanation: form.explanation.trim()
   };
-  const current: QuestionEdit = {
+  return JSON.stringify(edit) === JSON.stringify(current) ? undefined : edit;
+}
+
+function questionEditFrom(question: Question): QuestionEdit {
+  return {
     kind: question.kind,
     transferLevel: question.transferLevel,
     prompt: question.prompt,
@@ -120,7 +121,6 @@ export function buildExistingCardEdit(
     choices: question.choices,
     explanation: question.explanation
   };
-  return JSON.stringify(edit) === JSON.stringify(current) ? undefined : edit;
 }
 
 export function storedPromptForCard(question: Question | undefined, sentence: string, answer: string): string {
@@ -130,22 +130,55 @@ export function storedPromptForCard(question: Question | undefined, sentence: st
   return trimmedAnswer ? prompt.replace(trimmedAnswer, "________") : prompt;
 }
 
-export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, onRegisterBeforeLeave, seedSentence, seedToken, onSeedConsumed }: {
+type CardWorkspaceProps = {
   topic: KnowledgeTopic;
-  snapshot: AppSnapshot;
   onSnapshot: (snapshot: AppSnapshot) => void;
   onReview: (question: Question) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
   seedSentence?: string;
   seedToken?: string;
   onSeedConsumed: () => void;
-}) {
+};
+
+export function CardWorkspace({
+  topic,
+  onSnapshot,
+  onReview,
+  onRegisterBeforeLeave,
+  seedSentence,
+  seedToken,
+  onSeedConsumed
+}: CardWorkspaceProps) {
   const [editing, setEditing] = useState<Question>();
   const [creating, setCreating] = useState(false);
   const [retiring, setRetiring] = useState<Question>();
   const [savedQuestion, setSavedQuestion] = useState<Question>();
   const [createSeed, setCreateSeed] = useState<string>();
   const consumedSeedToken = useRef<string | undefined>(undefined);
+
+  const startCreating = () => {
+    setSavedQuestion(undefined);
+    setCreateSeed(undefined);
+    setEditing(undefined);
+    setCreating(true);
+  };
+
+  const startEditing = (question: Question) => {
+    setCreating(false);
+    setEditing(question);
+  };
+
+  const closeEditor = () => {
+    setCreateSeed(undefined);
+    setCreating(false);
+    setEditing(undefined);
+  };
+
+  const handleQuestionSaved = (question: Question) => {
+    closeEditor();
+    setSavedQuestion(question);
+  };
+
   useEffect(() => {
     if (!seedToken || consumedSeedToken.current === seedToken) return;
     consumedSeedToken.current = seedToken;
@@ -154,31 +187,96 @@ export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, onRegiste
     setCreating(true);
     onSeedConsumed();
   }, [onSeedConsumed, seedSentence, seedToken]);
+
   const active = activeQuestions(topic);
   const retired = topic.questions.filter((question) => question.retiredAt);
-  return <section className="cards-workspace" aria-labelledby="cards-heading">
-    <header className="cards-heading">
-      <div><Eyebrow>{active.length} {active.length === 1 ? "question" : "questions"} in this topic</Eyebrow><h2 id="cards-heading">Questions</h2><p>Build a small, reliable question bank from the concepts you want to remember.</p></div>
-      <button className="primary" onClick={() => { setSavedQuestion(undefined); setCreateSeed(undefined); setEditing(undefined); setCreating(true); }}><Plus /> New question</button>
-    </header>
-    {active.length ? <div className="cards-list">{active.map((question, index) => <article className="surface authored-card" key={question.id}>
-      <div className="authored-card-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</div>
-      <div className="authored-card-copy"><Eyebrow>{question.revision > 1 ? `Revision ${question.revision}` : "Question"}</Eyebrow><h3>{question.prompt}</h3><div className="authored-card-concepts">{question.conceptIDs.map((id) => <Tag key={id}>{topic.concepts.find((concept) => concept.id === id)?.title ?? id}</Tag>)}</div></div>
-      <div className="card-actions"><button type="button" onClick={() => onReview(question)}><Play /> Review</button><button type="button" onClick={() => { setCreating(false); setEditing(question); }}><Pencil /> Edit</button><button type="button" className="danger-button" onClick={() => setRetiring(question)} aria-label={`Archive ${question.prompt}`} title="Archive question"><Archive /></button></div>
-    </article>)}</div> : <div className="surface cards-empty"><Check /><h3>No questions yet</h3><p>Add the first question for this topic. It will enter the normal review queue after you save it.</p><button className="primary" onClick={() => { setSavedQuestion(undefined); setCreateSeed(undefined); setCreating(true); }}><Plus /> Create first question</button></div>}
-    {retired.length > 0 && <details className="retired-cards"><summary>{retired.length} archived {retired.length === 1 ? "question" : "questions"}</summary><ul>{retired.map((question) => <li key={question.id}>{question.prompt}</li>)}</ul></details>}
-    {(creating || editing) && <CardEditor topic={topic} snapshot={snapshot} question={editing} seedSentence={creating ? createSeed : undefined} onSnapshot={onSnapshot} onClose={() => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); }} onSaved={(question) => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); setSavedQuestion(question); }} onRegisterBeforeLeave={onRegisterBeforeLeave} />}
-    {retiring && <ArchiveCardDialog topic={topic} question={retiring} onSnapshot={onSnapshot} onClose={() => setRetiring(undefined)} />}
-    {savedQuestion && <QuestionSavedToast
-      onClose={() => setSavedQuestion(undefined)}
-      onCreateAnother={() => {
-        setSavedQuestion(undefined);
-        setCreateSeed(undefined);
-        setEditing(undefined);
-        setCreating(true);
-      }}
-    />}
-  </section>;
+
+  return (
+    <section className="cards-workspace" aria-labelledby="cards-heading">
+      <header className="cards-heading">
+        <div>
+          <Eyebrow>{active.length} {active.length === 1 ? "question" : "questions"} in this topic</Eyebrow>
+          <h2 id="cards-heading">Questions</h2>
+          <p>Build a small, reliable question bank from the concepts you want to remember.</p>
+        </div>
+        <button className="primary" onClick={startCreating}><Plus /> New question</button>
+      </header>
+
+      {active.length ? (
+        <div className="cards-list">
+          {active.map((question, index) => (
+            <article className="surface authored-card" key={question.id}>
+              <div className="authored-card-number" aria-hidden="true">
+                {String(index + 1).padStart(2, "0")}
+              </div>
+              <div className="authored-card-copy">
+                <Eyebrow>{question.revision > 1 ? `Revision ${question.revision}` : "Question"}</Eyebrow>
+                <h3>{question.prompt}</h3>
+                <div className="authored-card-concepts">
+                  {question.conceptIDs.map((id) => (
+                    <Tag key={id}>{topic.concepts.find((concept) => concept.id === id)?.title ?? id}</Tag>
+                  ))}
+                </div>
+              </div>
+              <div className="card-actions">
+                <button type="button" onClick={() => onReview(question)}><Play /> Review</button>
+                <button type="button" onClick={() => startEditing(question)}><Pencil /> Edit</button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => setRetiring(question)}
+                  aria-label={`Archive ${question.prompt}`}
+                  title="Archive question"
+                >
+                  <Archive />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="surface cards-empty">
+          <Check />
+          <h3>No questions yet</h3>
+          <p>Add the first question for this topic. It will enter the normal review queue after you save it.</p>
+          <button className="primary" onClick={startCreating}><Plus /> Create first question</button>
+        </div>
+      )}
+
+      {retired.length > 0 && (
+        <details className="retired-cards">
+          <summary>{retired.length} archived {retired.length === 1 ? "question" : "questions"}</summary>
+          <ul>{retired.map((question) => <li key={question.id}>{question.prompt}</li>)}</ul>
+        </details>
+      )}
+
+      {(creating || editing) && (
+        <CardEditor
+          topic={topic}
+          question={editing}
+          seedSentence={creating ? createSeed : undefined}
+          onSnapshot={onSnapshot}
+          onClose={closeEditor}
+          onSaved={handleQuestionSaved}
+          onRegisterBeforeLeave={onRegisterBeforeLeave}
+        />
+      )}
+      {retiring && (
+        <ArchiveCardDialog
+          topic={topic}
+          question={retiring}
+          onSnapshot={onSnapshot}
+          onClose={() => setRetiring(undefined)}
+        />
+      )}
+      {savedQuestion && (
+        <QuestionSavedToast
+          onClose={() => setSavedQuestion(undefined)}
+          onCreateAnother={startCreating}
+        />
+      )}
+    </section>
+  );
 }
 
 function QuestionSavedToast({ onClose, onCreateAnother }: {
@@ -199,9 +297,8 @@ function QuestionSavedToast({ onClose, onCreateAnother }: {
   );
 }
 
-function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClose, onSaved, onRegisterBeforeLeave }: {
+function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSaved, onRegisterBeforeLeave }: {
   topic: KnowledgeTopic;
-  snapshot: AppSnapshot;
   question?: Question;
   seedSentence?: string;
   onSnapshot: (snapshot: AppSnapshot) => void;
@@ -209,7 +306,7 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
   onSaved: (question: Question) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 }) {
-  const [initial] = useState<CardForm>(() => initialForm(topic, question, seedSentence));
+  const [initial] = useState<CardForm>(() => initialForm(question, seedSentence));
   const [form, setForm] = useState<CardForm>(initial);
   const [error, setError] = useState<string>();
   const [distractorError, setDistractorError] = useState<string>();

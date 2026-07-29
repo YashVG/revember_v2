@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import type {
   ArchiveExamPlanInput,
@@ -9,6 +9,7 @@ import type {
 } from "../shared/types";
 import { validateTimeZone } from "../shared/planner";
 import { array, identifier, nonEmptyString, nonNegativeInteger, positiveInteger, record } from "./input-validation";
+import { writeJsonAtomically } from "./persistence";
 
 export class PlannerRevisionConflictError extends Error {
   readonly code = "PLANNER_REVISION_CONFLICT" as const;
@@ -101,14 +102,7 @@ export class PlannerStore {
 
   private write(record: PlannerRecord): void {
     mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const temporaryPath = `${this.filePath}.tmp-${process.pid}-${randomUUID()}`;
-    try {
-      writeFileSync(temporaryPath, JSON.stringify(record, null, 2) + "\n", { encoding: "utf8", flag: "wx", mode: 0o600 });
-      renameSync(temporaryPath, this.filePath);
-    } catch (error) {
-      rmSync(temporaryPath, { force: true });
-      throw error;
-    }
+    writeJsonAtomically(this.filePath, record);
   }
 }
 

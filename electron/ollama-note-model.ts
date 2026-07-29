@@ -363,17 +363,6 @@ export function resolveOllamaURL(configuredURL: string | undefined): string {
   return parsed.href;
 }
 
-function unicodeSafeBoundary(text: string, end: number): number {
-  const finalCodeUnit = text.charCodeAt(end - 1);
-  const followingCodeUnit = text.charCodeAt(end);
-  return finalCodeUnit >= 0xD800
-    && finalCodeUnit <= 0xDBFF
-    && followingCodeUnit >= 0xDC00
-    && followingCodeUnit <= 0xDFFF
-    ? end - 1
-    : end;
-}
-
 function topicNoteSchema() {
   return {
     type: "object",

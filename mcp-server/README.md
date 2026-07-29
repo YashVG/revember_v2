@@ -132,7 +132,7 @@ The server does not start an HTTP listener or expose static-file routes. See the
 - `get_learner_brief`: derive due cards, untested cards, accuracy, weak concepts, misconceptions, gap status, and current scheduler versions from either legacy progress or v2 review events/schedules.
 - `get_review_plan`: return a short local review plan that prioritizes current due cards, then revised or untested cards, using the same v2 learner evidence as the app.
 
-`mark_topic_reviewed` is intentionally not exposed. The app's current progress model records review through checkpoint answers, and writing standalone review events could make the app's progress state misleading.
+`mark_topic_reviewed` is intentionally not exposed. The app records review events and schedule updates together from a submitted answer; writing standalone review events could make the local progress state misleading.
 
 `create_topic` creates a valid starting point, but it does not supply the full teaching-quality detail expected for a finished lesson. Use `upsert_concept` and `upsert_card` to add source provenance, diagnostic choices, rationales, and misconception IDs.
 

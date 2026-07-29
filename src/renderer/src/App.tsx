@@ -62,6 +62,7 @@ export function App() {
   const [notesVisitKey, setNotesVisitKey] = useState(0);
   const [notesTopicID, setNotesTopicID] = useState<string>();
   const [notesCaptureID, setNotesCaptureID] = useState<string>();
+  const [questionTopicPickerRequested, setQuestionTopicPickerRequested] = useState(false);
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence?: string; token: string }>();
   const beforeLeaveGuards = useRef(new Map<string, BeforeLeaveGuard>());
 
@@ -237,6 +238,10 @@ export function App() {
                 setNotesVisitKey((current) => current + 1);
                 setGlobalView("notes");
               })}
+              onCreateQuestion={() => void leaveCurrent(() => {
+                setQuestionTopicPickerRequested(true);
+                setGlobalView("questions");
+              })}
               onRegisterBeforeLeave={registerHomeBeforeLeave}
             /> : globalView === "notes" ? <NotesPage
               key={`${snapshot.settings.knowledgeRootPath}:${notesVisitKey}`}
@@ -254,6 +259,8 @@ export function App() {
               snapshot={snapshot}
               onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
               onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
+              openTopicPicker={questionTopicPickerRequested}
+              onTopicPickerOpened={() => setQuestionTopicPickerRequested(false)}
               onCreateQuestion={(topic) => void leaveCurrent(() => {
                 setSelectedTopicID(topic.id);
                 setTopicView("questions");
@@ -432,7 +439,7 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
   if (view === "questions") {
     return <div className="topic-detail questions-topic-detail">
       <button className="topic-back" type="button" onClick={onBackToOverview}><ArrowLeft /> Topic overview</button>
-      <CardWorkspace key={topic.id} topic={topic} snapshot={snapshot} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />
+      <CardWorkspace key={topic.id} topic={topic} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />
     </div>;
   }
 

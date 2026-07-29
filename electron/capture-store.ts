@@ -6,9 +6,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync
+  renameSync
 } from "node:fs";
 import path from "node:path";
 import type {
@@ -24,8 +22,10 @@ import {
   oneOf,
   positiveInteger,
   record,
-  strictIdentifier
+  strictIdentifier,
+  isoTimestamp
 } from "./input-validation";
+import { assertPathContained, writeJsonAtomically } from "./persistence";
 
 const captureFileName = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.json$/;
 const editableStatuses = new Set<CaptureStatus>(["draft", "ready"]);
@@ -82,7 +82,7 @@ export class CaptureStore {
 
   save(rawInput: unknown, now = new Date(), validateTopicID?: (topicID: string) => void): LearnerCapture {
     const input = parseSaveInput(rawInput);
-    const timestamp = isoTimestamp(now, "Capture update timestamp");
+    const timestamp = dateTimestamp(now, "Capture update timestamp");
     validateTopicID?.(input.topicID);
     this.assertSafeDirectory(true);
 
@@ -138,7 +138,7 @@ export class CaptureStore {
     const title = nonEmptyExactString(input.title, "title");
     const rawText = nonEmptyExactString(input.rawText, "rawText");
     validateTopicID?.(topicID);
-    const timestamp = isoTimestamp(now, "Capture creation timestamp");
+    const timestamp = dateTimestamp(now, "Capture creation timestamp");
     this.assertSafeDirectory(true);
     const capture: LearnerCapture = {
       schemaVersion: 1,
@@ -159,7 +159,7 @@ export class CaptureStore {
   archive(rawID: unknown, rawExpectedRevision: unknown, now = new Date()): LearnerCapture {
     const id = strictIdentifier(rawID, "capture id");
     const expectedRevision = nonNegativeInteger(rawExpectedRevision, "expectedRevision");
-    const timestamp = isoTimestamp(now, "Capture archive timestamp");
+    const timestamp = dateTimestamp(now, "Capture archive timestamp");
     const existing = this.readCapture(id, true);
     assertExpectedRevision(expectedRevision, existing.revision);
     if (existing.status === "archived") throw new Error(`Capture ${id} is already archived.`);
@@ -200,18 +200,7 @@ export class CaptureStore {
       const stat = lstatSync(filePath);
       if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`Capture ${capture.id} is not a safe regular file.`);
     }
-    const temporaryPath = path.join(this.directoryPath, `.${capture.id}.tmp-${process.pid}-${randomUUID()}`);
-    try {
-      writeFileSync(temporaryPath, JSON.stringify(capture, null, 2) + "\n", {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600
-      });
-      renameSync(temporaryPath, filePath);
-    } catch (error) {
-      rmSync(temporaryPath, { force: true });
-      throw error;
-    }
+    writeJsonAtomically(filePath, capture);
   }
 
   private newCaptureID(): string {
@@ -224,7 +213,7 @@ export class CaptureStore {
   private filePath(id: string): string {
     const safe = strictIdentifier(id, "capture id");
     const candidate = path.join(this.directoryPath, `${safe}.json`);
-    assertContained(this.directoryPath, candidate);
+    assertPathContained(this.directoryPath, candidate, "Capture path escapes the active knowledge root.");
     return candidate;
   }
 
@@ -239,13 +228,13 @@ export class CaptureStore {
     }
     const actualRoot = realpathSync(this.rootPath);
     const actualDirectory = realpathSync(this.directoryPath);
-    assertContained(actualRoot, actualDirectory);
+    assertPathContained(actualRoot, actualDirectory, "Capture path escapes the active knowledge root.");
   }
 
   private quarantineUnsafeEntry(filePath: string): void {
     const parsed = path.parse(filePath);
     const quarantinePath = path.join(parsed.dir, `${parsed.name}.corrupt-${Date.now()}-${randomUUID()}${parsed.ext}`);
-    assertContained(this.directoryPath, quarantinePath);
+    assertPathContained(this.directoryPath, quarantinePath, "Capture path escapes the active knowledge root.");
     renameSync(filePath, quarantinePath);
   }
 }
@@ -262,8 +251,8 @@ export function normalizeCapture(value: unknown): LearnerCapture {
     rawText: stringValue(raw.rawText, "capture rawText"),
     origin: normalizeOrigin(raw.origin),
     status: oneOf(raw.status, storedStatuses, "capture status"),
-    createdAt: isoString(raw.createdAt, "capture createdAt"),
-    updatedAt: isoString(raw.updatedAt, "capture updatedAt")
+    createdAt: isoTimestamp(raw.createdAt, "capture createdAt"),
+    updatedAt: isoTimestamp(raw.updatedAt, "capture updatedAt")
   };
 }
 
@@ -300,25 +289,12 @@ function assertExpectedRevision(expected: number, actual: number): void {
   if (expected !== actual) throw new CaptureRevisionConflictError(expected, actual);
 }
 
-function assertContained(parentPath: string, childPath: string): void {
-  const relative = path.relative(parentPath, childPath);
-  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return;
-  throw new Error("Capture path escapes the active knowledge root.");
-}
-
 function stringValue(value: unknown, label: string): string {
   if (typeof value !== "string") throw new Error(`${label} must be a string.`);
   return value;
 }
 
-function isoString(value: unknown, label: string): string {
-  const text = nonEmptyExactString(value, label);
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime()) || date.toISOString() !== text) throw new Error(`${label} must be an ISO timestamp.`);
-  return text;
-}
-
-function isoTimestamp(value: Date, label: string): string {
+function dateTimestamp(value: Date, label: string): string {
   if (Number.isNaN(value.getTime())) throw new Error(`${label} is invalid.`);
   return value.toISOString();
 }

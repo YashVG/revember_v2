@@ -1,5 +1,5 @@
 import { CalendarClock, CircleHelp, Clock3, Plus, Play, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { AppSnapshot, DueReviewItem, KnowledgeTopic, Question, ReviewCardState } from "../../../../shared/types";
 import { activeQuestions } from "../../../../shared/domain";
@@ -18,16 +18,29 @@ export type QuestionReviewQueues = {
   scheduled: DueReviewItem[];
 };
 
+export type QuestionReviewState = "new" | "revised" | "due" | "scheduled";
+
+export function questionReviewState(
+  question: Question,
+  schedule: ReviewCardState | undefined,
+  now = new Date()
+): QuestionReviewState {
+  if (!schedule) return "new";
+  if (schedule.questionRevision !== question.revision) return "revised";
+  return new Date(schedule.dueAt) <= now ? "due" : "scheduled";
+}
+
 export function buildQuestionReviewQueues(snapshot: Pick<AppSnapshot, "topics" | "progress">, now = new Date()): QuestionReviewQueues {
   const queues: QuestionReviewQueues = { due: [], fresh: [], scheduled: [] };
   for (const topic of snapshot.topics) {
     for (const question of activeQuestions(topic)) {
       const schedule = snapshot.progress.topics[topic.id]?.reviewCardsByQuestionID[question.id];
       const base = { id: `${topic.id}::${question.id}`, topicID: topic.id, questionID: question.id, topic, question };
-      if (!schedule) queues.fresh.push({ ...base, isNew: true, isRevised: false });
-      else if (schedule.questionRevision !== question.revision) queues.fresh.push({ ...base, isNew: false, isRevised: true });
-      else if (new Date(schedule.dueAt) <= now) queues.due.push({ ...base, dueAt: schedule.dueAt, isNew: false, isRevised: false });
-      else queues.scheduled.push({ ...base, dueAt: schedule.dueAt, isNew: false, isRevised: false, isScheduled: true });
+      const state = questionReviewState(question, schedule, now);
+      if (state === "new") queues.fresh.push({ ...base, isNew: true, isRevised: false });
+      else if (state === "revised") queues.fresh.push({ ...base, isNew: false, isRevised: true });
+      else if (state === "due") queues.due.push({ ...base, dueAt: schedule!.dueAt, isNew: false, isRevised: false });
+      else queues.scheduled.push({ ...base, dueAt: schedule!.dueAt, isNew: false, isRevised: false, isScheduled: true });
     }
   }
   queues.due.sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? "") || left.id.localeCompare(right.id));
@@ -36,15 +49,22 @@ export function buildQuestionReviewQueues(snapshot: Pick<AppSnapshot, "topics" |
   return queues;
 }
 
-export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuestion }: {
+export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuestion, openTopicPicker = false, onTopicPickerOpened }: {
   snapshot: AppSnapshot;
   onReview: (topic: KnowledgeTopic, question: Question) => void;
   onStartReview: (items: DueReviewItem[]) => void;
   onCreateQuestion: (topic: KnowledgeTopic) => void;
+  openTopicPicker?: boolean;
+  onTopicPickerOpened?: () => void;
 }) {
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
-  const now = Date.now();
-  const queues = buildQuestionReviewQueues(snapshot, new Date(now));
+  useEffect(() => {
+    if (!openTopicPicker) return;
+    setTopicPickerOpen(true);
+    onTopicPickerOpened?.();
+  }, [onTopicPickerOpened, openTopicPicker]);
+  const now = new Date();
+  const queues = buildQuestionReviewQueues(snapshot, now);
   const questions = snapshot.topics.flatMap((topic) => activeQuestions(topic).map((question): QuestionEntry => ({
     topic,
     question,
@@ -87,14 +107,14 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
       {questions.length > 0 ? (
         <div className="questions-list">
           {questions.map(({ topic, question, schedule }) => {
-            const hasCurrentSchedule = schedule?.questionRevision === question.revision;
-            const status = !hasCurrentSchedule ? "New" : new Date(schedule.dueAt).getTime() <= now ? "Due now" : "Scheduled";
+            const state = questionReviewState(question, schedule, now);
+            const status = questionReviewStateLabel(state);
             return (
-              <article className={`surface question-library-card ${status === "Due now" ? "due" : status === "New" ? "new" : "scheduled"}`} key={`${topic.id}:${question.id}`}>
+              <article className={`surface question-library-card ${questionReviewStateClass(state)}`} key={`${topic.id}:${question.id}`}>
                 <div className="question-library-copy">
                   <div className="question-library-meta">
                     <Tag>{topic.title}</Tag>
-                    <span className={`question-library-status ${status === "Due now" ? "due" : status === "New" ? "new" : ""}`}>{status}</span>
+                    <span className={`question-library-status ${questionReviewStateClass(state)}`}>{status}</span>
                   </div>
                   <h2>{question.prompt}</h2>
                   <div className="question-library-concepts">
@@ -123,6 +143,16 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
       />}
     </div>
   );
+}
+
+function questionReviewStateLabel(state: QuestionReviewState): "Due now" | "New" | "Scheduled" {
+  if (state === "due") return "Due now";
+  return state === "scheduled" ? "Scheduled" : "New";
+}
+
+function questionReviewStateClass(state: QuestionReviewState): "due" | "new" | "scheduled" {
+  if (state === "due") return "due";
+  return state === "scheduled" ? "scheduled" : "new";
 }
 
 function QuestionTopicPicker({ topics, onClose, onSelect }: {

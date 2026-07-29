@@ -25,6 +25,15 @@ export function nonEmptyExactString(value: unknown, label: string): string {
   return value;
 }
 
+export function isoTimestamp(value: unknown, label: string): string {
+  const text = nonEmptyExactString(value, label);
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== text) {
+    throw new Error(`${label} must be an ISO timestamp.`);
+  }
+  return text;
+}
+
 export function identifier(value: unknown, label: string): string {
   return validateIdentifier(nonEmptyString(value, label), label);
 }

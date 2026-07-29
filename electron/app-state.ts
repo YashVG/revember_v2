@@ -60,6 +60,7 @@ import {
   record,
   strictIdentifier
 } from "./input-validation";
+import { writeJsonAtomically } from "./persistence";
 
 interface StatePaths {
   settingsPath: string;
@@ -250,24 +251,20 @@ export class RevemberState extends EventEmitter {
     };
     const filePath = path.join(this.settings.knowledgeRootPath, "sessions", `${id}.json`);
     mkdirSync(path.dirname(filePath), { recursive: true });
-    writeJson(filePath, record);
+    writeJsonAtomically(filePath, record);
     return { snapshot: this.snapshot, filePath };
   }
 
   listCaptureSummaries(): CaptureSummary[] {
-    return new CaptureStore(this.settings.knowledgeRootPath).listSummaries();
+    return this.captureStore().listSummaries();
   }
 
   getCapture(id: string): LearnerCapture {
-    return new CaptureStore(this.settings.knowledgeRootPath).get(id);
+    return this.captureStore().get(id);
   }
 
   saveCapture(input: SaveCaptureInput): LearnerCapture {
-    return new CaptureStore(this.settings.knowledgeRootPath).save(input, new Date(), (topicID) => {
-      if (!this.topics.some((topic) => topic.id === topicID)) {
-        throw new Error(`Capture references missing topic ${topicID}.`);
-      }
-    });
+    return this.captureStore().save(input, new Date(), (topicID) => this.assertKnownCaptureTopic(topicID));
   }
 
   async generateTopicNote(rawTopicID: unknown): Promise<LearnerCapture> {
@@ -309,7 +306,7 @@ export class RevemberState extends EventEmitter {
   finishCapture(rawID: unknown, rawExpectedRevision: unknown): LearnerCapture {
     const id = strictIdentifier(rawID, "capture id");
     const expectedRevision = nonNegativeInteger(rawExpectedRevision, "expectedRevision");
-    const store = new CaptureStore(this.settings.knowledgeRootPath);
+    const store = this.captureStore();
     const current = store.get(id);
     if (current.revision !== expectedRevision) {
       throw new CaptureRevisionConflictError(expectedRevision, current.revision);
@@ -327,11 +324,7 @@ export class RevemberState extends EventEmitter {
         title: current.title,
         rawText: current.rawText,
         status: "ready"
-      }, new Date(), (topicID) => {
-        if (!this.topics.some((topic) => topic.id === topicID)) {
-          throw new Error(`Capture references missing topic ${topicID}.`);
-        }
-      });
+      }, new Date(), (topicID) => this.assertKnownCaptureTopic(topicID));
     try {
       this.noteSegmentation.enqueue(capture, this.settings.knowledgeRootPath);
     } catch (error) {
@@ -344,7 +337,7 @@ export class RevemberState extends EventEmitter {
   }
 
   archiveCapture(id: string, expectedRevision: number): LearnerCapture {
-    return new CaptureStore(this.settings.knowledgeRootPath).archive(id, expectedRevision);
+    return this.captureStore().archive(id, expectedRevision);
   }
 
   getCaptureSegmentation(captureID: string, captureRevision: number) {
@@ -496,7 +489,7 @@ export class RevemberState extends EventEmitter {
 
   private saveSettings(settings = this.settings): void {
     mkdirSync(path.dirname(this.paths.settingsPath), { recursive: true });
-    writeJson(this.paths.settingsPath, settings);
+    writeJsonAtomically(this.paths.settingsPath, settings);
   }
 
   private reloadFromDisk(): void {
@@ -557,15 +550,11 @@ export class RevemberState extends EventEmitter {
       topicTitle: topic.title,
       topicContext: topicNoteContext(topic)
     }, new AbortController().signal);
-    const capture = new CaptureStore(this.settings.knowledgeRootPath).createOllamaGenerated({
+    const capture = this.captureStore().createOllamaGenerated({
       topicID: topic.id,
       title: generated.title,
       rawText: generated.rawText
-    }, new Date(), (topicID) => {
-      if (!this.topics.some((candidate) => candidate.id === topicID)) {
-        throw new Error(`Capture references missing topic ${topicID}.`);
-      }
-    });
+    }, new Date(), (topicID) => this.assertKnownCaptureTopic(topicID));
     try {
       this.noteSegmentation.enqueue(capture, this.settings.knowledgeRootPath);
       this.backgroundWarning = undefined;
@@ -574,6 +563,16 @@ export class RevemberState extends EventEmitter {
     }
     this.broadcast();
     return capture;
+  }
+
+  private captureStore(): CaptureStore {
+    return new CaptureStore(this.settings.knowledgeRootPath);
+  }
+
+  private assertKnownCaptureTopic(topicID: string): void {
+    if (!this.topics.some((topic) => topic.id === topicID)) {
+      throw new Error(`Capture references missing topic ${topicID}.`);
+    }
   }
 
   private loadTopics(knowledgeRootPath = this.settings.knowledgeRootPath): KnowledgeTopic[] {
@@ -618,7 +617,7 @@ export class RevemberState extends EventEmitter {
 
   private writeProgress(progress: ProgressRecord, progressPath = this.settings.progressPath): void {
     mkdirSync(path.dirname(progressPath), { recursive: true });
-    writeJson(progressPath, progress);
+    writeJsonAtomically(progressPath, progress);
   }
 
   private refreshFromDiskAndWatch(): void {
@@ -736,16 +735,6 @@ function topicNoteContext(topic: KnowledgeTopic): string {
     }
   }
   return lines.join("\n");
-}
-
-function atomicWrite(filePath: string, contents: string): void {
-  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
-  renameSync(temporaryPath, filePath);
-}
-
-function writeJson(filePath: string, value: unknown): void {
-  atomicWrite(filePath, JSON.stringify(value, null, 2) + "\n");
 }
 
 function normalizeStoredSettings(value: unknown): Partial<AppSettings> {

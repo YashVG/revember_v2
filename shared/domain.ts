@@ -284,7 +284,7 @@ function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
     gapTags: optionalStringArray(event.gapTags, `${label} gapTags`),
     misconceptionIDs: optionalStringArray(event.misconceptionIDs, `${label} misconceptionIDs`),
     sourceRefs: optionalStringArray(event.sourceRefs, `${label} sourceRefs`),
-    reviewedAt: canonicalIsoTimestamp(event.reviewedAt, `${label} reviewedAt`)
+    reviewedAt: isoTimestamp(event.reviewedAt, `${label} reviewedAt`)
   };
 }
 
@@ -398,10 +398,6 @@ function isoTimestamp(value: unknown, label: string): string {
 
 function optionalIsoTimestamp(value: unknown, label: string): string | undefined {
   return value === undefined ? undefined : isoTimestamp(value, label);
-}
-
-function canonicalIsoTimestamp(value: unknown, label: string): string {
-  return isoTimestamp(value, label);
 }
 
 function isReviewRating(value: unknown): value is ReviewRating {

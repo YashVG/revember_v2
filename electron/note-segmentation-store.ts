@@ -5,20 +5,20 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync
+  renameSync
 } from "node:fs";
 import path from "node:path";
 import type { CaptureSegmentation } from "../shared/types";
 import {
   array,
+  isoTimestamp,
   nonEmptyExactString,
   oneOf,
   positiveInteger,
   record,
   strictIdentifier
 } from "./input-validation";
+import { assertPathContained, writeJsonAtomically } from "./persistence";
 
 type CaptureSegmentationStatus = CaptureSegmentation["status"];
 type CaptureSegmentationChunk = NonNullable<CaptureSegmentation["chunks"]>[number];
@@ -93,21 +93,7 @@ export class NoteSegmentationStore {
         );
       }
     }
-    const temporaryPath = path.join(
-      this.directoryPath,
-      `.${path.basename(filePath)}.tmp-${process.pid}-${randomUUID()}`
-    );
-    try {
-      writeFileSync(temporaryPath, JSON.stringify(segmentation, null, 2) + "\n", {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600
-      });
-      renameSync(temporaryPath, filePath);
-    } catch (error) {
-      rmSync(temporaryPath, { force: true });
-      throw error;
-    }
+    writeJsonAtomically(filePath, segmentation);
     return structuredClone(segmentation);
   }
 
@@ -116,7 +102,7 @@ export class NoteSegmentationStore {
       this.directoryPath,
       `${strictIdentifier(captureID, "capture id")}-${positiveInteger(captureRevision, "capture revision")}.json`
     );
-    assertContained(this.directoryPath, candidate);
+    assertPathContained(this.directoryPath, candidate, "Capture segmentation path escapes the active knowledge root.");
     return candidate;
   }
 
@@ -131,7 +117,11 @@ export class NoteSegmentationStore {
         "The capture segmentations path must be a real directory inside the active knowledge root."
       );
     }
-    assertContained(realpathSync(this.rootPath), realpathSync(this.directoryPath));
+    assertPathContained(
+      realpathSync(this.rootPath),
+      realpathSync(this.directoryPath),
+      "Capture segmentation path escapes the active knowledge root."
+    );
   }
 
   private quarantineUnsafeEntry(filePath: string): void {
@@ -140,7 +130,7 @@ export class NoteSegmentationStore {
       parsed.dir,
       `${parsed.name}.corrupt-${Date.now()}-${randomUUID()}${parsed.ext}`
     );
-    assertContained(this.directoryPath, quarantinePath);
+    assertPathContained(this.directoryPath, quarantinePath, "Capture segmentation path escapes the active knowledge root.");
     renameSync(filePath, quarantinePath);
   }
 }
@@ -188,8 +178,8 @@ export function normalizeCaptureSegmentation(value: unknown): CaptureSegmentatio
     status,
     ...(chunks ? { chunks } : {}),
     ...(errorMessage ? { errorMessage } : {}),
-    createdAt: isoString(raw.createdAt, "capture segmentation createdAt"),
-    updatedAt: isoString(raw.updatedAt, "capture segmentation updatedAt")
+    createdAt: isoTimestamp(raw.createdAt, "capture segmentation createdAt"),
+    updatedAt: isoTimestamp(raw.updatedAt, "capture segmentation updatedAt")
   };
 }
 
@@ -260,21 +250,4 @@ function boundedText(value: unknown, label: string, maximum: number): string {
     throw new Error(`${label} exceeds ${maximum} characters.`);
   }
   return text;
-}
-
-function isoString(value: unknown, label: string): string {
-  const text = nonEmptyExactString(value, label);
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime()) || date.toISOString() !== text) {
-    throw new Error(`${label} must be an ISO timestamp.`);
-  }
-  return text;
-}
-
-function assertContained(parentPath: string, childPath: string): void {
-  const relative = path.relative(parentPath, childPath);
-  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-    return;
-  }
-  throw new Error("Capture segmentation path escapes the active knowledge root.");
 }

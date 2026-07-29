@@ -323,8 +323,7 @@ function chooseReadableBoundary(
 function sentenceBoundaryOffsets(text: string): number[] {
   const boundaries: number[] = [];
   const pattern = /[.!?…。！？]+(?:["'”’»)\]}]+)?(?:[ \t]+|(?=\r\n|\n|\r|$))/gu;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
+  while (pattern.exec(text) !== null) {
     if (pattern.lastIndex > 0 && pattern.lastIndex < text.length) boundaries.push(pattern.lastIndex);
   }
   return boundaries;

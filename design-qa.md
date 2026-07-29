@@ -139,6 +139,52 @@ passed
 
 ---
 
+# Home study-focus design QA — 29 July 2026
+
+## Evidence
+
+- Source visual truth: `/Users/yash/.codex/generated_images/019fa8b2-f696-7fe0-a29c-ea8fec2896ca/exec-5a64444e-4249-4bac-816d-ea1a92ced355.png`.
+- Rendered implementation: [`design-qa-assets/home-study-focus-implementation-2026-07-29.jpg`](design-qa-assets/home-study-focus-implementation-2026-07-29.jpg).
+- Full-view comparison, source left / implementation right: [`design-qa-assets/home-study-focus-comparison-2026-07-29.png`](design-qa-assets/home-study-focus-comparison-2026-07-29.png).
+- State: Home with three due questions, a current attention signal for Characteristic, and no chat or prompt control.
+- Viewport: 1254 × 768 pixels. The generated source was 1603 × 981 pixels and was proportionally normalized to 1254 × 768 before the comparison. The implementation capture was already 1254 × 768 at the Electron desktop scale; both comparisons include matching application chrome.
+- Focused-region comparison: not needed separately; the session card, attention strip, and learning actions remain fully legible in the full comparison.
+
+## Comparison history
+
+### Pass 1 — passed
+
+No actionable P0, P1, or P2 differences remain.
+
+- The implementation preserves the source’s single dominant review action, session preview, quiet attention strip, and lightweight continuation actions.
+- Live queue data changes the displayed count and question text from the illustrative mock. That is intentional: the card is derived from the existing current review queue rather than static content.
+- The source’s `See progress` link is intentionally omitted because the app has no standalone progress destination. The remaining footer accurately states the seven-day evidence window without creating a dead-end action.
+
+## Focused interaction evidence
+
+- `Start review` opened the first due check as `1 of 3` in the existing review flow.
+- `Write a note` opened the Notes topic chooser.
+- `Create a question` opened the real topic picker immediately, ready to enter the existing question-authoring flow.
+- `Practice this topic` remains grounded in current, due questions for the attention topic; when none are ready it opens that topic’s notes instead.
+
+## Fidelity surfaces
+
+- **Fonts and typography:** Existing system font stack, compact cyan eyebrow, display heading, and readable session rows match the source hierarchy. Live long question text truncates or wraps within the row rather than widening the panel.
+- **Spacing and layout rhythm:** The implementation uses one broad session card followed by a low-emphasis attention strip and two text actions. This preserves the intended primary-to-secondary rhythm and uses the full desktop width without a chat field.
+- **Colors and visual tokens:** Existing near-black surfaces, graphite borders, off-white type, cyan actions, and restrained red attention signal map directly to Revember’s current tokens.
+- **Image quality and assets:** The target contains no bespoke raster imagery. The implementation uses the existing Lucide icon library consistently; no replacement artwork or placeholder asset was introduced.
+- **Copy and content:** All queue counts, topics, question previews, and attention signals are derived from current local study data. The screen contains no natural-language prompt or chat response.
+
+## Follow-up polish
+
+- [P3] If a dedicated progress page is added later, the footer can regain a `See progress` action without changing this layout.
+
+## Final result
+
+passed
+
+---
+
 # Notes reader design QA — 29 July 2026
 
 ## Evidence
@@ -255,3 +301,5 @@ passed
 ## Final result
 
 passed
+
+---

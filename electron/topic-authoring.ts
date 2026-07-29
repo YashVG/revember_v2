@@ -69,15 +69,7 @@ export async function editTopicCard(knowledgeRootPath: string, rawInput: unknown
     knowledgeRootPath,
     topicID: input.topicID,
     expectedRevision: input.expectedTopicRevision,
-    transform: (topic) => {
-      let found = false;
-      const questions = recordArray(topic.questions, "topic questions").map((question) => {
-        if (question.id !== input.questionID) return question;
-        found = true;
-        const revision = positiveInteger(question.revision, `question ${input.questionID} revision`);
-        if (revision !== input.expectedQuestionRevision) {
-          throw new Error(`Question revision conflict for ${input.questionID}: expected ${input.expectedQuestionRevision}, found ${revision}.`);
-        }
+    transform: (topic) => updateExistingQuestion(topic, input, (question, revision) => {
         if (typeof question.retiredAt === "string") throw new Error(`Question ${input.questionID} is retired and cannot be edited.`);
         assertCardReferences(topic, input.card);
         const existingChoices = recordArray(question.choices, `question ${input.questionID} choices`);
@@ -85,10 +77,7 @@ export async function editTopicCard(knowledgeRootPath: string, rawInput: unknown
         const existingByID = new Map(existingChoices.map((choice) => [String(choice.id), choice]));
         const choices = input.card.choices.map((choice) => replaceKnownChoiceFields(existingByID.get(choice.id)!, choice));
         return { ...question, ...input.card, choices, id: input.questionID, revision: revision + 1 };
-      });
-      if (!found) throw new Error(`Question ${input.questionID} does not exist in topic ${input.topicID}.`);
-      return { ...topic, questions };
-    }
+      })
   });
 }
 
@@ -99,38 +88,46 @@ export async function retireTopicCard(knowledgeRootPath: string, rawInput: unkno
     knowledgeRootPath,
     topicID: input.topicID,
     expectedRevision: input.expectedTopicRevision,
-    transform: (topic) => {
-      let found = false;
-      const questions = recordArray(topic.questions, "topic questions").map((question) => {
-        if (question.id !== input.questionID) return question;
-        found = true;
-        const revision = positiveInteger(question.revision, `question ${input.questionID} revision`);
-        if (revision !== input.expectedQuestionRevision) {
-          throw new Error(`Question revision conflict for ${input.questionID}: expected ${input.expectedQuestionRevision}, found ${revision}.`);
-        }
+    transform: (topic) => updateExistingQuestion(topic, input, (question, revision) => {
         if (typeof question.retiredAt === "string") throw new Error(`Question ${input.questionID} is already retired.`);
         return { ...question, revision: revision + 1, retiredAt: now.toISOString() };
-      });
-      if (!found) throw new Error(`Question ${input.questionID} does not exist in topic ${input.topicID}.`);
-      return { ...topic, questions };
-    }
+      })
   });
 }
 
+type ExistingQuestionInput = Pick<EditCardInput, "topicID" | "questionID" | "expectedQuestionRevision">;
+
+function updateExistingQuestion(
+  topic: Record<string, unknown>,
+  input: ExistingQuestionInput,
+  update: (question: Record<string, unknown>, revision: number) => Record<string, unknown>
+): Record<string, unknown> {
+  let found = false;
+  const questions = recordArray(topic.questions, "topic questions").map((question) => {
+    if (question.id !== input.questionID) return question;
+    found = true;
+    const revision = positiveInteger(question.revision, `question ${input.questionID} revision`);
+    if (revision !== input.expectedQuestionRevision) {
+      throw new Error(`Question revision conflict for ${input.questionID}: expected ${input.expectedQuestionRevision}, found ${revision}.`);
+    }
+    return update(question, revision);
+  });
+  if (!found) throw new Error(`Question ${input.questionID} does not exist in topic ${input.topicID}.`);
+  return { ...topic, questions };
+}
+
 function parseCreateCardInput(value: unknown): CreateCardInput {
-  const input = record(value, "Create card input");
+  const { input, ...envelope } = parseTopicMutationEnvelope(value, "Create card input");
   return {
-    topicID: strictIdentifier(input.topicID, "topicID"),
-    expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision"),
+    ...envelope,
     card: parseQuestionDraft(input.card, true) as QuestionDraft
   };
 }
 
 function parseEditCardInput(value: unknown): EditCardInput {
-  const input = record(value, "Edit card input");
+  const { input, ...envelope } = parseTopicMutationEnvelope(value, "Edit card input");
   return {
-    topicID: strictIdentifier(input.topicID, "topicID"),
-    expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision"),
+    ...envelope,
     questionID: nonEmptyString(input.questionID, "questionID"),
     expectedQuestionRevision: positiveInteger(input.expectedQuestionRevision, "expectedQuestionRevision"),
     card: parseQuestionDraft(input.card, false) as QuestionEdit
@@ -138,12 +135,24 @@ function parseEditCardInput(value: unknown): EditCardInput {
 }
 
 function parseRetireCardInput(value: unknown): RetireCardInput {
-  const input = record(value, "Retire card input");
+  const { input, ...envelope } = parseTopicMutationEnvelope(value, "Retire card input");
   return {
-    topicID: strictIdentifier(input.topicID, "topicID"),
-    expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision"),
+    ...envelope,
     questionID: nonEmptyString(input.questionID, "questionID"),
     expectedQuestionRevision: positiveInteger(input.expectedQuestionRevision, "expectedQuestionRevision")
+  };
+}
+
+function parseTopicMutationEnvelope(value: unknown, label: string): {
+  input: Record<string, unknown>;
+  topicID: string;
+  expectedTopicRevision: number;
+} {
+  const input = record(value, label);
+  return {
+    input,
+    topicID: strictIdentifier(input.topicID, "topicID"),
+    expectedTopicRevision: nonNegativeInteger(input.expectedTopicRevision, "expectedTopicRevision")
   };
 }
 
