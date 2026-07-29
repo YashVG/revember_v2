@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Check, Pencil, Play, Plus, Sparkles } from "lucide-react";
+import { Archive, Check, Pencil, Play, Plus, Sparkles, X } from "lucide-react";
 import type { AppSnapshot, KnowledgeTopic, Question, QuestionDraft, QuestionEdit } from "../../../../shared/types";
 import { activeQuestions } from "../../../../shared/domain";
 import { ConfirmationDialog } from "./ConfirmationDialog";
@@ -42,6 +42,19 @@ export function fillGeneratedDistractors(
     filled.push({ id: `choice-distractor-${number}`, text: candidates[candidateIndex++]! });
   }
   return filled;
+}
+
+export function replaceGeneratedDistractors(
+  existing: CardForm["distractors"],
+  generated: readonly string[],
+  answer: string
+): CardForm["distractors"] {
+  const candidates = generated
+    .map((text) => text.trim())
+    .filter((text) => text && normalizeChoiceText(text) !== normalizeChoiceText(answer))
+    .filter((text, index, values) => values.findIndex((value) => normalizeChoiceText(value) === normalizeChoiceText(text)) === index);
+  if (candidates.length < existing.length) return existing;
+  return existing.map((item, index) => ({ ...item, text: candidates[index]! }));
 }
 
 function normalizeChoiceText(value: string): string {
@@ -130,6 +143,7 @@ export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, onRegiste
   const [editing, setEditing] = useState<Question>();
   const [creating, setCreating] = useState(false);
   const [retiring, setRetiring] = useState<Question>();
+  const [savedQuestion, setSavedQuestion] = useState<Question>();
   const [createSeed, setCreateSeed] = useState<string>();
   const consumedSeedToken = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -145,27 +159,54 @@ export function CardWorkspace({ topic, snapshot, onSnapshot, onReview, onRegiste
   return <section className="cards-workspace" aria-labelledby="cards-heading">
     <header className="cards-heading">
       <div><Eyebrow>{active.length} {active.length === 1 ? "question" : "questions"} in this topic</Eyebrow><h2 id="cards-heading">Questions</h2><p>Build a small, reliable question bank from the concepts you want to remember.</p></div>
-      <button className="primary" onClick={() => { setCreateSeed(undefined); setEditing(undefined); setCreating(true); }}><Plus /> New question</button>
+      <button className="primary" onClick={() => { setSavedQuestion(undefined); setCreateSeed(undefined); setEditing(undefined); setCreating(true); }}><Plus /> New question</button>
     </header>
     {active.length ? <div className="cards-list">{active.map((question, index) => <article className="surface authored-card" key={question.id}>
       <div className="authored-card-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</div>
       <div className="authored-card-copy"><Eyebrow>{question.revision > 1 ? `Revision ${question.revision}` : "Question"}</Eyebrow><h3>{question.prompt}</h3><div className="authored-card-concepts">{question.conceptIDs.map((id) => <Tag key={id}>{topic.concepts.find((concept) => concept.id === id)?.title ?? id}</Tag>)}</div></div>
       <div className="card-actions"><button type="button" onClick={() => onReview(question)}><Play /> Review</button><button type="button" onClick={() => { setCreating(false); setEditing(question); }}><Pencil /> Edit</button><button type="button" className="danger-button" onClick={() => setRetiring(question)} aria-label={`Archive ${question.prompt}`} title="Archive question"><Archive /></button></div>
-    </article>)}</div> : <div className="surface cards-empty"><Check /><h3>No questions yet</h3><p>Add the first question for this topic. It will enter the normal review queue after you save it.</p><button className="primary" onClick={() => { setCreateSeed(undefined); setCreating(true); }}><Plus /> Create first question</button></div>}
+    </article>)}</div> : <div className="surface cards-empty"><Check /><h3>No questions yet</h3><p>Add the first question for this topic. It will enter the normal review queue after you save it.</p><button className="primary" onClick={() => { setSavedQuestion(undefined); setCreateSeed(undefined); setCreating(true); }}><Plus /> Create first question</button></div>}
     {retired.length > 0 && <details className="retired-cards"><summary>{retired.length} archived {retired.length === 1 ? "question" : "questions"}</summary><ul>{retired.map((question) => <li key={question.id}>{question.prompt}</li>)}</ul></details>}
-    {(creating || editing) && <CardEditor topic={topic} snapshot={snapshot} question={editing} seedSentence={creating ? createSeed : undefined} onSnapshot={onSnapshot} onClose={() => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); }} onReview={onReview} onRegisterBeforeLeave={onRegisterBeforeLeave} />}
+    {(creating || editing) && <CardEditor topic={topic} snapshot={snapshot} question={editing} seedSentence={creating ? createSeed : undefined} onSnapshot={onSnapshot} onClose={() => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); }} onSaved={(question) => { setCreateSeed(undefined); setCreating(false); setEditing(undefined); setSavedQuestion(question); }} onRegisterBeforeLeave={onRegisterBeforeLeave} />}
     {retiring && <ArchiveCardDialog topic={topic} question={retiring} onSnapshot={onSnapshot} onClose={() => setRetiring(undefined)} />}
+    {savedQuestion && <QuestionSavedToast
+      onClose={() => setSavedQuestion(undefined)}
+      onCreateAnother={() => {
+        setSavedQuestion(undefined);
+        setCreateSeed(undefined);
+        setEditing(undefined);
+        setCreating(true);
+      }}
+    />}
   </section>;
 }
 
-function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClose, onReview, onRegisterBeforeLeave }: {
+function QuestionSavedToast({ onClose, onCreateAnother }: {
+  onClose: () => void;
+  onCreateAnother: () => void;
+}) {
+  return (
+    <aside className="question-saved-toast" role="status" aria-live="polite">
+      <Check aria-hidden="true" />
+      <div className="question-saved-toast-copy">
+        <strong>Question saved</strong>
+        <span>Ready for your next review.</span>
+      </div>
+      <span className="question-saved-toast-divider" aria-hidden="true" />
+      <button className="question-saved-toast-create" type="button" onClick={onCreateAnother}>Create another</button>
+      <button className="question-saved-toast-dismiss" type="button" aria-label="Dismiss saved notification" onClick={onClose}><X /></button>
+    </aside>
+  );
+}
+
+function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClose, onSaved, onRegisterBeforeLeave }: {
   topic: KnowledgeTopic;
   snapshot: AppSnapshot;
   question?: Question;
   seedSentence?: string;
   onSnapshot: (snapshot: AppSnapshot) => void;
   onClose: () => void;
-  onReview: (question: Question) => void;
+  onSaved: (question: Question) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 }) {
   const [initial] = useState<CardForm>(() => initialForm(topic, question, seedSentence));
@@ -175,14 +216,13 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
   const [saving, setSaving] = useState(false);
   const [generatingDistractors, setGeneratingDistractors] = useState(false);
   const [generatedDistractors, setGeneratedDistractors] = useState(false);
-  const [saved, setSaved] = useState<Question>();
   const pendingStoredPrompt = storedPromptForCard(question, form.sentence, form.answer);
   const pendingExistingEdit = question
     ? buildExistingCardEdit(question, initial, form, pendingStoredPrompt)
     : undefined;
-  const dirty = !saved && (question
+  const dirty = question
     ? Boolean(pendingExistingEdit)
-    : JSON.stringify(form) !== JSON.stringify(initial));
+    : JSON.stringify(form) !== JSON.stringify(initial);
   useBeforeUnloadGuard(dirty);
   const confirmDiscard = useCallback(
     () => !dirty || window.confirm("Discard your unsaved question changes?"),
@@ -217,9 +257,11 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
         answer: form.answer.trim(),
         ...(form.conceptID ? { conceptID: form.conceptID } : {})
       });
-      const next = fillGeneratedDistractors(form.distractors, generated, form.answer);
-      if (next.filter(({ text }) => text.trim()).length === populatedDistractors) {
-        setDistractorError("The local model did not return any usable new distractors. Try again or add your own.");
+      const next = question
+        ? replaceGeneratedDistractors(form.distractors, generated, form.answer)
+        : fillGeneratedDistractors(form.distractors, generated, form.answer);
+      if (!next.some((item, index) => normalizeChoiceText(item.text) !== normalizeChoiceText(form.distractors[index]?.text ?? ""))) {
+        setDistractorError("The local model did not return usable new distractors. Try again or edit the options yourself.");
         return;
       }
       update("distractors", next);
@@ -267,9 +309,13 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
             card: existingEdit!
           })
         : await window.revember.createCard({ topicID: topic.id, expectedTopicRevision: topic.revision, card: { id: cardID, ...newCard } satisfies QuestionDraft });
-      onSnapshot(result.snapshot); setSaved(result.question);
-    } catch (cause) { setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message); }
-    finally { setSaving(false); }
+      onSnapshot(result.snapshot);
+      setSaving(false);
+      onSaved(result.question);
+    } catch (cause) {
+      setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message);
+      setSaving(false);
+    }
   };
 
   return (
@@ -280,27 +326,25 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
       closeOnBackdrop={false}
       onClose={requestClose}
     >
-      {saved ? (
-        <div className="card-saved">
-          <Check />
-          <h3>Question saved</h3>
-          <p>{saved.revision > 1 ? `Revision ${saved.revision} will re-enter review as a revised check.` : "It is ready for your next review."}</p>
-          <div className="dialog-footer">
-            <button type="button" onClick={requestClose}>Done</button>
-            <button type="button" className="primary" onClick={() => onReview(saved)}><Play /> Review question</button>
-          </div>
-        </div>
-      ) : (
-        <form className="card-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <label className="card-editor-field">
+      <form className="card-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <label className="card-editor-field card-editor-question-field">
             <span>Sentence containing the answer</span>
             <textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder="For example: A bit is a distinguishable physical state." />
           </label>
-          <label className="card-editor-field">
-            <span>Answer</span>
-            <input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" />
-            <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "The answer appears in the sentence and will be shown as a blank during review." : "Use the exact answer once in the sentence."}</small>
-          </label>
+          <section className="card-editor-answer-panel" aria-label="Answer details">
+            <label className="card-editor-field">
+              <span>Answer</span>
+              <input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" />
+              <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "The answer appears in the sentence and will be shown as a blank during review." : "Use the exact answer once in the sentence."}</small>
+            </label>
+            <label className="card-editor-field">
+              <span>Linked concept <small>(optional)</small></span>
+              <select value={form.conceptID} onChange={(event) => update("conceptID", event.target.value)}>
+                <option value="">No linked concept</option>
+                {topic.concepts.map((concept) => <option key={concept.id} value={concept.id}>{concept.title}</option>)}
+              </select>
+            </label>
+          </section>
           <fieldset className="card-editor-distractors">
             <legend>Distractors</legend>
             {form.distractors.map((item, index) => (
@@ -310,32 +354,27 @@ function CardEditor({ topic, snapshot, question, seedSentence, onSnapshot, onClo
               </label>
             ))}
             {!question && form.distractors.length < 3 && <button type="button" className="text-button" onClick={addDistractor}><Plus /> Add distractor</button>}
-            {!question && <div className="distractor-assist">
-              <div><strong>Need suggestions?</strong><small>Generate up to three plausible wrong answers locally. Your existing options stay untouched.</small></div>
-              <button type="button" className="local-assist-button" disabled={generatingDistractors || populatedDistractors >= 3} onClick={() => void generateDistractors()}><Sparkles /> {generatingDistractors ? "Generating…" : "Generate distractors"}</button>
-            </div>}
-            {generatedDistractors && <p className="distractor-generation-note"><Sparkles /> Generated locally. Review every option before saving.</p>}
+            <div className="distractor-assist">
+              <div>{question
+                ? <><strong>Replace current options?</strong><small>Generate comparable wrong answers locally. Saving creates a new question revision.</small></>
+                : <><strong>Need suggestions?</strong><small>Generate up to three comparable wrong answers locally. Your existing options stay untouched.</small></>
+              }</div>
+              <button type="button" className="local-assist-button" disabled={generatingDistractors || (!question && populatedDistractors >= 3)} onClick={() => void generateDistractors()}><Sparkles /> {generatingDistractors ? "Generating…" : question ? "Replace distractors" : "Generate distractors"}</button>
+            </div>
+            {generatedDistractors && <p className="distractor-generation-note"><Sparkles /> {question ? "New options generated locally. Review them, then save this revision." : "Generated locally. Review every option before saving."}</p>}
             {distractorError && <InlineError message={distractorError} />}
-            {question && <small>Choice structure is fixed while editing so existing review evidence remains trustworthy.</small>}
+            {question && <small>Saving keeps this as the same question, updated as a new revision.</small>}
           </fieldset>
-          <label className="card-editor-field">
-            <span>Linked concept <small>(optional)</small></span>
-            <select value={form.conceptID} onChange={(event) => update("conceptID", event.target.value)}>
-              <option value="">No linked concept</option>
-              {topic.concepts.map((concept) => <option key={concept.id} value={concept.id}>{concept.title}</option>)}
-            </select>
-          </label>
-          <label className="card-editor-field">
+          <label className="card-editor-field card-editor-explanation-field">
             <span>Explanation</span>
             <textarea value={form.explanation} onChange={(event) => update("explanation", event.target.value)} placeholder="Why is this answer correct?" />
           </label>
           {error && <InlineError message={error} />}
-          <div className="dialog-footer">
+          <div className="dialog-footer card-editor-footer">
             <button type="button" onClick={requestClose}>Cancel</button>
             <button className="primary" disabled={saving || generatingDistractors || Boolean(question && !pendingExistingEdit)} type="submit">{saving ? "Saving…" : "Save question"}</button>
           </div>
-        </form>
-      )}
+      </form>
     </Modal>
   );
 }

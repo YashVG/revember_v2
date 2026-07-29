@@ -45,7 +45,6 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node tests-electron/e2e.mjs
-      - run: node tests-electron/local-ai-e2e.mjs
       - run: git diff --check
 
   mcp:

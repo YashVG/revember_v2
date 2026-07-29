@@ -12,7 +12,6 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type {
-  CaptureConcisePoint,
   CaptureOrigin,
   CaptureStatus,
   CaptureSummary,
@@ -20,7 +19,6 @@ import type {
   SaveCaptureInput
 } from "../shared/types";
 import {
-  array,
   nonEmptyExactString,
   nonNegativeInteger,
   oneOf,
@@ -92,9 +90,6 @@ export class CaptureStore {
       if (input.expectedRevision !== 0) {
         throw new CaptureRevisionConflictError(input.expectedRevision, 0);
       }
-      if (input.concisePoints.some((point) => point.id !== undefined)) {
-        throw new Error("New capture point IDs are assigned by the main process.");
-      }
       const capture: LearnerCapture = {
         schemaVersion: 1,
         id: this.newCaptureID(),
@@ -102,7 +97,6 @@ export class CaptureStore {
         topicID: input.topicID,
         title: input.title,
         rawText: input.rawText,
-        concisePoints: input.concisePoints.map((point) => ({ id: newPointID(), text: point.text })),
         origin: "user",
         status: input.status,
         createdAt: timestamp,
@@ -115,14 +109,6 @@ export class CaptureStore {
     const existing = this.readCapture(input.id, true);
     assertExpectedRevision(input.expectedRevision, existing.revision);
     if (existing.status === "archived") throw new Error(`Capture ${existing.id} is archived and cannot be edited.`);
-    const existingPointIDs = new Set(existing.concisePoints.map((point) => point.id));
-    const points: CaptureConcisePoint[] = input.concisePoints.map((point) => {
-      if (point.id !== undefined && !existingPointIDs.has(point.id)) {
-        throw new Error(`Point ${point.id} does not exist in capture ${existing.id}. Omit its ID to create a new point.`);
-      }
-      return { id: point.id ?? newPointID(), text: point.text };
-    });
-    assertUniquePointIDs(points);
     const capture: LearnerCapture = {
       schemaVersion: 1,
       id: existing.id,
@@ -130,7 +116,6 @@ export class CaptureStore {
       topicID: input.topicID,
       title: input.title,
       rawText: input.rawText,
-      concisePoints: points,
       origin: existing.origin,
       status: input.status,
       createdAt: existing.createdAt,
@@ -148,16 +133,10 @@ export class CaptureStore {
     topicID: string;
     title: string;
     rawText: string;
-    concisePoints: string[];
   }, now = new Date(), validateTopicID?: (topicID: string) => void): LearnerCapture {
     const topicID = strictIdentifier(input.topicID, "topicID");
     const title = nonEmptyExactString(input.title, "title");
     const rawText = nonEmptyExactString(input.rawText, "rawText");
-    const concisePoints = input.concisePoints.map((point, index) => ({
-      id: newPointID(),
-      text: nonEmptyExactString(point, `concisePoints[${index}]`)
-    }));
-    assertUniquePointIDs(concisePoints);
     validateTopicID?.(topicID);
     const timestamp = isoTimestamp(now, "Capture creation timestamp");
     this.assertSafeDirectory(true);
@@ -168,7 +147,6 @@ export class CaptureStore {
       topicID,
       title,
       rawText,
-      concisePoints,
       origin: "ollama",
       status: "ready",
       createdAt: timestamp,
@@ -275,14 +253,6 @@ export class CaptureStore {
 export function normalizeCapture(value: unknown): LearnerCapture {
   const raw = record(value, "Capture");
   if (raw.schemaVersion !== 1) throw new Error(`Unsupported capture schemaVersion ${String(raw.schemaVersion)}.`);
-  const concisePoints = array(raw.concisePoints, "capture concisePoints").map((point, index) => {
-    const entry = record(point, `capture concisePoints[${index}]`);
-    return {
-      id: strictIdentifier(entry.id, `capture concisePoints[${index}].id`),
-      text: nonEmptyExactString(entry.text, `capture concisePoints[${index}].text`)
-    };
-  });
-  assertUniquePointIDs(concisePoints);
   return {
     schemaVersion: 1,
     id: strictIdentifier(raw.id, "capture id"),
@@ -290,7 +260,6 @@ export function normalizeCapture(value: unknown): LearnerCapture {
     topicID: strictIdentifier(raw.topicID, "capture topicID"),
     title: nonEmptyExactString(raw.title, "capture title"),
     rawText: stringValue(raw.rawText, "capture rawText"),
-    concisePoints,
     origin: normalizeOrigin(raw.origin),
     status: oneOf(raw.status, storedStatuses, "capture status"),
     createdAt: isoString(raw.createdAt, "capture createdAt"),
@@ -300,22 +269,12 @@ export function normalizeCapture(value: unknown): LearnerCapture {
 
 function parseSaveInput(value: unknown): SaveCaptureInput {
   const raw = record(value, "Save capture input");
-  const points = array(raw.concisePoints, "concisePoints").map((point, index) => {
-    const entry = record(point, `concisePoints[${index}]`);
-    return {
-      ...(entry.id === undefined ? {} : { id: strictIdentifier(entry.id, `concisePoints[${index}].id`) }),
-      text: nonEmptyExactString(entry.text, `concisePoints[${index}].text`)
-    };
-  });
-  const suppliedIDs = points.flatMap((point) => point.id === undefined ? [] : [point.id]);
-  if (new Set(suppliedIDs).size !== suppliedIDs.length) throw new Error("Capture point IDs must be unique.");
   return {
     ...(raw.id === undefined ? {} : { id: strictIdentifier(raw.id, "capture id") }),
     expectedRevision: nonNegativeInteger(raw.expectedRevision, "expectedRevision"),
     topicID: strictIdentifier(raw.topicID, "topicID"),
     title: nonEmptyExactString(raw.title, "title"),
     rawText: stringValue(raw.rawText, "rawText"),
-    concisePoints: points,
     status: oneOf(raw.status, editableStatuses, "status") as SaveCaptureInput["status"]
   };
 }
@@ -328,7 +287,6 @@ function toSummary(capture: LearnerCapture): CaptureSummary {
     title: capture.title,
     origin: capture.origin,
     status: capture.status,
-    concisePointCount: capture.concisePoints.length,
     createdAt: capture.createdAt,
     updatedAt: capture.updatedAt
   };
@@ -340,11 +298,6 @@ function normalizeOrigin(value: unknown): CaptureOrigin {
 
 function assertExpectedRevision(expected: number, actual: number): void {
   if (expected !== actual) throw new CaptureRevisionConflictError(expected, actual);
-}
-
-function assertUniquePointIDs(points: CaptureConcisePoint[]): void {
-  const ids = points.map((point) => point.id);
-  if (new Set(ids).size !== ids.length) throw new Error("Capture point IDs must be unique.");
 }
 
 function assertContained(parentPath: string, childPath: string): void {
@@ -368,8 +321,4 @@ function isoString(value: unknown, label: string): string {
 function isoTimestamp(value: Date, label: string): string {
   if (Number.isNaN(value.getTime())) throw new Error(`${label} is invalid.`);
   return value.toISOString();
-}
-
-function newPointID(): string {
-  return `point-${randomUUID()}`;
 }

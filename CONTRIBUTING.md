@@ -7,8 +7,6 @@ Use the [Run on macOS](README.md#run-on-macos) commands for app-only development
 ```bash
 npm run verify
 npm run test:e2e
-npm run test:e2e
-node tests-electron/local-ai-e2e.mjs
 npm run test:package
 git diff --check
 ```
@@ -22,7 +20,7 @@ The supported build, package, and release surface is currently macOS. Do not cla
 ## Working Agreements
 
 - Keep the app local-first: do not add remote network calls, telemetry, or cloud persistence without explicit design review. The optional Ollama integration is loopback-only and must remain usable as a best-effort enhancement.
-- Keep draft-note persistence separate from local analysis. Autosave must not call a model; Finish Lecture is the explicit analysis boundary.
+- Keep draft-note persistence separate from local organization. Autosave must not call a model; Finish Lecture is the explicit organization boundary.
 - Keep Electron context isolation and renderer sandboxing enabled. Filesystem access belongs in the main process behind the narrow preload API.
 - Preserve stable topic, concept, question, source, relationship, and misconception IDs. Increment revisions through the MCP tools when modifying authored knowledge.
 - Keep the topic and progress JSON formats compatible with the MCP server and existing Revember data.

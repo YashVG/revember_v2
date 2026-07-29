@@ -8,7 +8,7 @@ The original visual target and Electron captures were local working artifacts. T
 
 - The app retains its dark macOS desktop shell, topic navigation, Today focus drawer, and lecture-note editor.
 - The lecture editor autosaves exact draft text after a typing pause.
-- **Finish lecture** is now the explicit boundary for optional local analysis.
+- **Finish lecture** is now the explicit boundary for optional local note organization.
 - The interface uses the system font stack, Lucide icons, visible keyboard focus, and responsive layout rules.
 
 ## Superseded Findings
@@ -28,8 +28,6 @@ Use automated checks for behavior:
 ```bash
 npm run verify
 npm run test:e2e
-npm run test:e2e
-node tests-electron/local-ai-e2e.mjs
 npm run test:package
 git diff --check
 ```
@@ -38,7 +36,7 @@ Before publishing a portfolio or release build, capture new screenshots from the
 
 - the exact commit and viewport;
 - Today with draft and finished-note states;
-- the local-study-response unavailable and ready states;
+- note section organization and question authoring;
 - Check-In across more than one question;
 - Graph zoom and navigation;
 - narrow-window behavior.

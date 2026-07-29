@@ -343,7 +343,6 @@ function validateSemanticChunks(value: unknown, sourceBlocks: readonly NoteSourc
   const knownIDs = new Set(sourceBlocks.map(({ id }) => id));
   const expectedOrder = sourceBlocks.map(({ id }) => id);
   const seenIDs: string[] = [];
-  const chunkIDs = new Set<string>();
   const chunks = value.map((candidate, index): CaptureReadingChunk => {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
       throw new OllamaResponseError(`The local model returned an invalid section ${index + 1}.`);
@@ -364,8 +363,6 @@ function validateSemanticChunks(value: unknown, sourceBlocks: readonly NoteSourc
       return id;
     });
     const id = `section-${String(index + 1).padStart(4, "0")}`;
-    if (chunkIDs.has(id)) throw new OllamaResponseError(`Section ID ${id} is duplicated.`);
-    chunkIDs.add(id);
     return { id, title, sourceBlockIDs };
   });
   if (

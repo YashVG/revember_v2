@@ -63,13 +63,11 @@ describe("topic AI-note generation", () => {
     const { knowledgeRoot, progressPath, settingsPath } = await fixture();
     const calls: TopicNoteModelInput[] = [];
     const model: LocalNoteModel = {
-      enrich: async () => ({ summary: "Unused", takeaways: [{ text: "Unused", evidence: "Unused" }], openQuestions: [] }),
       generateTopicNote: async (input) => {
         calls.push(input);
         return {
           title: "Bits — AI study note",
-          rawText: "A bit begins as a physical distinction. Software can interpret it as zero or one.",
-          concisePoints: ["A bit is a physical distinction.", "Software can interpret a bit as zero or one."]
+          rawText: "A bit begins as a physical distinction. Software can interpret it as zero or one."
         };
       }
     };
@@ -88,8 +86,6 @@ describe("topic AI-note generation", () => {
         origin: "ollama",
         status: "ready"
       }]);
-      expect(state.getCaptureEnrichment(first.id, first.revision)).toBeUndefined();
-      await expect(fs.access(path.join(knowledgeRoot, "capture-enrichments"))).rejects.toThrow();
       await expect(state.generateTopicNote("missing")).rejects.toThrow(/selected topic/i);
     } finally {
       state.dispose();
@@ -100,7 +96,6 @@ describe("topic AI-note generation", () => {
     const { knowledgeRoot, progressPath, settingsPath } = await fixture();
     const calls: DistractorModelInput[] = [];
     const model: LocalNoteModel = {
-      enrich: async () => ({ summary: "Unused", takeaways: [{ text: "Unused", evidence: "Unused" }], openQuestions: [] }),
       generateDistractors: async (input) => {
         calls.push(input);
         return ["A packet", "A protocol", "A byte"];

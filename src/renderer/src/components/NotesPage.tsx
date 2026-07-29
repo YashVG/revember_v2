@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Archive, ArrowLeft, BookOpen, ChevronLeft, ChevronRight, FileText, List, LoaderCircle, Pencil, Plus, RefreshCw, Save, Sparkles, X } from "lucide-react";
+import { Archive, ArrowLeft, BookOpen, ChevronLeft, ChevronRight, FileText, List, LoaderCircle, Pencil, Plus, RefreshCw, Save, Sparkles } from "lucide-react";
 import { segmentNoteDeterministically, type NoteReadingChunk, type NoteSourceBlock } from "../../../../shared/note-segmentation";
-import type { AppSnapshot, CaptureConcisePointInput, CaptureEnrichment, CaptureReadingChunk, CaptureSegmentation, CaptureStatus, CaptureSummary, LearnerCapture } from "../../../../shared/types";
+import type { AppSnapshot, CaptureReadingChunk, CaptureSegmentation, CaptureStatus, CaptureSummary, LearnerCapture } from "../../../../shared/types";
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import { Eyebrow, Tag } from "./ui";
 import { InlineError } from "./review-ui";
@@ -11,13 +11,11 @@ import type { BeforeLeaveGuard } from "../navigationGuard";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { resolveRevisionConflict, toErrorMessage } from "../utils";
 
-type EditorPoint = CaptureConcisePointInput;
 type SaveState = "draft" | "saving" | "saved" | "conflict" | "error";
 type NoteForm = {
   topicID: string;
   title: string;
   rawText: string;
-  points: EditorPoint[];
   status: Exclude<CaptureStatus, "archived">;
 };
 
@@ -32,7 +30,6 @@ function summaryOf(capture: LearnerCapture): CaptureSummary {
     title: capture.title,
     origin: capture.origin,
     status: capture.status,
-    concisePointCount: capture.concisePoints.length,
     createdAt: capture.createdAt,
     updatedAt: capture.updatedAt
   };
@@ -42,11 +39,11 @@ type NotesPageProps = {
   snapshot: AppSnapshot;
   initialTopicID?: string;
   initialCaptureID?: string;
-  onCreateCardFromPoint: (topicID: string, sentence: string) => void;
+  onCreateQuestionFromNote: (topicID: string, sentence: string) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 };
 
-export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreateCardFromPoint, onRegisterBeforeLeave }: NotesPageProps) {
+export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreateQuestionFromNote, onRegisterBeforeLeave }: NotesPageProps) {
   const [summaries, setSummaries] = useState<CaptureSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string>();
@@ -176,7 +173,6 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
             replaceSummary(capture);
             setSelectedTopicID(capture.topicID);
           }}
-          onCreateCardFromPoint={onCreateCardFromPoint}
           onRegisterBeforeLeave={onRegisterBeforeLeave}
         />
       </div>
@@ -187,9 +183,8 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
     <div className="notes-page">
       <header className="notes-heading">
         <div>
-          <Eyebrow>Local learning notes</Eyebrow>
           <h1>Notes</h1>
-          <p>{selectedTopic ? "Choose a note to read it. Edit only when you need to change the source or its concise points." : "Choose a topic first, then browse the notes that belong to it."}</p>
+          <p>{selectedTopic ? "Read a note. Edit its source when needed." : "Choose a topic to browse its notes."}</p>
         </div>
         <button className="primary" type="button" disabled={snapshot.topics.length === 0} onClick={() => setEditor("new")}>
           <Plus /> New note
@@ -233,10 +228,9 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
       ) : (
         <div className="notes-workspace">
           <aside className="surface notes-index" aria-label="Notes list">
-            <button type="button" className="notes-back-to-topics" onClick={showTopics}><ArrowLeft /> All topics</button>
+            <button type="button" className="notes-back-to-topics" onClick={showTopics}><ArrowLeft /> Topics</button>
             <div className="notes-index-heading">
               <div>
-                <Eyebrow>Pages</Eyebrow>
                 <strong>{selectedTopic.title}</strong>
               </div>
               <span>{topicNotes.length}</span>
@@ -256,7 +250,7 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
             ) : (
               <div className="notes-index-empty">
                 <FileText />
-                <span>No notes in this topic yet</span>
+                <span>No notes yet</span>
                 <button type="button" className="text-button" onClick={() => setEditor("new")}><Plus /> Create note</button>
               </div>
             )}
@@ -280,7 +274,7 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
                 onArchive={() => setArchiveTarget(summaryOf(selectedCapture))}
                 onFinish={() => void finishCapture(selectedCapture)}
                 finishing={finishingID === selectedCapture.id}
-                onCreateCardFromPoint={onCreateCardFromPoint}
+                onCreateQuestionFromNote={onCreateQuestionFromNote}
               />
             ) : (
               <NoteReaderEmpty topicTitle={selectedTopic.title} hasNotes={topicNotes.length > 0} onCreate={() => setEditor("new")} />
@@ -315,30 +309,30 @@ function NoteListItem({ note, selected, loading, onSelect }: {
       <span className="note-list-icon">{loading ? <LoaderCircle className="spin" /> : <FileText />}</span>
       <span className="note-list-copy">
         <strong>{note.title}</strong>
-        <small>{note.origin === "ollama" ? "AI-generated · " : ""}{note.status === "ready" ? "Ready" : "Draft"} · {note.concisePointCount} points</small>
+        <small>{note.origin === "ollama" ? "AI-generated · " : ""}{note.status === "ready" ? "Ready" : "Draft"}</small>
       </span>
     </button>
   );
 }
 
-function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing, onCreateCardFromPoint }: {
+function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing, onCreateQuestionFromNote }: {
   capture: LearnerCapture;
   snapshot: AppSnapshot;
   onEdit: () => void;
   onArchive: () => void;
   onFinish: () => void;
   finishing: boolean;
-  onCreateCardFromPoint: (topicID: string, sentence: string) => void;
+  onCreateQuestionFromNote: (topicID: string, sentence: string) => void;
 }) {
   return (
     <article className="note-reader-content">
       <header className="note-reader-header">
         <div>
-          <Eyebrow>{capture.origin === "ollama" ? "AI generated · " : ""}{capture.status === "ready" ? "Ready" : "Draft"} · Revision {capture.revision}</Eyebrow>
+          <Eyebrow>{capture.origin === "ollama" ? "AI · " : ""}{capture.status === "ready" ? "Ready" : "Draft"} · v{capture.revision}</Eyebrow>
           <h2>{capture.title}</h2>
           <p className="note-reader-meta">
             <Tag>{topicTitle(snapshot, capture.topicID)}</Tag>
-            <span>Updated {new Date(capture.updatedAt).toLocaleDateString()}</span>
+            <span>{new Date(capture.updatedAt).toLocaleDateString()}</span>
           </p>
         </div>
         <div className="note-reader-actions">
@@ -353,28 +347,7 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing,
         </div>
       </header>
       <div className="note-reader-body">
-        <NoteSourceReader capture={capture} />
-        <section className="note-points" aria-labelledby="note-points-heading">
-          <div className="note-section-heading">
-            <Eyebrow id="note-points-heading">Takeaways</Eyebrow>
-            <span>{capture.concisePoints.length} takeaways</span>
-          </div>
-          {capture.concisePoints.length > 0 ? (
-            <ol>
-              {capture.concisePoints.map((point) => (
-                <li key={point.id}>
-                  <span>{point.text}</span>
-                  <button type="button" className="point-card-button" onClick={() => onCreateCardFromPoint(capture.topicID, point.text)}>
-                    <Plus /> Create question
-                  </button>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="note-reader-empty-points">No takeaways yet.</p>
-          )}
-          <NoteEnrichmentPanel capture={capture} />
-        </section>
+        <NoteSourceReader capture={capture} onCreateQuestionFromNote={onCreateQuestionFromNote} />
       </div>
     </article>
   );
@@ -387,7 +360,10 @@ export type MaterializedReadingSection = {
   text: string;
 };
 
-function NoteSourceReader({ capture }: { capture: LearnerCapture }) {
+function NoteSourceReader({ capture, onCreateQuestionFromNote }: {
+  capture: LearnerCapture;
+  onCreateQuestionFromNote: (topicID: string, sentence: string) => void;
+}) {
   const deterministic = useMemo(
     () => segmentNoteDeterministically(capture.rawText),
     [capture.rawText]
@@ -532,7 +508,7 @@ function NoteSourceReader({ capture }: { capture: LearnerCapture }) {
   };
 
   const status = segmentationStatusCopy(capture.status, segmentation, segmentationError);
-  const displayedTitle = readAll ? "Complete source" : activeSection?.title ?? "Source";
+  const displayedTitle = readAll ? "All source" : activeSection?.title ?? "Source";
   const displayedText = readAll
     ? capture.rawText
     : activeSection?.text ?? capture.rawText;
@@ -546,7 +522,6 @@ function NoteSourceReader({ capture }: { capture: LearnerCapture }) {
       <div className="note-source-reader-topline">
         <div className="note-section-heading">
           <Eyebrow id="note-source-heading">Source</Eyebrow>
-          <span>Exact original text</span>
         </div>
         <div className="note-source-segmentation-status" aria-live="polite" role="status">
           {(segmentation?.status === "queued" || segmentation?.status === "running") && <LoaderCircle className="spin" />}
@@ -579,16 +554,20 @@ function NoteSourceReader({ capture }: { capture: LearnerCapture }) {
                 ))}
               </nav>
             </details>
-            <span className="note-source-progress" aria-live="polite">
-              {readAll ? `All ${sections.length} sections` : `Section ${activeIndex + 1} of ${sections.length}`}
-            </span>
             <button
               className="note-source-read-all"
               type="button"
               data-active={readAll ? "true" : undefined}
               onClick={toggleReadAll}
             >
-              {readAll ? "Show one section" : "Read all"}
+              {readAll ? "One section" : "Read all"}
+            </button>
+            <button
+              className="note-source-create-question"
+              type="button"
+              onClick={() => onCreateQuestionFromNote(capture.topicID, activeSection?.text ?? capture.rawText)}
+            >
+              <Plus /> Make question
             </button>
           </div>
 
@@ -601,7 +580,7 @@ function NoteSourceReader({ capture }: { capture: LearnerCapture }) {
             <button type="button" disabled={readAll || activeIndex === 0} onClick={() => navigateTo(activeIndex - 1)}>
               <ChevronLeft /> Previous
             </button>
-            <span>{readAll ? "Complete source" : `${activeIndex + 1} / ${sections.length}`}</span>
+            <span>{readAll ? "All" : `${activeIndex + 1} / ${sections.length}`}</span>
             <button type="button" disabled={readAll || activeIndex === sections.length - 1} onClick={() => navigateTo(activeIndex + 1)}>
               Next <ChevronRight />
             </button>
@@ -666,119 +645,18 @@ function segmentationStatusCopy(
   segmentation: CaptureSegmentation | undefined,
   error: string | undefined
 ): string {
-  if (captureStatus !== "ready") return "Instant sections";
-  if (error) return "Using instant sections";
-  if (segmentation?.status === "queued" || segmentation?.status === "running") return "Organizing locally…";
+  if (captureStatus !== "ready") return "Instant";
+  if (error) return "Instant";
+  if (segmentation?.status === "queued" || segmentation?.status === "running") return "Organizing…";
   if (segmentation?.status === "ready") {
     return segmentation.chunks?.some((chunk) => chunk.title)
-      ? "Organized locally"
-      : "Instant sections";
+      ? "Organized"
+      : "Instant";
   }
   if (segmentation?.status === "failed" || segmentation?.status === "unavailable") {
-    return "Using instant sections";
+    return "Instant";
   }
-  return "Preparing local organization…";
-}
-
-function NoteEnrichmentPanel({ capture }: { capture: LearnerCapture }) {
-  const [enrichment, setEnrichment] = useState<CaptureEnrichment>();
-  const [error, setError] = useState<string>();
-  const [retrying, setRetrying] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  useEffect(() => {
-    if (capture.origin === "ollama") return;
-    let alive = true;
-    let timer: number | undefined;
-    setEnrichment(undefined);
-    setError(undefined);
-    const refresh = async () => {
-      try {
-        const next = await window.revember.getCaptureEnrichment(capture.id, capture.revision);
-        if (!alive) return;
-        setEnrichment(next);
-        if (next?.status === "queued" || next?.status === "running") timer = window.setTimeout(() => void refresh(), 1_200);
-      } catch (cause) {
-        if (alive) setError(toErrorMessage(cause));
-      }
-    };
-    void refresh();
-    return () => {
-      alive = false;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [capture.id, capture.origin, capture.revision, refreshKey]);
-
-  const retry = async () => {
-    try {
-      setRetrying(true);
-      setError(undefined);
-      setEnrichment(await window.revember.retryCaptureEnrichment(capture.id, capture.revision));
-      setRefreshKey((current) => current + 1);
-    } catch (cause) {
-      setError(toErrorMessage(cause));
-    } finally {
-      setRetrying(false);
-    }
-  };
-
-  if (capture.origin === "ollama") {
-    return (
-      <section className="note-enrichment ai-generated-note" aria-labelledby="note-enrichment-heading">
-        <div className="note-section-heading">
-          <Eyebrow id="note-enrichment-heading">Note origin</Eyebrow>
-          <span>llama3</span>
-        </div>
-        <p><Sparkles /> Generated locally by Ollama from this topic’s saved concepts and review questions. It is marked AI-generated so you can review or edit it with that context.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="note-enrichment" aria-live="polite" aria-labelledby="note-enrichment-heading">
-      <div className="note-section-heading">
-        <Eyebrow id="note-enrichment-heading">Local study response</Eyebrow>
-        <span>llama3</span>
-      </div>
-      {error ? <InlineError message={error} /> : enrichment?.status === "ready" && enrichment.result ? (
-        <div className="note-enrichment-result">
-          <p>{enrichment.result.summary}</p>
-          {enrichment.result.takeaways.length > 0 && (
-            <ul>
-              {enrichment.result.takeaways.map((takeaway, index) => (
-                <li key={`${takeaway.evidence}-${index}`}>
-                  <strong>{takeaway.text}</strong>
-                  <q>{takeaway.evidence}</q>
-                </li>
-              ))}
-            </ul>
-          )}
-          {enrichment.result.openQuestions.length > 0 && (
-            <div className="note-enrichment-questions">
-              <span>Questions to revisit</span>
-              <ul>{enrichment.result.openQuestions.map((question) => <li key={question}>{question}</li>)}</ul>
-            </div>
-          )}
-        </div>
-      ) : enrichment?.status === "queued" || enrichment?.status === "running" ? (
-        <p className="note-enrichment-status"><LoaderCircle className="spin" /> Preparing a grounded response locally…</p>
-      ) : enrichment?.status === "failed" || enrichment?.status === "unavailable" ? (
-        <div className="note-enrichment-error">
-          <p>{enrichment.errorMessage}</p>
-          <button type="button" className="text-button" disabled={retrying} onClick={() => void retry()}>
-            <RefreshCw className={retrying ? "spin" : undefined} /> {retrying ? "Retrying…" : "Retry local response"}
-          </button>
-        </div>
-      ) : (
-        <p className="note-enrichment-status">
-          <Sparkles />
-          {capture.status === "draft"
-            ? "Finish this lecture when the note is ready for local analysis."
-            : "Preparing this finished note for local analysis…"}
-        </p>
-      )}
-    </section>
-  );
+  return "Organizing…";
 }
 
 function NoteReaderEmpty({ topicTitle, hasNotes, onCreate }: { topicTitle: string; hasNotes: boolean; onCreate: () => void }) {
@@ -786,19 +664,18 @@ function NoteReaderEmpty({ topicTitle, hasNotes, onCreate }: { topicTitle: strin
     <div className="note-reader-empty">
       <FileText />
       <h2>{hasNotes ? "Select a note" : `No notes in ${topicTitle}`}</h2>
-      <p>{hasNotes ? "Choose a page from the left to read the original source and its takeaways." : "Capture the original material first, then distill it into concise points."}</p>
+      <p>{hasNotes ? "Choose a page from the left to read the original source." : "Capture the original material first."}</p>
       {!hasNotes && <button type="button" className="primary" onClick={onCreate}><Plus /> New note</button>}
     </div>
   );
 }
 
-function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onCreateCardFromPoint, onRegisterBeforeLeave }: {
+function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onRegisterBeforeLeave }: {
   snapshot: AppSnapshot;
   capture?: LearnerCapture;
   initialTopicID?: string;
   onClose: () => void;
   onSaved: (capture: LearnerCapture) => void;
-  onCreateCardFromPoint: (topicID: string, sentence: string) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 }) {
   const [savedCapture, setSavedCapture] = useState(capture);
@@ -836,21 +713,15 @@ function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onCre
     setForm((current) => ({ ...current, ...changes, status: "draft" }));
   };
 
-  const updatePoint = (index: number, text: string) => {
-    updateForm({
-      points: form.points.map((point, itemIndex) => itemIndex === index ? { ...point, text } : point)
-    });
-  };
-
   const save = useCallback(async () => {
     if (saveInFlight.current) return;
     if (savedCapture && !dirty) {
       setSaveState("saved");
       return;
     }
-    if (!form.topicID || !form.title.trim() || form.points.some((point) => !point.text.trim())) {
+    if (!form.topicID || !form.title.trim()) {
       setSaveState("error");
-      setError("Add a topic and title. Each point needs text.");
+      setError("Add a topic and title.");
       return;
     }
     try {
@@ -862,7 +733,6 @@ function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onCre
         topicID: form.topicID,
         title: form.title,
         rawText: form.rawText,
-        concisePoints: form.points.map((point) => point.id === undefined ? { text: point.text } : { id: point.id, text: point.text }),
         status: form.status
       });
       const next = formFromCapture(saved, snapshot);
@@ -894,7 +764,6 @@ function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onCre
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const persistedPointIDs = useMemo(() => new Set(savedCapture?.concisePoints.map((point) => point.id) ?? []), [savedCapture]);
   const isSaving = saveState === "saving";
 
   return (
@@ -971,38 +840,6 @@ function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onCre
             />
           </section>
 
-          {savedCapture && (
-            <fieldset className="note-points-editor" disabled={isSaving}>
-              <legend>
-                <Eyebrow>Takeaways</Eyebrow>
-              </legend>
-              {form.points.map((point, index) => (
-                <div className="point-row note-point-item" key={point.id ?? `new-${index}`}>
-                  <textarea
-                    aria-label={`Concise point ${index + 1}`}
-                    value={point.text}
-                    onChange={(event) => updatePoint(index, event.target.value)}
-                    placeholder="One concise point"
-                  />
-                  <button
-                    type="button"
-                    aria-label={`Remove concise point ${index + 1}`}
-                    onClick={() => updateForm({ points: form.points.filter((_, itemIndex) => itemIndex !== index) })}
-                  >
-                    <X />
-                  </button>
-                  {!dirty && point.id && persistedPointIDs.has(point.id) && (
-                    <button type="button" className="point-card-button" onClick={() => onCreateCardFromPoint(form.topicID, point.text)}>
-                      <Plus /> Create question
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button type="button" className="text-button note-add-point" onClick={() => updateForm({ points: [...form.points, { text: "" }] })}>
-                <Plus /> Add point
-              </button>
-            </fieldset>
-          )}
           {error && <InlineError message={error} />}
         </div>
       </form>
@@ -1048,7 +885,6 @@ function formFromCapture(capture: LearnerCapture | undefined, snapshot: AppSnaps
     topicID: capture?.topicID ?? initialTopicID ?? snapshot.topics[0]?.id ?? "",
     title: capture?.title ?? "",
     rawText: capture?.rawText ?? "",
-    points: capture?.concisePoints.map((point) => ({ id: point.id, text: point.text })) ?? [],
     status: (capture?.status === "ready" ? "ready" : "draft") as Exclude<CaptureStatus, "archived">
   };
 }
@@ -1057,9 +893,7 @@ function sameNoteForm(left: NoteForm, right: NoteForm): boolean {
   return left.topicID === right.topicID
     && left.title === right.title
     && left.rawText === right.rawText
-    && left.status === right.status
-    && left.points.length === right.points.length
-    && left.points.every((point, index) => point.id === right.points[index]?.id && point.text === right.points[index]?.text);
+    && left.status === right.status;
 }
 
 function topicTitle(snapshot: AppSnapshot, topicID: string): string {

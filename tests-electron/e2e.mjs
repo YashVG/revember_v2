@@ -144,12 +144,9 @@ try {
   await window.getByRole("dialog", { name: "New note", exact: true }).waitFor();
   const noteEditor = window.getByRole("dialog");
   const noteRawText = "  Leading and trailing spaces stay here  \n\nBluetooth Low Energy — café notes use hyphenated-text and repeated phrases.\nRepeated phrases remain repeated phrases.\n\tA tab begins this final line.  ";
-  const concisePoint = "Bluetooth Low Energy uses short-range radio communication.";
   await noteEditor.getByRole("combobox", { name: /^Topic/ }).selectOption({ label: "Bluetooth Low Energy" });
   await noteEditor.getByLabel("Title", { exact: true }).fill("BLE exact-text note");
   await noteEditor.getByRole("textbox", { name: /^Raw text/ }).fill(noteRawText);
-  await noteEditor.getByRole("button", { name: "Add point", exact: true }).click();
-  await noteEditor.getByLabel("Concise point 1", { exact: true }).fill(concisePoint);
   await window.keyboard.press(process.platform === "darwin" ? "Meta+S" : "Control+S");
   try {
     await noteEditor.getByRole("status").filter({ hasText: /^Saved$/ }).waitFor({ timeout: 5_000 });
@@ -170,9 +167,6 @@ try {
   assert.equal(savedCapture.title, "BLE exact-text note");
   assert.equal(savedCapture.topicID, "ble");
   assert.equal(savedCapture.rawText, noteRawText, "raw note text must be persisted exactly");
-  assert.equal(savedCapture.concisePoints.length, 1);
-  assert.equal(savedCapture.concisePoints[0].text, concisePoint);
-  assert.match(savedCapture.concisePoints[0].id, /^point-[0-9a-f-]+$/i, "the main process must assign the concise-point ID");
   assert.equal((await stat(capturePath)).mode & 0o777, 0o600, "private capture files must be owner-readable only");
 
   const captureSummaries = await window.evaluate(() => window.revember.listCaptureSummaries());
@@ -180,17 +174,16 @@ try {
   const authoredSummary = captureSummaries.find((capture) => capture.title === "BLE exact-text note");
   assert.ok(authoredSummary);
   assert.equal(Object.hasOwn(authoredSummary, "rawText"), false, "capture summaries must not expose raw note text");
-  assert.equal(JSON.stringify(authoredSummary).includes(concisePoint), false, "capture summaries must not expose concise-point text");
   const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
 
-  await noteEditor.getByRole("button", { name: "Create question", exact: true }).click();
+  await noteEditor.getByRole("button", { name: "Make question", exact: true }).click();
   await window.getByRole("dialog", { name: "Create question", exact: true }).waitFor();
-  const pointCardEditor = window.locator(".card-editor-dialog");
-  assert.equal(await pointCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), concisePoint);
-  await pointCardEditor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await pointCardEditor.waitFor({ state: "detached" });
-  assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "opening and cancelling a point-derived card must not mutate the capture");
+  const seededCardEditor = window.locator(".card-editor-dialog");
+  assert.match(await seededCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), /Leading and trailing spaces stay here/);
+  await seededCardEditor.getByRole("button", { name: "Cancel", exact: true }).click();
+  await seededCardEditor.waitFor({ state: "detached" });
+  assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "opening and cancelling a note-seeded card must not mutate the capture");
 
   await app.close();
   app = await launch();
@@ -208,7 +201,6 @@ try {
   await reopenedNoteEditor.waitFor();
   assert.equal(await reopenedNoteEditor.getByLabel("Title", { exact: true }).inputValue(), "BLE exact-text note");
   assert.equal(await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).inputValue(), noteRawText, "raw text must survive app relaunch unchanged");
-  assert.equal(await reopenedNoteEditor.getByLabel("Concise point 1", { exact: true }).inputValue(), concisePoint);
 
   const externallyEditedCapture = {
     ...savedCapture,

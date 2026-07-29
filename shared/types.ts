@@ -283,11 +283,6 @@ export interface CaptureCheckpointResult {
 export type CaptureStatus = "draft" | "ready" | "archived";
 export type CaptureOrigin = "user" | "ollama";
 
-export interface CaptureConcisePoint {
-  id: string;
-  text: string;
-}
-
 export interface LearnerCapture {
   schemaVersion: 1;
   id: string;
@@ -295,7 +290,6 @@ export interface LearnerCapture {
   topicID: string;
   title: string;
   rawText: string;
-  concisePoints: CaptureConcisePoint[];
   /** Persists whether this note began as learner text or an explicit local-AI draft. */
   origin: CaptureOrigin;
   status: CaptureStatus;
@@ -311,15 +305,8 @@ export interface CaptureSummary {
   title: string;
   origin: CaptureOrigin;
   status: CaptureStatus;
-  concisePointCount: number;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface CaptureConcisePointInput {
-  /** Existing point ID on edit. Omit for a new server-assigned point ID. */
-  id?: string;
-  text: string;
 }
 
 export interface SaveCaptureInput {
@@ -330,33 +317,7 @@ export interface SaveCaptureInput {
   topicID: string;
   title: string;
   rawText: string;
-  concisePoints: CaptureConcisePointInput[];
   status: Exclude<CaptureStatus, "archived">;
-}
-
-export type CaptureEnrichmentStatus = "queued" | "running" | "ready" | "failed" | "unavailable";
-
-export interface CaptureEnrichmentTakeaway {
-  text: string;
-  evidence: string;
-}
-
-export interface CaptureEnrichmentResult {
-  summary: string;
-  takeaways: CaptureEnrichmentTakeaway[];
-  openQuestions: string[];
-}
-
-/** A model response stored separately from the user-authored capture. */
-export interface CaptureEnrichment {
-  schemaVersion: 1;
-  captureID: string;
-  captureRevision: number;
-  status: CaptureEnrichmentStatus;
-  result?: CaptureEnrichmentResult;
-  errorMessage?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type CaptureSegmentationStatus = "queued" | "running" | "ready" | "failed" | "unavailable";
@@ -405,8 +366,6 @@ export interface RevemberAPI {
   generateTopicNote(topicID: string): Promise<LearnerCapture>;
   finishCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   archiveCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
-  getCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment | undefined>;
-  retryCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment>;
   getCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation | undefined>;
   retryCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation>;
   setNotificationsEnabled(enabled: boolean): Promise<AppSnapshot>;

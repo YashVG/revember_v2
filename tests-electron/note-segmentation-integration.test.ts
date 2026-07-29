@@ -82,7 +82,6 @@ function saveReadyCapture(root: string, rawText: string): LearnerCapture {
     topicID: "bits",
     title: "Long-form lecture",
     rawText,
-    concisePoints: [],
     status: "ready"
   }, new Date("2026-07-28T10:00:00.000Z"));
 }
@@ -91,11 +90,6 @@ function testModel(
   segmentNote: NonNullable<LocalNoteModel["segmentNote"]>
 ): LocalNoteModel {
   return {
-    enrich: async () => ({
-      summary: "Unused in segmentation integration tests.",
-      takeaways: [],
-      openQuestions: []
-    }),
     segmentNote
   };
 }
@@ -329,7 +323,6 @@ describe("long-note segmentation integration", () => {
         topicID: first.topicID,
         title: first.title,
         rawText: latestRawText,
-        concisePoints: [],
         status: "ready"
       }, new Date("2026-07-28T10:01:00.000Z"));
       const immediateLatest = coordinator.enqueue(latest, root);
@@ -381,7 +374,6 @@ describe("long-note segmentation integration", () => {
         topicID: "bits",
         title: "Draft lecture",
         rawText: longNote("Draft"),
-        concisePoints: [],
         status: "draft"
       });
       expect(state.getCaptureSegmentation(draft.id, draft.revision)).toBeUndefined();
@@ -393,7 +385,6 @@ describe("long-note segmentation integration", () => {
         topicID: draft.topicID,
         title: draft.title,
         rawText: draft.rawText,
-        concisePoints: [],
         status: "ready"
       });
       const immediate = state.getCaptureSegmentation(ready.id, ready.revision);
@@ -428,8 +419,7 @@ describe("long-note segmentation integration", () => {
       const generated = new CaptureStore(root).createOllamaGenerated({
         topicID: "bits",
         title: "Generated long note",
-        rawText: longNote("Generated"),
-        concisePoints: ["Generated notes remain eligible for reading organization."]
+        rawText: longNote("Generated")
       }, new Date("2026-07-28T10:00:00.000Z"));
 
       const immediate = state.getCaptureSegmentation(generated.id, generated.revision);

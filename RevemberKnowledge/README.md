@@ -39,11 +39,10 @@ Codex should update Markdown notes first when preserving general knowledge, then
 This direct-read rule applies to authored topics. Learner lecture notes use a separate capture workflow:
 
 ```text
-captures/*.json             -> exact local note and user-authored takeaways
-capture-enrichments/*.json  -> optional revision-keyed local study response
+captures/*.json             -> exact local note or locally generated topic note
 ```
 
-Typing autosaves a `draft` capture and does not run analysis. **Finish lecture** marks that revision `ready` and can send a bounded projection to the local Ollama `llama3` model. Revember stores the result separately, reconstructs its claims from exact source segments, and never changes `topics/*.json`, `notes/*.md`, or the original capture text. Ollama is optional; the rest of the app works when it is unavailable.
+Typing autosaves a `draft` capture and does not run analysis. **Finish lecture** marks that revision `ready` and can organize its source into readable sections with the local Ollama `llama3` model. Ollama is optional; deterministic sections and the rest of the app work when it is unavailable. Question authoring can also request editable local distractor suggestions, but the learner must review and save the final question.
 
 The registered local MCP server is the preferred mutation path because it provides atomic writes, backups, validation, and optimistic topic revisions. Read the topic first, pass its current `revision` as `expectedRevision`, and refresh after a conflict. The main focused tools are `upsert_concept`, `upsert_card`, `retire_card`, `update_markdown_explanation`, and `capture_learning_session`; `get_learner_brief` closes the loop by reading local progress back into the next lesson.
 

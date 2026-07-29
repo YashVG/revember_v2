@@ -65,7 +65,6 @@ export function HomePage({ snapshot, onOpenNotes, onStartReview, onRegisterBefor
           topicID: currentTopicID,
           title: `Lecture note · ${today.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
           rawText,
-          concisePoints: current?.concisePoints.map((point) => ({ id: point.id, text: point.text })) ?? [],
           status: "draft"
         });
         savedCaptureRef.current = saved;

@@ -64,7 +64,6 @@ function readyCapture(root: string, rawText: string): LearnerCapture {
     topicID: "security",
     title: "Authoritative note",
     rawText,
-    concisePoints: [],
     status: "ready"
   }, new Date("2026-07-28T10:00:00.000Z"));
 }
@@ -73,11 +72,6 @@ function localModel(
   segmentNote: NonNullable<LocalNoteModel["segmentNote"]>
 ): LocalNoteModel {
   return {
-    enrich: async () => ({
-      summary: "Unused in segmentation security tests.",
-      takeaways: [],
-      openQuestions: []
-    }),
     segmentNote
   };
 }

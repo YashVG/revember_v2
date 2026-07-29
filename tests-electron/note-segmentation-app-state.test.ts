@@ -90,14 +90,6 @@ function modelWith(
   segmentNote: NonNullable<LocalNoteModel["segmentNote"]>
 ): LocalNoteModel {
   return {
-    enrich: async (input) => {
-      const evidence = input.rawText.split("\n").find((line) => line.trim()) ?? input.rawText;
-      return {
-        summary: evidence,
-        takeaways: [{ text: evidence, evidence }],
-        openQuestions: []
-      };
-    },
     segmentNote
   };
 }
@@ -150,7 +142,6 @@ function saveDraft(state: RevemberState, rawText: string, title = "Lecture"): Le
     topicID: "bits",
     title,
     rawText,
-    concisePoints: [],
     status: "draft"
   });
 }
@@ -245,7 +236,6 @@ describe("RevemberState note-segmentation lifecycle", () => {
         topicID: draft.topicID,
         title: draft.title,
         rawText: `${draft.rawText}\nA newer revision.\n`,
-        concisePoints: [],
         status: "ready"
       });
       expect(() => state.retryCaptureSegmentation(draft.id, draft.revision))
@@ -272,8 +262,7 @@ describe("RevemberState note-segmentation lifecycle", () => {
       const generated = new CaptureStore(paths.root).createOllamaGenerated({
         topicID: "bits",
         title: "Generated lecture",
-        rawText,
-        concisePoints: ["Generated notes remain eligible for sectioning."]
+        rawText
       });
       const immediate = state.getCaptureSegmentation(generated.id, generated.revision);
       const persisted = await waitFor(

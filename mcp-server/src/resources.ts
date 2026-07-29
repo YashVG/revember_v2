@@ -8,7 +8,6 @@ import {
   listMarkdownSlugs,
   listProjectDocs,
   listTopicSummaries,
-  projectDocPath,
   readMarkdown,
   readProjectDoc,
   readSchemaDocumentation,
@@ -203,7 +202,6 @@ export function registerResources(server: McpServer, config: RevemberConfig): vo
     },
     async (uri, variables) => {
       const name = variableToString(variables.name, "name");
-      projectDocPath(config, name);
       return textResource(uri, await readProjectDoc(config, name), "text/markdown");
     }
   );

@@ -187,8 +187,6 @@ function registerIPC(): void {
   handleTrusted("revember:generate-topic-note", (_event, topicID: string) => state.generateTopicNote(topicID));
   handleTrusted("revember:finish-capture", (_event, id: string, expectedRevision: number) => state.finishCapture(id, expectedRevision));
   handleTrusted("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
-  handleTrusted("revember:get-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.getCaptureEnrichment(captureID, captureRevision));
-  handleTrusted("revember:retry-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.retryCaptureEnrichment(captureID, captureRevision));
   handleTrusted("revember:get-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.getCaptureSegmentation(captureID, captureRevision));
   handleTrusted("revember:retry-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.retryCaptureSegmentation(captureID, captureRevision));
   handleTrusted("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));

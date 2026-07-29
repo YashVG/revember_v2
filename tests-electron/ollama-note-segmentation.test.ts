@@ -88,7 +88,7 @@ describe("Ollama semantic note segmentation", () => {
     });
 
     const result = await model.segmentNote({
-      title: "A note much longer than the enrichment source cap",
+      title: "A note much longer than the segmentation source cap",
       sourceBlocks
     }, new AbortController().signal);
 

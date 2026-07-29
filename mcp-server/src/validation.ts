@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { RevemberConfig } from "./config.js";
+import { errorMessage } from "./errors.js";
 import { readProgressSnapshot } from "./learner.js";
 import { listSessionFiles, readLearningSession } from "./sessions.js";
 import {
@@ -18,10 +19,6 @@ export interface KnowledgeBaseValidation {
   errors: string[];
   warnings: string[];
   progress: { exists: boolean; readable: boolean; error?: string | undefined };
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export async function validateKnowledgeBase(config: RevemberConfig): Promise<KnowledgeBaseValidation> {
@@ -60,7 +57,7 @@ export async function validateKnowledgeBase(config: RevemberConfig): Promise<Kno
         }
       }
     } catch (error) {
-      sessionErrors.push(message(error));
+      sessionErrors.push(errorMessage(error));
     }
     sessionResults.push({ id, valid: sessionErrors.length === 0, errors: sessionErrors, warnings: sessionWarnings });
     errors.push(...sessionErrors.map((error) => `sessions/${id}.json: ${error}`));

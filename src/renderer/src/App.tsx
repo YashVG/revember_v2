@@ -243,17 +243,23 @@ export function App() {
               snapshot={snapshot}
               initialTopicID={notesTopicID}
               initialCaptureID={notesCaptureID}
-              onRegisterBeforeLeave={registerNotesBeforeLeave}
-              onCreateCardFromPoint={(topicID, sentence) => void leaveCurrent(() => {
+              onCreateQuestionFromNote={(topicID, sentence) => void leaveCurrent(() => {
                 setSelectedTopicID(topicID);
                 setTopicView("questions");
                 setCardSeed({ topicID, sentence, token: crypto.randomUUID() });
                 setGlobalView("topic");
               })}
+              onRegisterBeforeLeave={registerNotesBeforeLeave}
             /> : globalView === "questions" ? <QuestionsPage
               snapshot={snapshot}
               onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
               onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
+              onCreateQuestion={(topic) => void leaveCurrent(() => {
+                setSelectedTopicID(topic.id);
+                setTopicView("questions");
+                setCardSeed({ topicID: topic.id, token: crypto.randomUUID() });
+                setGlobalView("topic");
+              })}
             /> : selectedTopic ? (
               <TopicDetail
                 topic={selectedTopic}

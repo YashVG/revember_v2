@@ -1,7 +1,9 @@
-import { CalendarClock, CircleHelp, Clock3, Play, Sparkles } from "lucide-react";
+import { CalendarClock, CircleHelp, Clock3, Plus, Play, Sparkles } from "lucide-react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AppSnapshot, DueReviewItem, KnowledgeTopic, Question, ReviewCardState } from "../../../../shared/types";
 import { activeQuestions } from "../../../../shared/domain";
+import { Modal } from "./modal";
 import { Eyebrow, Tag } from "./ui";
 
 type QuestionEntry = {
@@ -34,11 +36,13 @@ export function buildQuestionReviewQueues(snapshot: Pick<AppSnapshot, "topics" |
   return queues;
 }
 
-export function QuestionsPage({ snapshot, onReview, onStartReview }: {
+export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuestion }: {
   snapshot: AppSnapshot;
   onReview: (topic: KnowledgeTopic, question: Question) => void;
   onStartReview: (items: DueReviewItem[]) => void;
+  onCreateQuestion: (topic: KnowledgeTopic) => void;
 }) {
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
   const now = Date.now();
   const queues = buildQuestionReviewQueues(snapshot, new Date(now));
   const questions = snapshot.topics.flatMap((topic) => activeQuestions(topic).map((question): QuestionEntry => ({
@@ -56,7 +60,17 @@ export function QuestionsPage({ snapshot, onReview, onStartReview }: {
           <h1>Questions</h1>
         <p>Choose a queue above to start, or review any question directly below.</p>
         </div>
-        <span className="questions-total">{questions.length} {questions.length === 1 ? "question" : "questions"}</span>
+        <div className="questions-heading-actions">
+          <span className="questions-total">{questions.length} {questions.length === 1 ? "question" : "questions"}</span>
+          <button
+            type="button"
+            className="primary questions-create-button"
+            disabled={snapshot.topics.length === 0}
+            onClick={() => setTopicPickerOpen(true)}
+          >
+            <Plus /> Add question
+          </button>
+        </div>
       </header>
       <section className="surface questions-review-queue" aria-labelledby="questions-review-queue-heading">
         <div className="questions-review-queue-copy">
@@ -99,7 +113,43 @@ export function QuestionsPage({ snapshot, onReview, onStartReview }: {
           <p>Create questions from a topic and they will appear here for quick, focused review.</p>
         </section>
       )}
+      {topicPickerOpen && <QuestionTopicPicker
+        topics={snapshot.topics}
+        onClose={() => setTopicPickerOpen(false)}
+        onSelect={(topic) => {
+          setTopicPickerOpen(false);
+          onCreateQuestion(topic);
+        }}
+      />}
     </div>
+  );
+}
+
+function QuestionTopicPicker({ topics, onClose, onSelect }: {
+  topics: KnowledgeTopic[];
+  onClose: () => void;
+  onSelect: (topic: KnowledgeTopic) => void;
+}) {
+  return (
+    <Modal title="Add question" icon={<Plus />} onClose={onClose}>
+      <div className="question-topic-picker">
+        <p>Choose the topic for this question.</p>
+        <div className="question-topic-options">
+          {topics.map((topic) => {
+            const count = activeQuestions(topic).length;
+            return (
+              <button key={topic.id} type="button" onClick={() => onSelect(topic)}>
+                <span>
+                  <strong>{topic.title}</strong>
+                  <small>{count} {count === 1 ? "question" : "questions"}</small>
+                </span>
+                <Plus aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

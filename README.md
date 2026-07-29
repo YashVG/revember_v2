@@ -3,26 +3,59 @@
 </p>
 
 <p align="center">
-  <strong>A local-first macOS learning app that turns technical notes into evidence-backed review.</strong>
+  <strong>A private, local-first learning workspace for turning technical notes into deliberate recall practice.</strong>
+</p>
+
+<p align="center">
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#local-ai-optional">Local AI</a> ·
+  <a href="#run-on-macos">Run locally</a> ·
+  <a href="#project-map">Project map</a>
 </p>
 
 # Revember
 
-Revember keeps technical learning durable without an account or cloud backend. It stores source notes, authored concepts, review history, and schedules as readable local files. An optional local Ollama model can extract a grounded study response after the learner finishes a lecture.
+Revember is a macOS desktop app for learners who want to keep the full loop local: write or import notes, make the facts worth retaining into questions, and return to them on a spaced-review schedule. There is no account or cloud backend; source notes, topic material, and review history stay in readable local files.
 
-The desktop app uses Electron, React, and TypeScript. The optional Model Context Protocol (MCP) server lets compatible local clients author knowledge and read learner evidence through the same versioned files.
+It is built with Electron, React, and TypeScript. An optional local [Ollama](https://ollama.com/) connection can organize long notes and suggest distractors while keeping the learner in control of every saved change.
 
-**Status:** active pre-release development. The repository builds and packages a macOS app, but it does not yet publish a signed or notarized release.
+> **Status:** active pre-release development. Revember can be built and packaged locally for macOS; signed and notarized public releases are not available yet.
 
-## Product Workflow
+## How it works
 
-1. **Capture:** Today autosaves the exact lecture text as a local draft. Autosave does not call a model.
-2. **Finish:** **Finish lecture** marks the current revision ready and starts one optional local `llama3` analysis.
-3. **Review:** The Questions queue and topic review action persist revision-bound answers and schedule the next retrieval.
-4. **Inspect:** A quiet topic overview keeps the authored concepts, review action, and question authoring in one place.
-5. **Close the loop:** The stdio MCP server can read weak concepts and update versioned learning material.
+```text
+Notes → readable source sections → authored questions → spaced review → next recall session
+```
 
-Local AI output is stored separately from the original note. Revember reconstructs takeaways from exact source segments and never lets model output overwrite the learner's text.
+1. **Keep the source.** Create a note under a topic; Revember preserves the exact original text.
+2. **Read without the scroll tax.** Long notes are split into focused sections, with an immediate deterministic fallback when local AI is unavailable.
+3. **Make a question deliberately.** Start from any visible note section or from the Questions page. Write the sentence, answer, alternatives, and explanation; nothing is auto-saved for you.
+4. **Review what matters.** Choose a queue or open a question directly. Revember records the answer and calculates the next review time.
+
+## What is included
+
+- Topic-based concepts, questions, and concise source notes.
+- Notes reader with section navigation for long material.
+- Fill-in-the-blank recall cards with answer explanations and revision-aware scheduling.
+- Question authoring from a topic or a selected note section.
+- A focused queue for due, new, and scheduled questions.
+- Local backups, checkpoints, deep links, tray state, and opt-in reminders.
+- An optional stdio MCP server for revision-checked local knowledge authoring.
+
+## Local AI (optional)
+
+Ollama is an assistive layer, never the source of truth:
+
+- It can organize a long note into labelled reading sections.
+- It can create a topic note and propose three plausible distractors for a question.
+- Generated text stays editable and requires the normal save action.
+- Your original note is never overwritten. Core note-taking, authoring, and review still work when Ollama is offline.
+
+To enable the configured local model:
+
+```bash
+ollama pull llama3
+```
 
 ## Run on macOS
 
@@ -36,104 +69,65 @@ npm ci
 npm run dev
 ```
 
-This app-only quick start installs the root lockfile. The repository includes two seed technical topics under `RevemberKnowledge/`. Run `npm run bootstrap` when you need both the app and optional MCP workspaces.
-
-### Optional local study response
-
-Install [Ollama](https://ollama.com/), start its local service, and install the configured model:
-
-```bash
-ollama pull llama3
-```
-
-Revember continues to save and review notes when Ollama is absent. It shows a retryable unavailable state instead of downloading or starting a model automatically.
-
-## Current Features
-
-- Draft lecture-note autosave with explicit Finish Lecture analysis.
-- Grounded local `llama3` responses stored by note revision.
-- Revision-aware spaced repetition with an append-only review-event ledger.
-- Correctness-first automatic difficulty from active response time, with no manual grading step.
-- Diagnostic cards with source provenance, answer rationales, and misconception IDs.
-- A focused topic overview with concise concept explanations and question management.
-- Live topic reload that preserves the last valid snapshot during partial edits.
-- Local checkpoints, backups, tray state, deep links, and opt-in reminders.
-- Optional stdio MCP tools for atomic, revision-checked knowledge authoring.
-
-## Local Data
-
-`RevemberKnowledge/` is a safe seed store. Copy it before adding private material, then select the copy in Settings:
+The quick start uses the seeded topics in `RevemberKnowledge/`. To use private material, copy that directory first and select the copy in Settings:
 
 ```bash
 cp -R RevemberKnowledge "$HOME/Documents/RevemberKnowledge"
 ```
 
-| Local artifact | Purpose |
+For the optional MCP workspace as well:
+
+```bash
+npm run bootstrap
+```
+
+## Local data
+
+| Location | Contains |
 | --- | --- |
-| `topics/*.json` | Versioned concepts, relationships, gaps, and review cards |
-| `notes/*.md` | Authored source explanations |
-| `captures/*.json` | Exact learner notes and user-authored takeaways |
-| `capture-enrichments/*.json` | Optional revision-keyed local model output |
-| `sessions/*.json` | Learning checkpoints |
+| `RevemberKnowledge/topics/` | Versioned concepts, relationships, gaps, and review cards |
+| `RevemberKnowledge/notes/` | Authored source explanations |
+| `RevemberKnowledge/captures/` | Exact learner notes and locally generated topic notes |
+| `RevemberKnowledge/capture-segmentations/` | Revision-keyed note reading sections |
+| `RevemberKnowledge/sessions/` | Learning checkpoints |
 | `~/Library/Application Support/RevemberV2/progress.json` | Review events and derived schedules |
 
-Development and MCP clients can override both roots:
+Development and MCP clients can override the knowledge and progress roots:
 
 ```bash
 export REVEMBER_KNOWLEDGE_ROOT="/absolute/path/to/RevemberKnowledge"
 export REVEMBER_PROGRESS_PATH="$HOME/Library/Application Support/RevemberV2/progress.json"
 ```
 
-## Build and Verify
+## Build and verify
 
-| Command | Verifies |
+| Command | Purpose |
 | --- | --- |
-| `npm run verify:app` | TypeScript, unit tests, and production build using installed root dependencies |
-| `npm run verify` | Clean-install both lockfiles, then run app and MCP build/tests/stdio smoke |
-| `npm run test:e2e` | Real Electron topic, review, persistence, and checkpoint workflow |
-| `npm run build && node tests-electron/local-ai-e2e.mjs` | Finish Lecture through a deterministic fake Ollama endpoint, exact-source rendering, and persistence |
-| `npm run test:package` | Unpacked macOS app plus packaged-app smoke checks |
+| `npm run dev` | Run the desktop app in development |
+| `npm run verify:app` | TypeScript, unit tests, and production build |
+| `npm run verify` | Clean-install and verify the app and optional MCP workspace |
+| `npm run test:e2e` | Electron topic, review, persistence, and checkpoint flow |
+| `npm run test:package` | Unpacked macOS app and packaged-app smoke checks |
 | `git diff --check` | Whitespace and conflict-marker hygiene |
 
-Run the full local release gate with:
+Create an unpacked macOS app under `release/` with `npm run package`. `npm run dist` creates DMG and ZIP artifacts; public distribution still needs Apple signing and notarization credentials.
 
-```bash
-npm run verify
-npm run test:e2e
-npm run test:e2e
-node tests-electron/local-ai-e2e.mjs
-npm run test:package
-git diff --check
-```
-
-The two consecutive primary workflow runs are intentional: they catch startup, persistence, and interaction races that a single pass can miss.
-The full `npm run verify` gate begins with deterministic `npm ci` installs for the root app and `mcp-server/`. Use `npm run verify:app` for fast app-only reruns after setup.
-
-Create an unpacked macOS app under `release/` with `npm run package`. Install that local build with:
-
-```bash
-./script/build_and_run.sh --install
-```
-
-`npm run dist` creates DMG and ZIP artifacts. Public distribution still requires Apple signing and notarization credentials.
-
-## Repository Map
+## Project map
 
 | Path | Purpose |
 | --- | --- |
-| `electron/` | Main process, persistence, local AI coordination, filesystem watching, and native integrations |
-| `src/renderer/` | React Today, notes, topic overview, review, authoring, and settings interfaces |
-| `shared/` | Data contracts, validation, scheduling, and queues |
-| `tests-electron/` | Unit, integration, Electron end-to-end, and package smoke tests |
-| `RevemberKnowledge/` | Seed Markdown and schema-v2 learning content |
+| `electron/` | Main process, local persistence, note organization, and native integrations |
+| `src/renderer/` | React interfaces for notes, topics, questions, review, and settings |
+| `shared/` | Data contracts, validation, scheduling, and queue logic |
+| `tests-electron/` | Unit, integration, Electron, and package-smoke coverage |
+| `RevemberKnowledge/` | Seed learning material and authoring guidance |
 | `mcp-server/` | Optional local stdio MCP server |
-| `docs/architecture/` | Data contracts, local AI decisions, and research records |
+| `docs/architecture/` | Architecture decisions and local-intelligence research |
 
 ## Documentation
 
 - [Closed-loop architecture](docs/architecture/closed-loop-learning-system.md)
-- [Local note enrichment](docs/architecture/local-note-enrichment.md)
-- [Local intelligence research record](docs/architecture/local-intelligence-research.md)
+- [Local intelligence research](docs/architecture/local-intelligence-research.md)
 - [Knowledge authoring workflow](RevemberKnowledge/LEARNING_WORKFLOW.md)
 - [MCP server guide](mcp-server/README.md)
 - [Contributing](CONTRIBUTING.md)

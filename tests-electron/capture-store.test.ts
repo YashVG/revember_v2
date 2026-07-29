@@ -62,10 +62,6 @@ function newCapture(rawText: string) {
     topicID: "bits",
     title: "  Raw notes — keep Unicode  ",
     rawText,
-    concisePoints: [
-      { text: "First — repeated phrase" },
-      { text: "First — repeated phrase" }
-    ],
     status: "draft" as const
   };
 }
@@ -79,8 +75,6 @@ describe("learner capture persistence", () => {
 
     expect(created).toMatchObject({ schemaVersion: 1, revision: 1, topicID: "bits", rawText, status: "draft" });
     expect(created.id).toMatch(/^capture-[A-Za-z0-9-]+$/);
-    expect(created.concisePoints[0].id).toMatch(/^point-[A-Za-z0-9-]+$/);
-    expect(created.concisePoints[0].id).not.toBe(created.concisePoints[1].id);
     expect(new CaptureStore(knowledgeRoot).get(created.id).rawText).toBe(rawText);
 
     const summaries = store.listSummaries();
@@ -91,38 +85,31 @@ describe("learner capture persistence", () => {
       title: "  Raw notes — keep Unicode  ",
       origin: "user",
       status: "draft",
-      concisePointCount: 2,
       createdAt: "2026-07-21T10:00:00.000Z",
       updatedAt: "2026-07-21T10:00:00.000Z"
     }]);
     expect(JSON.stringify(summaries)).not.toContain("rawText");
-    expect(JSON.stringify(summaries)).not.toContain("First — repeated phrase");
 
     const fileMode = (await fs.stat(path.join(knowledgeRoot, "captures", `${created.id}.json`))).mode & 0o777;
     expect(fileMode).toBe(0o600);
   });
 
-  it("creates, edits, archives, and reloads with stable server-managed point IDs", async () => {
+  it("creates, edits, archives, and reloads captures", async () => {
     const { knowledgeRoot } = await fixture();
     const firstStore = new CaptureStore(knowledgeRoot);
     const created = firstStore.save(newCapture("initial"), new Date("2026-07-21T10:00:00.000Z"));
-    const retainedPointID = created.concisePoints[0].id;
     const edited = new CaptureStore(knowledgeRoot).save({
       id: created.id,
       expectedRevision: 1,
       topicID: "bits",
       title: "Edited",
       rawText: " \n\t",
-      concisePoints: [{ id: retainedPointID, text: "Retained" }, { text: "New" }],
       status: "ready"
     }, new Date("2026-07-21T11:00:00.000Z"));
 
     expect(edited.revision).toBe(2);
     expect(edited.createdAt).toBe(created.createdAt);
     expect(edited.rawText).toBe(" \n\t");
-    expect(edited.concisePoints[0].id).toBe(retainedPointID);
-    expect(edited.concisePoints[1].id).toMatch(/^point-/);
-    expect(edited.concisePoints[1].id).not.toBe(retainedPointID);
 
     const archived = new CaptureStore(knowledgeRoot).archive(created.id, 2, new Date("2026-07-21T12:00:00.000Z"));
     expect(archived).toMatchObject({ revision: 3, status: "archived", updatedAt: "2026-07-21T12:00:00.000Z" });
@@ -136,20 +123,14 @@ describe("learner capture persistence", () => {
     const generated = new CaptureStore(knowledgeRoot).createOllamaGenerated({
       topicID: "bits",
       title: "Bits — AI study note",
-      rawText: "A bit represents one distinguishable state. Eight bits form a byte.",
-      concisePoints: ["A bit is a distinguishable state.", "Eight bits form a byte."]
+      rawText: "A bit represents one distinguishable state. Eight bits form a byte."
     }, new Date("2026-07-27T12:00:00.000Z"));
 
     expect(generated).toMatchObject({
       topicID: "bits",
       origin: "ollama",
-      status: "ready",
-      concisePoints: [
-        { text: "A bit is a distinguishable state." },
-        { text: "Eight bits form a byte." }
-      ]
+      status: "ready"
     });
-    expect(generated.concisePoints.every((point) => point.id.startsWith("point-"))).toBe(true);
     expect(new CaptureStore(knowledgeRoot).listSummaries()).toMatchObject([{
       id: generated.id,
       origin: "ollama",
@@ -157,7 +138,7 @@ describe("learner capture persistence", () => {
     }]);
   });
 
-  it("treats older captures without an origin as learner-authored", async () => {
+  it("treats legacy captures without an origin as learner-authored and drops retired point data on save", async () => {
     const { knowledgeRoot } = await fixture();
     const store = new CaptureStore(knowledgeRoot);
     await fs.mkdir(store.directoryPath, { recursive: true });
@@ -174,10 +155,23 @@ describe("learner capture persistence", () => {
       updatedAt: "2026-07-20T10:00:00.000Z"
     }, null, 2) + "\n");
 
-    expect(store.get("capture-legacy").origin).toBe("user");
+    const legacy = store.get("capture-legacy");
+    expect(legacy.origin).toBe("user");
+    expect(Object.hasOwn(legacy, "concisePoints")).toBe(false);
+
+    store.save({
+      id: legacy.id,
+      expectedRevision: legacy.revision,
+      topicID: legacy.topicID,
+      title: legacy.title,
+      rawText: legacy.rawText,
+      status: "draft"
+    }, new Date("2026-07-20T11:00:00.000Z"));
+    const persisted = JSON.parse(await fs.readFile(path.join(store.directoryPath, "capture-legacy.json"), "utf8"));
+    expect(Object.hasOwn(persisted, "concisePoints")).toBe(false);
   });
 
-  it("rejects stale writes and client-minted or duplicate point IDs without changing disk bytes", async () => {
+  it("rejects stale writes without changing disk bytes", async () => {
     const { knowledgeRoot } = await fixture();
     const store = new CaptureStore(knowledgeRoot);
     const created = store.save(newCapture("original"), new Date("2026-07-21T10:00:00.000Z"));
@@ -190,32 +184,8 @@ describe("learner capture persistence", () => {
       topicID: "bits",
       title: "Stale",
       rawText: "changed",
-      concisePoints: [],
       status: "draft"
     })).toThrow(expect.objectContaining({ code: "CAPTURE_REVISION_CONFLICT", expectedRevision: 0, actualRevision: 1 }));
-    expect(await fs.readFile(filePath)).toEqual(before);
-
-    expect(() => store.save({
-      id: created.id,
-      expectedRevision: 1,
-      topicID: "bits",
-      title: "Minted",
-      rawText: "changed",
-      concisePoints: [{ id: "client-made", text: "No" }],
-      status: "draft"
-    })).toThrow(/does not exist/i);
-    expect(() => store.save({
-      id: created.id,
-      expectedRevision: 1,
-      topicID: "bits",
-      title: "Duplicate",
-      rawText: "changed",
-      concisePoints: [
-        { id: created.concisePoints[0].id, text: "One" },
-        { id: created.concisePoints[0].id, text: "Two" }
-      ],
-      status: "draft"
-    })).toThrow(/point IDs must be unique/i);
     expect(await fs.readFile(filePath)).toEqual(before);
   });
 
