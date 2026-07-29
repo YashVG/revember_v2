@@ -2,11 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { Question } from "../shared/types";
 import {
   buildExistingCardEdit,
+  fillGeneratedDistractors,
   storedPromptForCard,
   type CardForm
 } from "../src/renderer/src/components/CardWorkspace";
 
 describe("existing card edits", () => {
+  it("fills only empty distractor slots with locally generated suggestions", () => {
+    expect(fillGeneratedDistractors([
+      { id: "choice-distractor-1", text: "A packet" },
+      { id: "choice-distractor-2", text: "" }
+    ], ["A protocol", "A byte", "A physical state"], "A physical state")).toEqual([
+      { id: "choice-distractor-1", text: "A packet" },
+      { id: "choice-distractor-2", text: "A protocol" },
+      { id: "choice-distractor-3", text: "A byte" }
+    ]);
+  });
+
   it("changes visible fields without downgrading rich question metadata", () => {
     const richQuestion = {
       id: "diagnose-state",

@@ -38,7 +38,7 @@ try {
   await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-  assert.equal(await window.getByText("Retrieval Cockpit").isVisible(), true);
+  assert.equal(await window.getByText("Topic overview").isVisible(), true);
   console.log(`Packaged Electron smoke passed: ${executablePath}`);
 } finally {
   try {

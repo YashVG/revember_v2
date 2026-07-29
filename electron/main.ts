@@ -19,6 +19,7 @@ import type {
   CaptureCheckpointInput,
   CommitReviewInput,
   CreateCardInput,
+  CreateTopicInput,
   EditCardInput,
   RetireCardInput,
   SaveCaptureInput,
@@ -156,6 +157,7 @@ function createWindow(): void {
 function registerIPC(): void {
   handleTrusted("revember:get-snapshot", () => state.snapshot);
   handleTrusted("revember:reload", () => state.reload());
+  handleTrusted("revember:create-topic", (_event, input: CreateTopicInput) => state.createTopic(input));
   handleTrusted("revember:choose-knowledge-root", async () => {
     const options: Electron.OpenDialogOptions = {
       title: "Choose Revember Knowledge Folder",
@@ -176,15 +178,19 @@ function registerIPC(): void {
   handleTrusted("revember:create-card", (_event, input: CreateCardInput) => state.createCard(input));
   handleTrusted("revember:edit-card", (_event, input: EditCardInput) => state.editCard(input));
   handleTrusted("revember:retire-card", (_event, input: RetireCardInput) => state.retireCard(input));
+  handleTrusted("revember:generate-distractors", (_event, input: unknown) => state.generateDistractors(input));
   handleTrusted("revember:upsert-exam-plan", (_event, input: UpsertExamPlanInput) => state.upsertExamPlan(input));
   handleTrusted("revember:archive-exam-plan", (_event, input: ArchiveExamPlanInput) => state.archiveExamPlan(input));
   handleTrusted("revember:list-capture-summaries", () => state.listCaptureSummaries());
   handleTrusted("revember:get-capture", (_event, id: string) => state.getCapture(id));
   handleTrusted("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
+  handleTrusted("revember:generate-topic-note", (_event, topicID: string) => state.generateTopicNote(topicID));
   handleTrusted("revember:finish-capture", (_event, id: string, expectedRevision: number) => state.finishCapture(id, expectedRevision));
   handleTrusted("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
   handleTrusted("revember:get-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.getCaptureEnrichment(captureID, captureRevision));
   handleTrusted("revember:retry-capture-enrichment", (_event, captureID: string, captureRevision: number) => state.retryCaptureEnrichment(captureID, captureRevision));
+  handleTrusted("revember:get-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.getCaptureSegmentation(captureID, captureRevision));
+  handleTrusted("revember:retry-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.retryCaptureSegmentation(captureID, captureRevision));
   handleTrusted("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
 }
 

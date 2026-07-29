@@ -28,6 +28,14 @@ let app = await launch();
 try {
   let window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  await window.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), true);
+  await window.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), false);
+  await window.getByRole("button", { name: "Questions", exact: true }).click();
+  await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
+  await window.getByRole("button", { name: /Review due now/ }).waitFor();
+  await window.getByRole("button", { name: "Home", exact: true }).click();
   const lectureNote = window.getByRole("textbox", { name: "Lecture note", exact: true });
   await lectureNote.waitFor();
   await lectureNote.fill("A quick note from the homepage must stay local.");
@@ -41,134 +49,22 @@ try {
   await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-  assert.equal(await window.getByText("Local JSON").isVisible(), true);
-
-  await window.getByRole("button", { name: "Graph", exact: true }).click();
-  await window.getByRole("group", { name: "Knowledge relationships", exact: true }).waitFor();
-  assert.match(await window.getByText(/nodes/).first().textContent(), /22 nodes/);
-
-  const graph = window.getByRole("group", { name: "Knowledge relationships", exact: true });
-  const graphNodes = graph.locator(".graph-node");
-  assert.equal(await graphNodes.count(), 22);
-  assert.match(await graphNodes.first().getAttribute("aria-label"), /Concept:/);
-
-  const graphGroup = graph.locator(":scope > g").last();
-  const graphHandle = await graph.elementHandle();
-  const graphGroupHandle = await graphGroup.elementHandle();
-  assert.ok(graphHandle);
-  assert.ok(graphGroupHandle);
-  const waitForGraphTransformChange = (previousTransform) => window.waitForFunction(
-    ([element, previous]) => element.getAttribute("transform") !== previous,
-    [graphGroupHandle, previousTransform]
-  );
-  const waitForGraphTransform = (expectedTransform) => window.waitForFunction(
-    ([element, expected]) => element.getAttribute("transform") === expected,
-    [graphGroupHandle, expectedTransform]
-  );
-  const initialTransform = await graphGroup.getAttribute("transform");
-  await window.getByRole("button", { name: "Zoom in" }).click();
-  await waitForGraphTransformChange(initialTransform);
-  assert.notEqual(await graphGroup.getAttribute("transform"), initialTransform);
-  await window.getByRole("button", { name: "Reset graph view" }).click();
-  await waitForGraphTransform("translate(0 0) scale(1)");
-  assert.equal(await graphGroup.getAttribute("transform"), "translate(0 0) scale(1)");
-
-  await window.getByRole("button", { name: "Fit graph to view" }).click();
-  await window.getByRole("button", { name: "Zoom in" }).click();
-  await window.getByRole("button", { name: "Zoom in" }).click();
-  await graph.focus();
-  const beforeArrowPan = await graphGroup.getAttribute("transform");
-  await window.keyboard.press("ArrowRight");
-  await waitForGraphTransformChange(beforeArrowPan);
-  assert.notEqual(await graphGroup.getAttribute("transform"), beforeArrowPan);
-  const beforeKeyboardZoom = await graphGroup.getAttribute("transform");
-  await window.keyboard.press("+");
-  await waitForGraphTransformChange(beforeKeyboardZoom);
-  assert.notEqual(await graphGroup.getAttribute("transform"), beforeKeyboardZoom);
-
-  const graphBox = await graph.boundingBox();
-  assert.ok(graphBox);
-  const scrollBefore = await window.locator(".main-stage").evaluate((element) => element.scrollTop);
-  const beforeWheelZoom = await graphGroup.getAttribute("transform");
-  await graph.dispatchEvent("wheel", {
-    bubbles: true,
-    cancelable: true,
-    clientX: graphBox.x + graphBox.width / 2,
-    clientY: graphBox.y + graphBox.height / 4,
-    deltaY: -180
-  });
-  await waitForGraphTransformChange(beforeWheelZoom);
-  assert.notEqual(await graphGroup.getAttribute("transform"), beforeWheelZoom);
-  assert.equal(await window.locator(".main-stage").evaluate((element) => element.scrollTop), scrollBefore);
-
-  await window.getByRole("button", { name: "Fit graph to view" }).click();
-  await window.getByRole("button", { name: "Zoom in" }).click();
-  await window.getByRole("button", { name: "Zoom in" }).click();
-  const beforeDrag = await graphGroup.getAttribute("transform");
-  const dragStart = await graph.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    for (let y = 20; y <= bounds.height - 40; y += 30) {
-      for (let x = 20; x <= bounds.width - 110; x += 30) {
-        const target = document.elementFromPoint(bounds.left + x, bounds.top + y);
-        if (target && element.contains(target) && !target.closest(".graph-node")) return { x, y };
-      }
-    }
-    throw new Error("No unobstructed graph background point is available for panning");
-  });
-  await graph.dragTo(graph, {
-    sourcePosition: dragStart,
-    targetPosition: { x: dragStart.x + 90, y: dragStart.y + 20 }
-  });
-  await waitForGraphTransformChange(beforeDrag);
-  assert.notEqual(await graphGroup.getAttribute("transform"), beforeDrag);
-
-  const conceptFilter = window.locator(".graph-controls button").nth(0);
-  const conceptFilterHandle = await conceptFilter.elementHandle();
-  assert.ok(conceptFilterHandle);
-  assert.equal(await conceptFilter.getAttribute("aria-pressed"), "true");
-  await conceptFilter.click();
-  await window.waitForFunction(
-    ([filter, canvas]) => filter.getAttribute("aria-pressed") === "false"
-      && canvas.querySelectorAll(".graph-node").length === 13,
-    [conceptFilterHandle, graphHandle]
-  );
-  assert.equal(await conceptFilter.getAttribute("aria-pressed"), "false");
-  assert.equal(await graphNodes.count(), 13);
-  await conceptFilter.click();
-  await window.waitForFunction(
-    ([filter, canvas]) => filter.getAttribute("aria-pressed") === "true"
-      && canvas.querySelectorAll(".graph-node").length === 22,
-    [conceptFilterHandle, graphHandle]
-  );
-  assert.equal(await graphNodes.count(), 22);
-
-  await graphNodes.first().hover();
-  await window.waitForFunction(
-    (canvas) => canvas.querySelector(".graph-node.dimmed") !== null,
-    graphHandle
-  );
-  assert.ok(await graph.locator(".graph-node.dimmed").count() > 0);
-  await graphNodes.nth(1).focus();
-  await window.keyboard.press("Enter");
-  await window.getByRole("heading", { name: "Bytes", exact: true }).waitFor();
-
-  await window.getByRole("button", { name: /Operating Systems and Computer Architecture/ }).click();
-  await window.getByRole("heading", { name: "Operating Systems and Computer Architecture", exact: true }).waitFor();
-  await window.getByText(/20 nodes/).waitFor();
-  assert.equal(await graphNodes.count(), 20);
-  assert.match(await graphNodes.first().getAttribute("aria-label"), /Concept:|Gap:|Check:/);
-
+  await window.getByText("Topic overview", { exact: true }).waitFor();
+  await window.getByText("Concepts", { exact: true }).waitFor();
+  await window.getByRole("button", { name: "View notes", exact: true }).click();
+  await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  await window.getByRole("complementary", { name: "Notes list", exact: true }).getByText("Bluetooth Low Energy", { exact: true }).waitFor();
+  await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-  await window.getByText(/22 nodes/).waitFor();
-  assert.equal(await graphNodes.count(), 22);
-
-  await window.getByRole("button", { name: "Check-In", exact: true }).click();
+  await window.getByRole("button", { name: "Manage questions", exact: true }).click();
+  await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
+  await window.getByRole("button", { name: "Review question", exact: true }).first().click();
   await window.getByText("At the lowest useful level, what is a bit?").waitFor();
   await window.getByRole("button", { name: /A distinguishable physical state/ }).click();
-  await window.getByRole("button", { name: "Good", exact: true }).click();
-  await window.getByRole("button", { name: "Save Review", exact: true }).click();
-  await window.getByRole("button", { name: "Saved", exact: true }).waitFor();
+  await window.getByText("Automatic difficulty", { exact: true }).waitFor();
+  await window.getByRole("button", { name: "Finish Review", exact: true }).click();
+  await window.getByRole("heading", { name: "Review complete", exact: true }).waitFor();
 
   const progress = JSON.parse(await readFile(progressPath, "utf8"));
   assert.equal(progress.schemaVersion, 2);
@@ -181,21 +77,21 @@ try {
 
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-  await window.getByRole("button", { name: "Cards", exact: true }).click();
-  await window.getByRole("heading", { name: "Cards", exact: true }).waitFor();
-  await window.getByRole("button", { name: "New Card", exact: true }).click();
-  const cardEditor = window.getByRole("dialog", { name: "Create card", exact: true });
+  await window.getByRole("button", { name: "Manage questions", exact: true }).click();
+  await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
+  await window.getByRole("button", { name: "New question", exact: true }).click();
+  const cardEditor = window.getByRole("dialog", { name: "Create question", exact: true });
   await cardEditor.waitFor();
   await cardEditor.getByLabel("Sentence containing the answer", { exact: true }).fill("An Electron E2E card uses a persistent local record.");
   await cardEditor.getByRole("textbox", { name: /^Answer/ }).fill("persistent local record");
   await cardEditor.getByLabel("Alternative 1", { exact: true }).fill("temporary remote cache");
   await cardEditor.getByLabel("Explanation", { exact: true }).fill("The card and its review evidence are stored locally for this isolated test.");
-  await cardEditor.getByRole("button", { name: "Save card", exact: true }).click();
-  await cardEditor.getByRole("heading", { name: "Card saved", exact: true }).waitFor();
-  await cardEditor.getByRole("button", { name: "Review this card", exact: true }).click();
+  await cardEditor.getByRole("button", { name: "Save question", exact: true }).click();
+  await cardEditor.getByRole("heading", { name: "Question saved", exact: true }).waitFor();
+  await cardEditor.getByRole("button", { name: "Review question", exact: true }).click();
   await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
   await window.getByRole("button", { name: /persistent local record/ }).click();
-  await window.getByRole("button", { name: "Good", exact: true }).click();
+  await window.getByText("Automatic difficulty", { exact: true }).waitFor();
   await window.getByRole("button", { name: "Finish Review", exact: true }).click();
   await window.getByRole("heading", { name: "Review complete", exact: true }).waitFor();
   assert.equal(await window.getByText("Earliest next review", { exact: true }).isVisible(), true);
@@ -204,10 +100,13 @@ try {
   const authoredEvent = afterAuthoredReview.reviewEvents.find((event) => event.questionID !== "ble-q001");
   assert.ok(authoredEvent, "the authored card must create review evidence");
   assert.equal(authoredEvent.isCorrect, true);
-  assert.equal(authoredEvent.rating, "good");
+  assert.ok(["hard", "good", "easy"].includes(authoredEvent.rating));
+  assert.equal(authoredEvent.ratingSource, "responseTime");
+  assert.ok(Number.isInteger(authoredEvent.responseTimeMs));
+  assert.ok(authoredEvent.responseTimeMs >= 0 && authoredEvent.responseTimeMs <= 60_000);
   const authoredSchedule = afterAuthoredReview.topics.ble.reviewCardsByQuestionID[authoredEvent.questionID];
   assert.ok(authoredSchedule);
-  assert.equal(authoredSchedule.lastRating, "good");
+  assert.equal(authoredSchedule.lastRating, authoredEvent.rating);
   assert.ok(new Date(authoredSchedule.dueAt).getTime() > new Date(authoredEvent.reviewedAt).getTime());
 
   await app.close();
@@ -220,7 +119,7 @@ try {
   const reloaded = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(reloaded.progress.reviewEvents.length, 2);
   assert.equal(reloaded.progress.topics.ble.reviewCardsByQuestionID[authoredEvent.questionID].dueAt, authoredSchedule.dueAt);
-  await window.getByRole("button", { name: "Cards", exact: true }).click();
+  await window.getByRole("button", { name: "Manage questions", exact: true }).click();
   await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
 
   await window.getByTitle("Settings").click();
@@ -240,6 +139,7 @@ try {
 
   await window.getByRole("button", { name: "Notes", exact: true }).click();
   await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  await window.getByRole("navigation", { name: "Notes topics" }).getByRole("button", { name: "Bluetooth Low Energy", exact: true }).click();
   await window.getByRole("button", { name: "New note", exact: true }).click();
   await window.getByRole("dialog", { name: "New note", exact: true }).waitFor();
   const noteEditor = window.getByRole("dialog");
@@ -284,8 +184,8 @@ try {
   const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
 
-  await noteEditor.getByRole("button", { name: "Create card", exact: true }).click();
-  await window.getByRole("dialog", { name: "Create card", exact: true }).waitFor();
+  await noteEditor.getByRole("button", { name: "Create question", exact: true }).click();
+  await window.getByRole("dialog", { name: "Create question", exact: true }).waitFor();
   const pointCardEditor = window.locator(".card-editor-dialog");
   assert.equal(await pointCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), concisePoint);
   await pointCardEditor.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -301,6 +201,7 @@ try {
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByRole("button", { name: "Notes", exact: true }).click();
   await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+  await window.getByRole("navigation", { name: "Notes topics" }).getByRole("button", { name: "Bluetooth Low Energy", exact: true }).click();
   await window.getByRole("button", { name: /BLE exact-text note/ }).click();
   await window.getByRole("button", { name: "Edit", exact: true }).click();
   const reopenedNoteEditor = window.getByRole("dialog", { name: "Edit note", exact: true });

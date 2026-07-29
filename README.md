@@ -18,8 +18,8 @@ The desktop app uses Electron, React, and TypeScript. The optional Model Context
 
 1. **Capture:** Today autosaves the exact lecture text as a local draft. Autosave does not call a model.
 2. **Finish:** **Finish lecture** marks the current revision ready and starts one optional local `llama3` analysis.
-3. **Review:** Check-In and the due queue persist revision-bound answers and schedule the next retrieval.
-4. **Inspect:** Concept Map and Graph separate authored knowledge from learner evidence.
+3. **Review:** The Questions queue and topic review action persist revision-bound answers and schedule the next retrieval.
+4. **Inspect:** A quiet topic overview keeps the authored concepts, review action, and question authoring in one place.
 5. **Close the loop:** The stdio MCP server can read weak concepts and update versioned learning material.
 
 Local AI output is stored separately from the original note. Revember reconstructs takeaways from exact source segments and never lets model output overwrite the learner's text.
@@ -53,8 +53,9 @@ Revember continues to save and review notes when Ollama is absent. It shows a re
 - Draft lecture-note autosave with explicit Finish Lecture analysis.
 - Grounded local `llama3` responses stored by note revision.
 - Revision-aware spaced repetition with an append-only review-event ledger.
+- Correctness-first automatic difficulty from active response time, with no manual grading step.
 - Diagnostic cards with source provenance, answer rationales, and misconception IDs.
-- Authored concept relationships plus learner-evidence graph views.
+- A focused topic overview with concise concept explanations and question management.
 - Live topic reload that preserves the last valid snapshot during partial edits.
 - Local checkpoints, backups, tray state, deep links, and opt-in reminders.
 - Optional stdio MCP tools for atomic, revision-checked knowledge authoring.
@@ -89,7 +90,7 @@ export REVEMBER_PROGRESS_PATH="$HOME/Library/Application Support/RevemberV2/prog
 | --- | --- |
 | `npm run verify:app` | TypeScript, unit tests, and production build using installed root dependencies |
 | `npm run verify` | Clean-install both lockfiles, then run app and MCP build/tests/stdio smoke |
-| `npm run test:e2e` | Real Electron graph, review, persistence, and checkpoint workflow |
+| `npm run test:e2e` | Real Electron topic, review, persistence, and checkpoint workflow |
 | `npm run build && node tests-electron/local-ai-e2e.mjs` | Finish Lecture through a deterministic fake Ollama endpoint, exact-source rendering, and persistence |
 | `npm run test:package` | Unpacked macOS app plus packaged-app smoke checks |
 | `git diff --check` | Whitespace and conflict-marker hygiene |
@@ -121,8 +122,8 @@ Create an unpacked macOS app under `release/` with `npm run package`. Install th
 | Path | Purpose |
 | --- | --- |
 | `electron/` | Main process, persistence, local AI coordination, filesystem watching, and native integrations |
-| `src/renderer/` | React Today, notes, graph, review, authoring, and settings interfaces |
-| `shared/` | Data contracts, validation, scheduling, queues, and graph derivation |
+| `src/renderer/` | React Today, notes, topic overview, review, authoring, and settings interfaces |
+| `shared/` | Data contracts, validation, scheduling, and queues |
 | `tests-electron/` | Unit, integration, Electron end-to-end, and package smoke tests |
 | `RevemberKnowledge/` | Seed Markdown and schema-v2 learning content |
 | `mcp-server/` | Optional local stdio MCP server |

@@ -100,6 +100,8 @@ export interface ReviewEvent {
   correctChoiceText?: string;
   isCorrect: boolean;
   rating: ReviewRating;
+  responseTimeMs?: number;
+  ratingSource?: "responseTime";
   conceptIDs: string[];
   gapTags: string[];
   misconceptionIDs: string[];
@@ -148,6 +150,8 @@ export interface DueReviewItem {
   dueAt?: string;
   isNew: boolean;
   isRevised: boolean;
+  /** A future-scheduled question intentionally opened from the Questions queue. */
+  isScheduled?: boolean;
 }
 
 export interface AppSettings {
@@ -183,6 +187,16 @@ export interface AppSnapshot {
   platform: NodeJS.Platform;
 }
 
+export interface CreateTopicInput {
+  title: string;
+  summary?: string;
+}
+
+export interface CreateTopicResult {
+  snapshot: AppSnapshot;
+  topic: KnowledgeTopic;
+}
+
 export type QuestionDraft = Omit<Question, "revision" | "retiredAt">;
 export type QuestionEdit = Omit<QuestionDraft, "id">;
 
@@ -213,6 +227,14 @@ export interface CardMutationResult {
   question: Question;
 }
 
+/** Local-only, non-persisting request for editable wrong-answer suggestions. */
+export interface GenerateDistractorsInput {
+  topicID: string;
+  sentence: string;
+  answer: string;
+  conceptID?: string;
+}
+
 export interface UpsertExamPlanInput {
   expectedPlannerRevision: number;
   planID?: string;
@@ -235,6 +257,7 @@ export interface CommitReviewInput {
   questionRevision: number;
   choiceID: string;
   rating: ReviewRating;
+  responseTimeMs?: number;
   eventID: string;
   reviewedAt?: string;
 }
@@ -258,6 +281,7 @@ export interface CaptureCheckpointResult {
 }
 
 export type CaptureStatus = "draft" | "ready" | "archived";
+export type CaptureOrigin = "user" | "ollama";
 
 export interface CaptureConcisePoint {
   id: string;
@@ -272,6 +296,8 @@ export interface LearnerCapture {
   title: string;
   rawText: string;
   concisePoints: CaptureConcisePoint[];
+  /** Persists whether this note began as learner text or an explicit local-AI draft. */
+  origin: CaptureOrigin;
   status: CaptureStatus;
   createdAt: string;
   updatedAt: string;
@@ -283,6 +309,7 @@ export interface CaptureSummary {
   revision: number;
   topicID: string;
   title: string;
+  origin: CaptureOrigin;
   status: CaptureStatus;
   concisePointCount: number;
   createdAt: string;
@@ -332,9 +359,35 @@ export interface CaptureEnrichment {
   updatedAt: string;
 }
 
+export type CaptureSegmentationStatus = "queued" | "running" | "ready" | "failed" | "unavailable";
+
+/**
+ * An ordered grouping of exact source blocks. The note text remains on the
+ * capture; segmentation can organize block IDs but cannot replace their text.
+ */
+export interface CaptureReadingChunk {
+  id: string;
+  title?: string;
+  sourceBlockIDs: string[];
+}
+
+/** Revision-keyed, replaceable reading structure stored separately from a capture. */
+export interface CaptureSegmentation {
+  schemaVersion: 1;
+  captureID: string;
+  captureRevision: number;
+  status: CaptureSegmentationStatus;
+  /** Present for a ready semantic result and for API-provided deterministic fallback records. */
+  chunks?: CaptureReadingChunk[];
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RevemberAPI {
   getSnapshot(): Promise<AppSnapshot>;
   reload(): Promise<AppSnapshot>;
+  createTopic(input: CreateTopicInput): Promise<CreateTopicResult>;
   chooseKnowledgeRoot(): Promise<AppSnapshot>;
   resetKnowledgeRoot(): Promise<AppSnapshot>;
   openKnowledgeRoot(): Promise<void>;
@@ -343,15 +396,19 @@ export interface RevemberAPI {
   createCard(input: CreateCardInput): Promise<CardMutationResult>;
   editCard(input: EditCardInput): Promise<CardMutationResult>;
   retireCard(input: RetireCardInput): Promise<CardMutationResult>;
+  generateDistractors(input: GenerateDistractorsInput): Promise<string[]>;
   upsertExamPlan(input: UpsertExamPlanInput): Promise<PlannerMutationResult>;
   archiveExamPlan(input: ArchiveExamPlanInput): Promise<PlannerMutationResult>;
   listCaptureSummaries(): Promise<CaptureSummary[]>;
   getCapture(id: string): Promise<LearnerCapture>;
   saveCapture(input: SaveCaptureInput): Promise<LearnerCapture>;
+  generateTopicNote(topicID: string): Promise<LearnerCapture>;
   finishCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   archiveCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   getCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment | undefined>;
   retryCaptureEnrichment(captureID: string, captureRevision: number): Promise<CaptureEnrichment>;
+  getCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation | undefined>;
+  retryCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation>;
   setNotificationsEnabled(enabled: boolean): Promise<AppSnapshot>;
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void;
   onNavigate(callback: (route: string) => void): () => void;

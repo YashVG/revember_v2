@@ -54,21 +54,21 @@ The authored graph is explicit:
 - Each question has a stable ID and revision, a diagnostic kind, transfer level, answer rationales, optional misconception IDs, and optional `retiredAt`.
 - Retirement is a timestamp, not deletion, so old learner evidence remains interpretable.
 
-Array position is presentation order only. The graph never infers meaning from adjacent concepts. Both the Electron loader and MCP validator reject future schemas, duplicate IDs, invalid answer keys, dangling concept references, and unknown source references before the app replaces its last valid snapshot. Files without version metadata retain legacy v1/revision 0 semantics.
+Array position is presentation order only. Authored relationships never infer meaning from adjacent concepts. Both the Electron loader and MCP validator reject future schemas, duplicate IDs, invalid answer keys, dangling concept references, and unknown source references before the app replaces its last valid snapshot. Files without version metadata retain legacy v1/revision 0 semantics.
 
-## Evidence Graph
+## Authored Relationships
 
-The in-app graph renders three node types:
+Topics retain relationship metadata for authoring and provenance:
 
 1. **Concepts:** authored knowledge statements.
 2. **Gaps:** authored weaknesses linked to their concepts.
 3. **Questions:** active diagnostic checks linked to the concepts they assess.
 
-Authored concept relationships remain explicit graph links. Derived gap-to-concept and question-to-concept links use the default dashed treatment. Directional `prerequisite`, `partOf`, and `enables` relationships use arrowheads; symmetric `contrastsWith` links do not.
+The app’s topic UI intentionally presents a concise concept list instead of a relationship graph. Directional `prerequisite`, `partOf`, and `enables` relationships and symmetric `contrastsWith` links remain available to compatible authoring tools.
 
-Learner events and review-card states are not graph nodes. Current review events instead produce an evidence-status overlay on question and concept nodes: `untested`, `fragile`, `developing`, or `stable`. Correctness is authoritative, and effort rating refines only correct evidence. Gap nodes remain structural `fragile` markers rather than dynamic learner-event summaries.
+Learner events and review-card states drive review scheduling rather than visual topic telemetry. Correctness is authoritative, and automatically inferred difficulty refines only correct evidence.
 
-The overlay is revision-bound. Only events whose `questionRevision` matches the active question contribute to graph status. Advancing a question revision makes its older events stale and queues the card for fresh retrieval; those events remain in the progress ledger but are not rendered in the graph. The learner brief reports stale attempts separately from current attempts.
+The scheduler is revision-bound. Advancing a question revision makes its older events stale and queues the question for fresh retrieval; those events remain in the progress ledger. The learner brief reports stale attempts separately from current attempts.
 
 ## Progress And Scheduling
 
@@ -84,7 +84,18 @@ ProgressRecord
   reviewEvents[]                append-only evidence ledger
 ```
 
-Each `ReviewEvent` has a UUID, topic and question IDs, question revision, selected and correct answer snapshots, prompt/kind/transfer snapshots, correctness, rating, concept IDs, gap tags, misconception IDs, source references, and review time. This keeps old evidence interpretable after authored content changes. Reusing the UUID is idempotent only for an identical payload; a mismatched reuse is rejected. The app first builds a candidate progress record, saves it atomically, and only then publishes it in memory.
+Each `ReviewEvent` has a UUID, topic and question IDs, question revision, selected and correct answer snapshots, prompt/kind/transfer snapshots, correctness, rating, optional response time and rating source, concept IDs, gap tags, misconception IDs, source references, and review time. This keeps old evidence interpretable after authored content changes. Reusing the UUID is idempotent only for an identical payload; a mismatched reuse is rejected. The app first builds a candidate progress record, saves it atomically, and only then publishes it in memory.
+
+The renderer starts an invisible active-time clock when each question appears, pauses it while the window is unfocused, and stops it on the first answer. The main process validates the inferred rating before persistence:
+
+| Result | Active response time | Stored rating | UI label |
+| --- | ---: | --- | --- |
+| Incorrect | Any | `missed` | Missed |
+| Correct | Under 5 seconds | `easy` | Easy |
+| Correct | 5–10 seconds | `good` | Medium |
+| Correct | Over 10 seconds | `hard` | Hard |
+
+Recorded response time is capped at 60 seconds. The learner does not perform a second rating action; the answered state shows the inferred label and timing as a transparent status.
 
 Each `ReviewCardState` contains `questionRevision`, `schedulerVersion`, `dueAt`, `intervalDays`, `stability`, `difficulty`, `lastRating`, `lapses`, `reviews`, and `lastReviewedAt`. The current scheduler is intentionally transparent:
 
@@ -95,11 +106,11 @@ Each `ReviewCardState` contains `questionRevision`, `schedulerVersion`, `dueAt`,
 | Good | 2 days | `previous x 2.2` |
 | Easy | 4 days | `previous x 3` |
 
-An incorrect choice is always persisted and scheduled as `Missed`, even if the learner attempted to self-rate it Good or Easy. Free-recall probes hide answer cues until the learner explicitly reveals them for scoring.
+An incorrect choice is always persisted and scheduled as `Missed`, regardless of response speed. Free-recall probes hide answer cues until the learner explicitly reveals them for scoring.
 
 The scheduler lives behind the shared TypeScript domain boundary; event and card-state schemas retain stability, difficulty, and `schedulerVersion`. `reviewCardsByQuestionID` is a cache, not the canonical learning record: every newly inserted event replays that card revision's immutable history in review-time order before replacing the cache. Opening a file never silently reinterprets existing due dates. A future FSRS adapter can replay the same history under its own version without changing topic IDs, event history, the due queue, or the renderer contract.
 
-The Check-In and review-completion flows show the exact persisted `dueAt` and interval returned by the scheduler after a review is saved; they do not infer a generic interval from the rating label. The MCP learner brief also exposes each card's `schedulerVersion` and the distinct current scheduler versions in the progress record.
+The review and review-completion flows show the exact persisted `dueAt` and interval returned by the scheduler after a review is saved; they do not infer a generic interval from the rating label. The MCP learner brief also exposes each card's `schedulerVersion` and the distinct current scheduler versions in the progress record.
 
 Due reviews sort overdue scheduled cards first, revised questions second, and unseen questions last. A three-minute session assumes 45 seconds per question, so it selects up to four items.
 

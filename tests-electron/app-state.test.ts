@@ -59,6 +59,9 @@ describe("review mutation validation", () => {
     ["a whitespace event ID", { eventID: "   " }, /eventID must be a non-empty string/],
     ["a padded event ID", { eventID: " event " }, /eventID cannot start or end with whitespace/],
     ["an invalid rating", { rating: "perfect" }, /rating is invalid/],
+    ["a fractional response time", { responseTimeMs: 1.5 }, /responseTimeMs must be a non-negative integer/],
+    ["an excessive response time", { responseTimeMs: 60_001 }, /responseTimeMs must be at most 60000/],
+    ["a rating inconsistent with timing", { responseTimeMs: 12_000, rating: "easy" }, /rating does not match/i],
     ["a non-canonical timestamp", { reviewedAt: "2026-08-01T00:00:00Z" }, /reviewedAt must be a canonical ISO timestamp/]
   ])("rejects %s without changing memory or disk", async (_label, replacement, message) => {
     const fixture = await stateFixture();
@@ -90,6 +93,37 @@ describe("review mutation validation", () => {
     try {
       expect(restarted.snapshot.errorMessage).toBeUndefined();
       expect(restarted.snapshot.progress.reviewEvents).toHaveLength(1);
+    } finally {
+      restarted.dispose();
+    }
+  });
+
+  it("persists automatic difficulty evidence with its response time", async () => {
+    const fixture = await stateFixture();
+    const state = fixture.createState();
+    try {
+      const result = state.commitReview({
+        ...validReviewInput(),
+        rating: "easy",
+        responseTimeMs: 4_850
+      });
+      expect(result.event).toMatchObject({
+        rating: "easy",
+        responseTimeMs: 4_850,
+        ratingSource: "responseTime"
+      });
+    } finally {
+      state.dispose();
+    }
+
+    const restarted = fixture.createState();
+    try {
+      expect(restarted.snapshot.errorMessage).toBeUndefined();
+      expect(restarted.snapshot.progress.reviewEvents[0]).toMatchObject({
+        rating: "easy",
+        responseTimeMs: 4_850,
+        ratingSource: "responseTime"
+      });
     } finally {
       restarted.dispose();
     }

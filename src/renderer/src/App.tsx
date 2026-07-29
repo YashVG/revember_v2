@@ -1,23 +1,25 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowLeft,
+  ArrowRight,
   BookOpen,
   Check,
   CircleAlert,
-  Clock3,
+  CircleHelp,
   ChevronDown,
   Cog,
   ExternalLink,
-  FileJson,
+  FileText,
   Folder,
-  Gauge,
-  GitBranch,
   House,
-  Lightbulb,
-  Lock,
   Play,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
   RefreshCw,
   RotateCcw,
   Settings,
+  Sparkles,
   SquarePen,
 } from "lucide-react";
 import type {
@@ -28,36 +30,39 @@ import type {
 } from "../../../shared/types";
 import {
   activeQuestions,
-  currentEvidence,
-  dueReviewItems,
-  progressSummary,
-  weakConceptIDs
+  dueReviewItems
 } from "../../../shared/domain";
-import { KnowledgeGraph } from "./KnowledgeGraph";
 import { CardWorkspace } from "./components/CardWorkspace";
 import { NotesPage } from "./components/NotesPage";
 import { HomePage } from "./components/HomePage";
-import { capitalize, Eyebrow, MasteryRing, Tag } from "./components/ui";
+import { QuestionsPage } from "./components/QuestionsPage";
+import { Eyebrow } from "./components/ui";
 import { Modal } from "./components/modal";
-import { CheckIn, ReviewSession } from "./components/ReviewFlow";
+import { ReviewSession } from "./components/ReviewFlow";
 import { InlineError } from "./components/review-ui";
+import { CreateTopicDialog } from "./components/CreateTopicDialog";
 import { isKnowledgeRootChangeAllowed, runGuardedKnowledgeRootChange } from "./knowledgeRootChange";
-import { runBeforeLeaveGuards, runGuardedTransition, type BeforeLeaveGuard } from "./navigationGuard";
+import { runBeforeLeaveGuards, type BeforeLeaveGuard } from "./navigationGuard";
 import { toErrorMessage } from "./utils";
 
-type TopicMode = "concepts" | "graph" | "cards" | "check-in";
-type GlobalView = "home" | "topic" | "notes";
+type TopicView = "overview" | "questions";
+type GlobalView = "home" | "topic" | "notes" | "questions";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
   const [snapshotError, setSnapshotError] = useState<string>();
   const [selectedTopicID, setSelectedTopicID] = useState<string>();
-  const [mode, setMode] = useState<TopicMode>("concepts");
+  const [topicView, setTopicView] = useState<TopicView>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
+  const [createTopicOpen, setCreateTopicOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<DueReviewItem[] | null>(null);
   const [globalView, setGlobalView] = useState<GlobalView>("home");
-  const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence: string; token: string }>();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [notesVisitKey, setNotesVisitKey] = useState(0);
+  const [notesTopicID, setNotesTopicID] = useState<string>();
+  const [notesCaptureID, setNotesCaptureID] = useState<string>();
+  const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence?: string; token: string }>();
   const beforeLeaveGuards = useRef(new Map<string, BeforeLeaveGuard>());
 
   const registerBeforeLeave = useCallback((key: string, handler: BeforeLeaveGuard | undefined) => {
@@ -86,11 +91,6 @@ export function App() {
     if (!await canLeaveCurrent()) return;
     action();
   }, [canLeaveCurrent]);
-
-  const changeMode = useCallback(
-    (next: TopicMode) => runGuardedTransition(mode, next, canLeaveCurrent, setMode),
-    [canLeaveCurrent, mode]
-  );
 
   const openReview = useCallback((items: DueReviewItem[], limit = 4) => {
     setReviewItems(items.slice(0, limit));
@@ -147,6 +147,7 @@ export function App() {
         setReviewItems(null);
         setGlobalView("topic");
         setSelectedTopicID(topicID);
+        setTopicView("overview");
       });
     }
   }), [globalView, leaveCurrent, selectedTopicID, startReview]);
@@ -166,7 +167,9 @@ export function App() {
     setReviewItems(null);
     setCheckpointOpen(false);
     setCardSeed(undefined);
-    setMode("concepts");
+    setNotesTopicID(undefined);
+    setNotesCaptureID(undefined);
+    setTopicView("overview");
     setSelectedTopicID(next.topics[0]?.id);
     setGlobalView("home");
   };
@@ -181,20 +184,35 @@ export function App() {
           onFinish={() => setReviewItems(null)}
         />
       ) : (
-        <div className="workspace">
+        <div className={`workspace ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
           <Sidebar
             snapshot={snapshot}
             selectedTopicID={globalView === "topic" ? selectedTopic?.id : undefined}
+            collapsed={sidebarCollapsed}
+            onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
             onSelect={(id) => {
               if (globalView === "topic" && selectedTopic?.id === id) return;
-              void leaveCurrent(() => { setGlobalView("topic"); setSelectedTopicID(id); });
+              void leaveCurrent(() => {
+                setGlobalView("topic");
+                setSelectedTopicID(id);
+                setTopicView("overview");
+              });
             }}
             onOpenHome={() => {
               if (globalView !== "home") void leaveCurrent(() => setGlobalView("home"));
             }}
             onOpenNotes={() => {
-              if (globalView !== "notes") void leaveCurrent(() => setGlobalView("notes"));
+              void leaveCurrent(() => {
+                setNotesTopicID(undefined);
+                setNotesCaptureID(undefined);
+                setNotesVisitKey((current) => current + 1);
+                setGlobalView("notes");
+              });
             }}
+            onOpenQuestions={() => {
+              if (globalView !== "questions") void leaveCurrent(() => setGlobalView("questions"));
+            }}
+            onCreateTopic={() => setCreateTopicOpen(true)}
             globalView={globalView}
           />
           <main className="main-stage">
@@ -213,26 +231,57 @@ export function App() {
               key={snapshot.settings.knowledgeRootPath}
               snapshot={snapshot}
               onStartReview={(items) => void leaveCurrent(() => openReview(items))}
-              onOpenNotes={() => void leaveCurrent(() => setGlobalView("notes"))}
+              onOpenNotes={() => void leaveCurrent(() => {
+                setNotesTopicID(undefined);
+                setNotesCaptureID(undefined);
+                setNotesVisitKey((current) => current + 1);
+                setGlobalView("notes");
+              })}
               onRegisterBeforeLeave={registerHomeBeforeLeave}
             /> : globalView === "notes" ? <NotesPage
-              key={snapshot.settings.knowledgeRootPath}
+              key={`${snapshot.settings.knowledgeRootPath}:${notesVisitKey}`}
               snapshot={snapshot}
+              initialTopicID={notesTopicID}
+              initialCaptureID={notesCaptureID}
               onRegisterBeforeLeave={registerNotesBeforeLeave}
               onCreateCardFromPoint={(topicID, sentence) => void leaveCurrent(() => {
                 setSelectedTopicID(topicID);
-                setMode("cards");
+                setTopicView("questions");
                 setCardSeed({ topicID, sentence, token: crypto.randomUUID() });
                 setGlobalView("topic");
               })}
+            /> : globalView === "questions" ? <QuestionsPage
+              snapshot={snapshot}
+              onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
+              onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
             /> : selectedTopic ? (
               <TopicDetail
                 topic={selectedTopic}
                 snapshot={snapshot}
-                mode={mode}
-                onModeChange={(next) => void changeMode(next)}
+                view={topicView}
+                onOpenQuestions={() => void leaveCurrent(() => setTopicView("questions"))}
+                onOpenNotes={() => void leaveCurrent(() => {
+                  setNotesTopicID(selectedTopic.id);
+                  setNotesCaptureID(undefined);
+                  setNotesVisitKey((current) => current + 1);
+                  setGlobalView("notes");
+                })}
+                onCreateQuestion={() => void leaveCurrent(() => {
+                  setCardSeed({ topicID: selectedTopic.id, token: crypto.randomUUID() });
+                  setTopicView("questions");
+                })}
+                onGenerateTopicNote={async () => {
+                  const capture = await window.revember.generateTopicNote(selectedTopic.id);
+                  await leaveCurrent(() => {
+                    setNotesTopicID(capture.topicID);
+                    setNotesCaptureID(capture.id);
+                    setNotesVisitKey((current) => current + 1);
+                    setGlobalView("notes");
+                  });
+                }}
+                onBackToOverview={() => void leaveCurrent(() => setTopicView("overview"))}
                 onSnapshot={setSnapshot}
-                onStart={() => void changeMode("check-in")}
+                onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
                 onReviewQuestion={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
                 onRegisterCardsBeforeLeave={registerCardsBeforeLeave}
                 cardSeed={cardSeed?.topicID === selectedTopic.id ? cardSeed : undefined}
@@ -256,113 +305,182 @@ export function App() {
         onClose={() => setSettingsOpen(false)}
       />}
       {checkpointOpen && <CheckpointDialog snapshot={snapshot} onClose={() => setCheckpointOpen(false)} />}
+      {createTopicOpen && <CreateTopicDialog
+        onClose={() => setCreateTopicOpen(false)}
+        onCreated={(result) => {
+          setSnapshot(result.snapshot);
+          setSelectedTopicID(result.topic.id);
+          setCreateTopicOpen(false);
+        }}
+      />}
     </div>
   );
 }
 
-function Sidebar({ snapshot, selectedTopicID, onSelect, onOpenHome, onOpenNotes, globalView }: {
+function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSelect, onOpenHome, onOpenNotes, onOpenQuestions, onCreateTopic, globalView }: {
   snapshot: AppSnapshot;
   selectedTopicID?: string;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onSelect: (id: string) => void;
   onOpenHome: () => void;
   onOpenNotes: () => void;
+  onOpenQuestions: () => void;
+  onCreateTopic: () => void;
   globalView: GlobalView;
 }) {
-  const [topicsOpen, setTopicsOpen] = useState(globalView === "topic");
-  useEffect(() => {
-    if (globalView === "topic") setTopicsOpen(true);
-  }, [globalView]);
+  const [topicsOpen, setTopicsOpen] = useState(false);
+
+  const toggleTopics = () => {
+    if (collapsed) {
+      onToggleCollapsed();
+      setTopicsOpen(true);
+      return;
+    }
+    setTopicsOpen((current) => !current);
+  };
+
   return (
-    <aside className="sidebar">
-      <Logo />
-      <button className={`plan-nav ${globalView === "home" ? "selected" : ""}`} aria-current={globalView === "home" ? "page" : undefined} onClick={onOpenHome}><House /><span>Home</span></button>
-      <button className={`plan-nav ${globalView === "notes" ? "selected" : ""}`} aria-current={globalView === "notes" ? "page" : undefined} onClick={onOpenNotes}><SquarePen /><span>Notes</span></button>
+    <aside className={`sidebar ${collapsed ? "collapsed" : ""}`} aria-label="Primary navigation">
+      <div className="sidebar-brand">
+        <Logo />
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+        </button>
+      </div>
+      <button className={`plan-nav ${globalView === "home" ? "selected" : ""}`} aria-label="Home" aria-current={globalView === "home" ? "page" : undefined} onClick={onOpenHome}><House /><span>Home</span></button>
+      <button className={`plan-nav ${globalView === "notes" ? "selected" : ""}`} aria-label="Notes" aria-current={globalView === "notes" ? "page" : undefined} onClick={onOpenNotes}><SquarePen /><span>Notes</span></button>
+      <button className={`plan-nav ${globalView === "questions" ? "selected" : ""}`} aria-label="Questions" aria-current={globalView === "questions" ? "page" : undefined} onClick={onOpenQuestions}><CircleHelp /><span>Questions</span></button>
       <button
         className="plan-nav topics-nav"
-        aria-expanded={topicsOpen}
+        aria-label={collapsed ? "Expand sidebar topics" : "Topics"}
+        aria-expanded={!collapsed && topicsOpen}
         aria-controls="sidebar-topic-list"
-        onClick={() => setTopicsOpen((current) => !current)}
+        onClick={toggleTopics}
       >
         <BookOpen /><span>Topics</span><ChevronDown className={topicsOpen ? "rotated" : ""} />
       </button>
       {topicsOpen && <div className="topic-list" id="sidebar-topic-list">
-        {snapshot.topics.map((topic) => {
-          const evidence = currentEvidence(topic, snapshot.progress);
-          return (
-            <button
-              key={topic.id}
-              className={`topic-item ${selectedTopicID === topic.id ? "selected" : ""}`}
-              aria-current={selectedTopicID === topic.id ? "page" : undefined}
-              onClick={() => onSelect(topic.id)}
-            >
-              <i />
-              <div><strong>{topic.title}</strong><span>{evidence.attempts ? `${Math.round(evidence.score * 100)}% across ${evidence.attempts} answers` : "No check-ins yet"}</span>
-                <small>{topic.concepts.length} concepts <b>·</b> {activeQuestions(topic).length} checks</small></div>
-            </button>
-          );
-        })}
+        {snapshot.topics.map((topic) => <button
+          key={topic.id}
+          className={`topic-item ${selectedTopicID === topic.id ? "selected" : ""}`}
+          aria-current={selectedTopicID === topic.id ? "page" : undefined}
+          onClick={() => {
+            onSelect(topic.id);
+          }}
+        >
+          <i />
+          <div><strong>{topic.title}</strong><small>{activeQuestions(topic).length} questions</small></div>
+        </button>)}
+        <button type="button" className="new-topic-button" onClick={() => {
+          setTopicsOpen(false);
+          onCreateTopic();
+        }}>
+          <Plus /><span>New topic</span>
+        </button>
       </div>}
     </aside>
   );
 }
 
-function TopicDetail({ topic, snapshot, mode, onModeChange, onSnapshot, onStart, onReviewQuestion, onRegisterCardsBeforeLeave, cardSeed, onCardSeedConsumed }: {
+function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCreateQuestion, onGenerateTopicNote, onBackToOverview, onSnapshot, onStartReview, onReviewQuestion, onRegisterCardsBeforeLeave, cardSeed, onCardSeedConsumed }: {
   topic: KnowledgeTopic;
   snapshot: AppSnapshot;
-  mode: TopicMode;
-  onModeChange: (mode: TopicMode) => void;
+  view: TopicView;
+  onOpenQuestions: () => void;
+  onOpenNotes: () => void;
+  onCreateQuestion: () => void;
+  onGenerateTopicNote: () => Promise<void>;
+  onBackToOverview: () => void;
   onSnapshot: (snapshot: AppSnapshot) => void;
-  onStart: () => void;
+  onStartReview: (items: DueReviewItem[]) => void;
   onReviewQuestion: (topic: KnowledgeTopic, question: Question) => void;
   onRegisterCardsBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
-  cardSeed?: { sentence: string; token: string };
+  cardSeed?: { sentence?: string; token: string };
   onCardSeedConsumed: () => void;
 }) {
-  const evidence = currentEvidence(topic, snapshot.progress);
-  const weakIDs = weakConceptIDs(topic, snapshot.progress);
-  const due = dueReviewItems(snapshot).filter((item) => item.topicID === topic.id).length;
+  const reviewItems = dueReviewItems(snapshot).filter((item) => item.topicID === topic.id);
+  const [generatingNote, setGeneratingNote] = useState(false);
+  const [generationError, setGenerationError] = useState<string>();
+
+  const generateNote = async () => {
+    if (generatingNote) return;
+    try {
+      setGeneratingNote(true);
+      setGenerationError(undefined);
+      await onGenerateTopicNote();
+    } catch (cause) {
+      setGenerationError(toErrorMessage(cause));
+    } finally {
+      setGeneratingNote(false);
+    }
+  };
+
+  if (view === "questions") {
+    return <div className="topic-detail questions-topic-detail">
+      <button className="topic-back" type="button" onClick={onBackToOverview}><ArrowLeft /> Topic overview</button>
+      <CardWorkspace key={topic.id} topic={topic} snapshot={snapshot} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />
+    </div>;
+  }
+
   return (
-    <div className="topic-detail">
-      <header className="topic-header">
-        <div className="topic-copy"><Eyebrow>Retrieval Cockpit</Eyebrow><h1>{topic.title}</h1><p>{topic.summary}</p></div>
-        <div className="mode-area"><span>Mode</span><div className="segmented">
-          <button className={mode === "concepts" ? "active" : ""} onClick={() => onModeChange("concepts")}>Concept Map</button>
-          <button className={mode === "graph" ? "active" : ""} onClick={() => onModeChange("graph")}>Graph</button>
-          <button className={mode === "cards" ? "active" : ""} onClick={() => onModeChange("cards")}>Cards</button>
-          <button className={mode === "check-in" ? "active" : ""} onClick={() => onModeChange("check-in")}>Check-In</button>
-        </div><button className="primary compact" onClick={onStart}><Play size={13} fill="currentColor" /> Start</button></div>
-        <div className="topic-meta"><span><FileJson /> Local JSON</span><span><Lightbulb /> {topic.concepts.length} concepts</span><span><Check /> {activeQuestions(topic).length} checks</span><span><Lock /> Local-first</span></div>
-        {weakIDs.length > 0 && <div className="weak-row"><span>Weak now</span>{weakIDs.map((id) => <Tag key={id}>{topic.concepts.find((concept) => concept.id === id)?.title ?? id}</Tag>)}</div>}
-      </header>
-      {mode === "concepts" && <>
-        <div className="metric-row">
-          <Metric icon={<Clock3 />} label="Due now" value={String(due)} caption="scheduled + new" color="amber" />
-          <Metric icon={<Gauge />} label="Current accuracy" value={`${Math.round(evidence.score * 100)}%`} caption={progressSummary(topic, snapshot.progress)} color="cyan" />
-          <Metric icon={<GitBranch />} label="Fragile links" value={String(weakIDs.length)} caption="from current evidence" color="magenta" />
+    <div className="topic-detail topic-overview">
+      <header className="topic-overview-header">
+        <Eyebrow>Topic overview</Eyebrow>
+        <h1>{topic.title}</h1>
+        <p>{topic.summary}</p>
+        <div className="topic-overview-actions">
+          <section className="surface topic-next-step" aria-labelledby="topic-next-step-heading">
+            <div>
+              <Eyebrow>Next step</Eyebrow>
+              <h2 id="topic-next-step-heading">Review what’s ready</h2>
+              <p>{reviewItems.length ? `${reviewItems.length} questions are ready for a focused review.` : "Nothing is due right now. You can still build this topic below."}</p>
+            </div>
+            <button className="primary topic-review-button" type="button" disabled={!reviewItems.length} onClick={() => onStartReview(reviewItems)}><Play fill="currentColor" /> {reviewItems.length ? `Review ${reviewItems.length}` : "Nothing ready"}</button>
+          </section>
+          <div className="topic-action-grid" aria-label="Topic actions">
+            <button className="topic-action-card" type="button" onClick={onCreateQuestion}>
+              <span className="topic-action-icon"><SquarePen /></span>
+              <span className="topic-action-copy"><strong>Create question</strong><small>Turn a concept into a retrieval check.</small></span>
+              <ArrowRight />
+            </button>
+            <button className="topic-action-card" type="button" onClick={onOpenQuestions}>
+              <span className="topic-action-icon"><BookOpen /></span>
+              <span className="topic-action-copy"><strong>Manage questions</strong><small>Browse, edit, or add review cards.</small></span>
+              <ArrowRight />
+            </button>
+            <button className="topic-action-card" type="button" onClick={onOpenNotes}>
+              <span className="topic-action-icon"><FileText /></span>
+              <span className="topic-action-copy"><strong>View notes</strong><small>Open the notes connected to this topic.</small></span>
+              <ArrowRight />
+            </button>
+            <button className="topic-action-card" type="button" disabled={generatingNote} onClick={() => void generateNote()}>
+              <span className="topic-action-icon"><Sparkles /></span>
+              <span className="topic-action-copy"><strong>{generatingNote ? "Creating AI note…" : "Create AI note"}</strong><small>Generate a local study note from this topic.</small></span>
+              <ArrowRight />
+            </button>
+          </div>
         </div>
-        <ConceptMap topic={topic} snapshot={snapshot} />
-      </>}
-      {mode === "graph" && <KnowledgeGraph topic={topic} snapshot={snapshot} />}
-      {mode === "cards" && <CardWorkspace key={topic.id} topic={topic} snapshot={snapshot} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />}
-      {mode === "check-in" && <CheckIn topic={topic} snapshot={snapshot} onSnapshot={onSnapshot} />}
+        {generationError && <InlineError message={generationError} />}
+      </header>
+      <section className="topic-concepts" aria-labelledby="topic-concepts-heading">
+        <Eyebrow id="topic-concepts-heading">Concepts</Eyebrow>
+        <div className="topic-concept-list">
+          {topic.concepts.map((concept) => <article key={concept.id} className="topic-concept-row">
+            <FileText aria-hidden="true" />
+            <div><h2>{concept.title}</h2><p>{concept.firstPrinciples}</p></div>
+          </article>)}
+        </div>
+      </section>
     </div>
   );
-}
-
-function ConceptMap({ topic, snapshot }: { topic: KnowledgeTopic; snapshot: AppSnapshot }) {
-  const weak = new Set(weakConceptIDs(topic, snapshot.progress));
-  return <div className="scroll-content">
-    <section className="surface ladder"><div><Eyebrow>Concept Ladder</Eyebrow><h3>Key ideas in {topic.title}</h3></div><MasteryRing value={currentEvidence(topic, snapshot.progress).score} size={70} />
-      <div className="ladder-track">{topic.concepts.map((concept) => <div key={concept.id}><span className={weak.has(concept.id) ? "weak" : ""} /><small>{concept.title}</small></div>)}</div>
-    </section>
-    <div className="concept-stack">{topic.concepts.map((concept, index) => <article key={concept.id} className={`concept-card ${weak.has(concept.id) ? "fragile" : ""}`}>
-      <div className="concept-index">{String(index + 1).padStart(2, "0")}</div><div className="concept-rule" />
-      <div className="concept-body"><div className="concept-title"><Lightbulb size={17} /><h3>{concept.title}</h3><span>{weak.has(concept.id) ? "fragile" : "stable target"}</span></div>
-        <strong>{concept.firstPrinciples}</strong><p>{concept.explanation}</p>
-        <div className="tag-columns"><div><small>Confusable</small><div>{concept.confusableTerms.map((term) => <Tag key={term}>{term}</Tag>)}</div></div><div><small>Gap tags</small><div>{concept.gapTags.map((tag) => <Tag key={tag}>{tag}</Tag>)}</div></div></div>
-      </div>
-    </article>)}</div>
-  </div>;
 }
 
 function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBeforeKnowledgeRootChange, knowledgeRootChangeAllowed, onClose }: {
@@ -456,7 +574,6 @@ function Logo() {
   const wordmark = <span>Revember</span>;
   return <div className="logo">{wordmark}</div>;
 }
-function Metric({ icon, label, value, caption, color }: { icon: ReactNode; label: string; value: string; caption: string; color: string }) { return <section className={`surface metric ${color}`}><div>{icon}</div><span><Eyebrow>{label}</Eyebrow><strong>{value}</strong><small>{caption}</small></span></section>; }
 function ErrorToast({ message }: { message: string }) { return <div className="error-toast" role="alert" aria-live="assertive"><CircleAlert /> <span>{message}</span></div>; }
 function LoadingScreen() { return <div className="loading"><Logo /><RefreshCw className="spin" /></div>; }
 function StartupError({ message, onRetry }: { message: string; onRetry: () => void }) {

@@ -64,6 +64,7 @@ function capture(overrides: Partial<LearnerCapture> = {}): LearnerCapture {
     title: "Binary notes",
     rawText: "A bit has two possible values.",
     concisePoints: [],
+    origin: "user",
     status: "draft",
     createdAt: "2026-07-25T10:00:00.000Z",
     updatedAt: "2026-07-25T10:00:00.000Z",
@@ -265,6 +266,70 @@ describe("local note enrichment", () => {
     expect(format.properties.takeaways.maxItems).toBe(2);
     expect(format.properties.takeaways.uniqueItems).toBe(true);
     expect(format.properties.takeaways.items.properties.evidenceID.enum).toEqual(["S0002", "S0003"]);
+  });
+
+  it("materializes a bounded, explicitly AI-generated topic note", async () => {
+    let request: Record<string, unknown> | undefined;
+    const model = new OllamaNoteModel(fakeOllamaResponse({
+      title: "Bits — AI study note",
+      rawText: "A bit begins as a distinguishable physical state. Software interprets that state as zero or one.",
+      concisePoints: ["A bit is a distinguishable physical state.", "Software interprets that state as zero or one."]
+    }, (value) => { request = value; }));
+
+    await expect(model.generateTopicNote!({
+      topicTitle: "Bits",
+      topicContext: "Concept: A bit is a distinguishable physical state."
+    }, new AbortController().signal)).resolves.toEqual({
+      title: "Bits — AI study note",
+      rawText: "A bit begins as a distinguishable physical state. Software interprets that state as zero or one.",
+      concisePoints: ["A bit is a distinguishable physical state.", "Software interprets that state as zero or one."]
+    });
+    expect(request?.system).toMatch(/untrusted/i);
+    expect(JSON.parse(String(request?.prompt))).toEqual({
+      topicTitle: "Bits",
+      topicContext: "Concept: A bit is a distinguishable physical state."
+    });
+  });
+
+  it("returns three distinct, non-answer local distractors", async () => {
+    let request: Record<string, unknown> | undefined;
+    const model = new OllamaNoteModel(fakeOllamaResponse({
+      distractors: ["A packet sent over BLE", "A protocol parsing rule", "A byte in memory"]
+    }, (value) => { request = value; }));
+
+    await expect(model.generateDistractors!({
+      topicTitle: "Bits",
+      topicContext: "A bit is a distinguishable physical state interpreted as zero or one.",
+      sentence: "A bit is a distinguishable physical state.",
+      answer: "A distinguishable physical state",
+      conceptTitle: "Bit"
+    }, new AbortController().signal)).resolves.toEqual([
+      "A packet sent over BLE",
+      "A protocol parsing rule",
+      "A byte in memory"
+    ]);
+
+    expect(request?.system).toMatch(/untrusted/i);
+    expect(JSON.parse(String(request?.prompt))).toEqual({
+      topicTitle: "Bits",
+      topicContext: "A bit is a distinguishable physical state interpreted as zero or one.",
+      sentence: "A bit is a distinguishable physical state.",
+      answer: "A distinguishable physical state",
+      conceptTitle: "Bit"
+    });
+  });
+
+  it("rejects correct or duplicate answers returned as distractors", async () => {
+    const model = new OllamaNoteModel(fakeOllamaResponse({
+      distractors: ["A packet", "A packet", "A bit"]
+    }));
+
+    await expect(model.generateDistractors!({
+      topicTitle: "Bits",
+      topicContext: "A bit is a distinguishable physical state.",
+      sentence: "What is a bit?",
+      answer: "A bit"
+    }, new AbortController().signal)).rejects.toThrow(/correct answer|duplicate/i);
   });
 
   it("keeps concise factual lines eligible while excluding headings and questions", async () => {

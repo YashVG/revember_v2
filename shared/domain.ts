@@ -12,6 +12,10 @@ import type {
   TopicProgress,
   TransferLevel
 } from "./types";
+import {
+  inferReviewRating,
+  REVIEW_RESPONSE_TIME_CAP_MS
+} from "./review-timing";
 
 export const schedulerVersion = "simple-v1";
 const minutesPerDay = 1_440;
@@ -224,6 +228,8 @@ const reviewEventKeys = new Set([
   "correctChoiceText",
   "isCorrect",
   "rating",
+  "responseTimeMs",
+  "ratingSource",
   "conceptIDs",
   "gapTags",
   "misconceptionIDs",
@@ -240,8 +246,23 @@ function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
   const selectedChoiceText = optionalText(event.selectedChoiceText, `${label} selectedChoiceText`);
   const correctChoiceID = optionalNonEmptyString(event.correctChoiceID, `${label} correctChoiceID`);
   const correctChoiceText = optionalText(event.correctChoiceText, `${label} correctChoiceText`);
+  const responseTimeMs = event.responseTimeMs === undefined
+    ? undefined
+    : nonNegativeInteger(event.responseTimeMs, `${label} responseTimeMs`);
+  if (responseTimeMs !== undefined && responseTimeMs > REVIEW_RESPONSE_TIME_CAP_MS) {
+    throw new Error(`${label} responseTimeMs must be at most ${REVIEW_RESPONSE_TIME_CAP_MS}.`);
+  }
+  if (event.ratingSource !== undefined && event.ratingSource !== "responseTime") {
+    throw new Error(`${label} ratingSource is invalid.`);
+  }
   if (typeof event.isCorrect !== "boolean") throw new Error(`${label} isCorrect must be a boolean.`);
   if (!isReviewRating(event.rating)) throw new Error(`${label} rating is invalid.`);
+  if ((responseTimeMs === undefined) !== (event.ratingSource === undefined)) {
+    throw new Error(`${label} responseTimeMs and ratingSource must be stored together.`);
+  }
+  if (responseTimeMs !== undefined && inferReviewRating(event.isCorrect, responseTimeMs) !== event.rating) {
+    throw new Error(`${label} rating does not match its correctness and response time.`);
+  }
   return {
     ...safeUnknownFields(event, reviewEventKeys, label),
     id: nonEmptyString(event.id, `${label} id`),
@@ -257,6 +278,8 @@ function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
     ...(correctChoiceText !== undefined ? { correctChoiceText } : {}),
     isCorrect: event.isCorrect,
     rating: event.rating,
+    ...(responseTimeMs === undefined ? {} : { responseTimeMs }),
+    ...(event.ratingSource === "responseTime" ? { ratingSource: event.ratingSource } : {}),
     conceptIDs: optionalStringArray(event.conceptIDs, `${label} conceptIDs`),
     gapTags: optionalStringArray(event.gapTags, `${label} gapTags`),
     misconceptionIDs: optionalStringArray(event.misconceptionIDs, `${label} misconceptionIDs`),
@@ -425,52 +448,6 @@ function isSafeJsonValue(value: unknown, ancestors: Set<object>): boolean {
   return safe;
 }
 
-export interface CurrentReviewEventIndex {
-  activeQuestions: Question[];
-  eventsByQuestionID: ReadonlyMap<string, readonly ReviewEvent[]>;
-}
-
-export function indexCurrentReviewEvents(topic: KnowledgeTopic, progress: ProgressRecord): CurrentReviewEventIndex {
-  const questions = activeQuestions(topic);
-  const currentRevisionByQuestionID = new Map(questions.map((question) => [question.id, question.revision]));
-  const eventsByQuestionID = new Map<string, ReviewEvent[]>();
-  for (const event of progress.reviewEvents) {
-    if (
-      event.topicID !== topic.id
-      || event.questionRevision !== currentRevisionByQuestionID.get(event.questionID)
-    ) continue;
-    const events = eventsByQuestionID.get(event.questionID);
-    if (events) events.push(event);
-    else eventsByQuestionID.set(event.questionID, [event]);
-  }
-  return { activeQuestions: questions, eventsByQuestionID };
-}
-
-export function currentEvidence(topic: KnowledgeTopic, progress: ProgressRecord): { attempts: number; correct: number; score: number } {
-  let attempts = 0;
-  let correct = 0;
-  const evidence = indexCurrentReviewEvents(topic, progress);
-  for (const question of evidence.activeQuestions) {
-    const events = evidence.eventsByQuestionID.get(question.id);
-    if (events?.length) {
-      attempts += events.length;
-      for (const event of events) if (event.isCorrect) correct += 1;
-    } else if (question.revision === 1) {
-      const legacy = progress.topics[topic.id]?.attemptsByQuestionID?.[question.id];
-      if (legacy) {
-        attempts += legacy.attempts;
-        correct += legacy.correctAttempts;
-      }
-    }
-  }
-  return { attempts, correct, score: attempts ? correct / attempts : 0 };
-}
-
-export function progressSummary(topic: KnowledgeTopic, progress: ProgressRecord): string {
-  const evidence = currentEvidence(topic, progress);
-  return evidence.attempts ? `${Math.round(evidence.score * 100)}% across ${evidence.attempts} current answers` : "No check-ins yet";
-}
-
 export function dueReviewItems(snapshot: Pick<AppSnapshot, "topics" | "progress">, at = new Date()): DueReviewItem[] {
   const scheduled: DueReviewItem[] = [];
   const revised: DueReviewItem[] = [];
@@ -502,38 +479,6 @@ export function activeQuestions(topic: KnowledgeTopic): Question[] {
 
 export function correctChoice(question: Question): AnswerChoice | undefined {
   return question.choices.find((choice) => choice.isCorrect);
-}
-
-export function weakConceptIDs(topic: KnowledgeTopic, progress: ProgressRecord): string[] {
-  type ConceptStatus = "fragile" | "developing" | "stable" | "untested";
-  const rank: Record<ConceptStatus, number> = { untested: 0, stable: 1, developing: 2, fragile: 3 };
-  const status = new Map<string, ConceptStatus>(topic.concepts.map((concept) => [concept.id, "untested"]));
-  const evidence = indexCurrentReviewEvents(topic, progress);
-  for (const question of evidence.activeQuestions) {
-    const latest = latestReviewEvent(evidence.eventsByQuestionID.get(question.id));
-    if (!latest) continue;
-    const questionStatus: ConceptStatus = !latest.isCorrect || latest.rating === "missed"
-      ? "fragile"
-      : latest.rating === "hard" ? "developing" : "stable";
-    for (const conceptID of new Set(question.conceptIDs)) {
-      const current = status.get(conceptID);
-      if (current && rank[questionStatus] > rank[current]) status.set(conceptID, questionStatus);
-    }
-  }
-  const evidenceBacked = topic.concepts.filter((concept) => ["fragile", "developing"].includes(status.get(concept.id) ?? ""));
-  const legacyBacked = Object.entries(progress.topics[topic.id]?.weakConceptIDs ?? {})
-    .sort(([, a], [, b]) => b - a)
-    .map(([id]) => id)
-    .filter((id) => status.get(id) === "untested");
-  return [...evidenceBacked.map((concept) => concept.id), ...legacyBacked];
-}
-
-function latestReviewEvent(events: readonly ReviewEvent[] | undefined): ReviewEvent | undefined {
-  let latest: ReviewEvent | undefined;
-  for (const event of events ?? []) {
-    if (!latest || latest.reviewedAt <= event.reviewedAt) latest = event;
-  }
-  return latest;
 }
 
 export function intervalLabel(state: ReviewCardState): string {

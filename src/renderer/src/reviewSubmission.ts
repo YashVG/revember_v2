@@ -15,9 +15,10 @@ export function reviewSubmissionKey(
   topicID: string,
   question: ReviewQuestionIdentity,
   choiceID: string,
-  rating: ReviewRating
+  rating: ReviewRating,
+  responseTimeMs?: number
 ): string {
-  return `${reviewQuestionKey(topicID, question)}:${encodeURIComponent(choiceID)}:${rating}`;
+  return `${reviewQuestionKey(topicID, question)}:${encodeURIComponent(choiceID)}:${rating}:${responseTimeMs ?? "manual"}`;
 }
 
 export function getOrCreateReviewSubmission(

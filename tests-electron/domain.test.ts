@@ -1,16 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
   applyReviewEvent,
-  currentEvidence,
   dueReviewItems,
   emptyProgress,
   intervalFor,
   nextDueAt,
   normalizeProgress,
   normalizeTopic,
-  progressSummary,
-  scheduleReview,
-  weakConceptIDs
+  scheduleReview
 } from "../shared/domain";
 import type { AppSnapshot, KnowledgeTopic, ReviewEvent } from "../shared/types";
 
@@ -74,98 +71,6 @@ describe("review queue", () => {
       }
     };
     expect(dueReviewItems(snapshot, new Date("2026-07-01T00:00:00.000Z")).map((item) => item.topicID)).toEqual(["scheduled", "revised", "bits"]);
-  });
-});
-
-describe("current evidence projections", () => {
-  test("isolates topics, active questions, and current revisions while preserving ledger ordering", () => {
-    const projectionTopic = normalizeTopic({
-      schemaVersion: 2,
-      revision: 2,
-      id: "projection",
-      title: "Projection",
-      summary: "Revision-aware evidence",
-      concepts: [
-        { id: "alpha", title: "Alpha", firstPrinciples: "Alpha", explanation: "Alpha" },
-        { id: "beta", title: "Beta", firstPrinciples: "Beta", explanation: "Beta" },
-        { id: "gamma", title: "Gamma", firstPrinciples: "Gamma", explanation: "Gamma" }
-      ],
-      gaps: [],
-      questions: [
-        {
-          id: "revised",
-          revision: 2,
-          prompt: "Revised?",
-          difficulty: "intro",
-          conceptIDs: ["alpha"],
-          choices: choices(),
-          explanation: "Yes."
-        },
-        {
-          id: "current",
-          revision: 1,
-          prompt: "Current?",
-          difficulty: "intro",
-          conceptIDs: ["alpha", "beta"],
-          choices: choices(),
-          explanation: "Yes."
-        },
-        {
-          id: "legacy",
-          revision: 1,
-          prompt: "Legacy?",
-          difficulty: "intro",
-          conceptIDs: ["gamma"],
-          choices: choices(),
-          explanation: "Yes."
-        },
-        {
-          id: "retired",
-          revision: 1,
-          retiredAt: "2026-07-01T00:00:00.000Z",
-          prompt: "Retired?",
-          difficulty: "intro",
-          conceptIDs: ["beta"],
-          choices: choices(),
-          explanation: "Yes."
-        }
-      ]
-    });
-    const progress = emptyProgress();
-    progress.topics.projection = {
-      attemptsByQuestionID: { legacy: { attempts: 2, correctAttempts: 1 } },
-      weakConceptIDs: { ghost: 10, gamma: 4, beta: 2 },
-      reviewCardsByQuestionID: {}
-    };
-    progress.reviewEvents.push(
-      projectionEvent("other-topic", "elsewhere", "revised", 2, "missed", false, "2026-07-06T00:00:00.000Z"),
-      projectionEvent("obsolete", "projection", "revised", 1, "missed", false, "2026-07-05T00:00:00.000Z"),
-      projectionEvent("current-hard", "projection", "current", 1, "hard", true, "2026-07-03T00:00:00.000Z"),
-      projectionEvent("revised-hard", "projection", "revised", 2, "hard", true, "2026-07-04T00:00:00.000Z"),
-      projectionEvent("current-good", "projection", "current", 1, "good", true, "2026-07-03T00:00:00.000Z"),
-      projectionEvent("current-older", "projection", "current", 1, "missed", false, "2026-07-02T00:00:00.000Z"),
-      projectionEvent("retired-current", "projection", "retired", 1, "missed", false, "2026-07-07T00:00:00.000Z")
-    );
-
-    expect(currentEvidence(projectionTopic, progress)).toEqual({
-      attempts: 6,
-      correct: 4,
-      score: 4 / 6
-    });
-    expect(progressSummary(projectionTopic, progress)).toBe("67% across 6 current answers");
-    expect(weakConceptIDs(projectionTopic, progress)).toEqual(["alpha", "gamma"]);
-  });
-
-  test("current stable evidence clears lifetime legacy weakness for that concept", () => {
-    const progress = emptyProgress();
-    progress.topics.bits = {
-      attemptsByQuestionID: {},
-      weakConceptIDs: { bit: 7 },
-      reviewCardsByQuestionID: {}
-    };
-    progress.reviewEvents.push(event("current-good", "2026-07-03T00:00:00.000Z", "good"));
-
-    expect(weakConceptIDs(topic, progress)).toEqual([]);
   });
 });
 
@@ -244,7 +149,13 @@ describe("progress validation", () => {
     ["invalid rating", { rating: "perfect" }, /rating is invalid/],
     ["invalid timestamp", { reviewedAt: "2026-02-30T00:00:00.000Z" }, /reviewedAt must be an ISO timestamp/],
     ["non-string array member", { conceptIDs: ["bit", 17] }, /conceptIDs must be an array of strings/],
-    ["invalid question kind", { questionKind: "essay" }, /questionKind is invalid/]
+    ["invalid question kind", { questionKind: "essay" }, /questionKind is invalid/],
+    ["fractional response time", { responseTimeMs: 1.5 }, /responseTimeMs must be a non-negative integer/],
+    ["excessive response time", { responseTimeMs: 60_001 }, /responseTimeMs must be at most 60000/],
+    ["invalid rating source", { ratingSource: "guess" }, /ratingSource is invalid/],
+    ["response time without a source", { responseTimeMs: 5_000 }, /responseTimeMs and ratingSource must be stored together/],
+    ["source without a response time", { ratingSource: "responseTime" }, /responseTimeMs and ratingSource must be stored together/],
+    ["inconsistent automatic rating", { responseTimeMs: 12_000, ratingSource: "responseTime", rating: "easy" }, /rating does not match/i]
   ])("rejects review events with %s", (_name, replacement, message) => {
     expect(() => normalizeProgress(progressWithEvents([{ ...validReviewEvent(), ...replacement }]))).toThrow(message);
   });
@@ -306,38 +217,6 @@ function event(id: string, reviewedAt: string, rating: ReviewEvent["rating"]): R
     id, topicID: "bits", questionID: "q1", questionRevision: 1, choiceID: "a", isCorrect: true, rating,
     conceptIDs: ["bit"], gapTags: [], misconceptionIDs: [], sourceRefs: [], reviewedAt
   };
-}
-
-function projectionEvent(
-  id: string,
-  topicID: string,
-  questionID: string,
-  questionRevision: number,
-  rating: ReviewEvent["rating"],
-  isCorrect: boolean,
-  reviewedAt: string
-): ReviewEvent {
-  return {
-    id,
-    topicID,
-    questionID,
-    questionRevision,
-    choiceID: isCorrect ? "yes" : "no",
-    isCorrect,
-    rating,
-    conceptIDs: [],
-    gapTags: [],
-    misconceptionIDs: [],
-    sourceRefs: [],
-    reviewedAt
-  };
-}
-
-function choices() {
-  return [
-    { id: "yes", text: "Yes", isCorrect: true },
-    { id: "no", text: "No", isCorrect: false }
-  ];
 }
 
 function validCard() {

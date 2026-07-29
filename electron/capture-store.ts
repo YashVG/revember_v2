@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 import type {
   CaptureConcisePoint,
+  CaptureOrigin,
   CaptureStatus,
   CaptureSummary,
   LearnerCapture,
@@ -102,6 +103,7 @@ export class CaptureStore {
         title: input.title,
         rawText: input.rawText,
         concisePoints: input.concisePoints.map((point) => ({ id: newPointID(), text: point.text })),
+        origin: "user",
         status: input.status,
         createdAt: timestamp,
         updatedAt: timestamp
@@ -129,8 +131,47 @@ export class CaptureStore {
       title: input.title,
       rawText: input.rawText,
       concisePoints: points,
+      origin: existing.origin,
       status: input.status,
       createdAt: existing.createdAt,
+      updatedAt: timestamp
+    };
+    this.write(capture);
+    return structuredClone(capture);
+  }
+
+  /**
+   * Writes a completed local-AI draft. This is intentionally separate from
+   * save(): renderer input can never claim to be AI-generated.
+   */
+  createOllamaGenerated(input: {
+    topicID: string;
+    title: string;
+    rawText: string;
+    concisePoints: string[];
+  }, now = new Date(), validateTopicID?: (topicID: string) => void): LearnerCapture {
+    const topicID = strictIdentifier(input.topicID, "topicID");
+    const title = nonEmptyExactString(input.title, "title");
+    const rawText = nonEmptyExactString(input.rawText, "rawText");
+    const concisePoints = input.concisePoints.map((point, index) => ({
+      id: newPointID(),
+      text: nonEmptyExactString(point, `concisePoints[${index}]`)
+    }));
+    assertUniquePointIDs(concisePoints);
+    validateTopicID?.(topicID);
+    const timestamp = isoTimestamp(now, "Capture creation timestamp");
+    this.assertSafeDirectory(true);
+    const capture: LearnerCapture = {
+      schemaVersion: 1,
+      id: this.newCaptureID(),
+      revision: 1,
+      topicID,
+      title,
+      rawText,
+      concisePoints,
+      origin: "ollama",
+      status: "ready",
+      createdAt: timestamp,
       updatedAt: timestamp
     };
     this.write(capture);
@@ -250,6 +291,7 @@ export function normalizeCapture(value: unknown): LearnerCapture {
     title: nonEmptyExactString(raw.title, "capture title"),
     rawText: stringValue(raw.rawText, "capture rawText"),
     concisePoints,
+    origin: normalizeOrigin(raw.origin),
     status: oneOf(raw.status, storedStatuses, "capture status"),
     createdAt: isoString(raw.createdAt, "capture createdAt"),
     updatedAt: isoString(raw.updatedAt, "capture updatedAt")
@@ -284,11 +326,16 @@ function toSummary(capture: LearnerCapture): CaptureSummary {
     revision: capture.revision,
     topicID: capture.topicID,
     title: capture.title,
+    origin: capture.origin,
     status: capture.status,
     concisePointCount: capture.concisePoints.length,
     createdAt: capture.createdAt,
     updatedAt: capture.updatedAt
   };
+}
+
+function normalizeOrigin(value: unknown): CaptureOrigin {
+  return value === undefined ? "user" : oneOf(value, new Set<CaptureOrigin>(["user", "ollama"]), "capture origin") as CaptureOrigin;
 }
 
 function assertExpectedRevision(expected: number, actual: number): void {

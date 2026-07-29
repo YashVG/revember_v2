@@ -7,11 +7,11 @@
 | Research direction | Current state |
 | --- | --- |
 | Due-first Today surface and short review queue | Implemented |
-| Missed, Hard, Good, and Easy ratings | Implemented |
+| Automatic Missed, Hard, Medium, and Easy difficulty | Implemented from correctness and active response time |
 | Transparent local scheduler and exact next-review time | Implemented as `simple-v1` |
 | Revision-bound immutable review events | Implemented |
 | Per-choice rationales, gap tags, and misconception IDs | Implemented |
-| Authored concept relationships and learner-evidence graph | Implemented |
+| Authored concept relationships | Persisted for authoring; not visualized in the topic UI |
 | Codex handoff through local files and stdio MCP | Implemented |
 | Keyboard answer shortcuts and session-repair animation | Deferred |
 | Difficulty unlocking and adaptive success targeting | Deferred |
@@ -117,9 +117,20 @@ Sources:
 - Anki FSRS docs: https://docs.ankiweb.net/deck-options.html#fsrs
 
 Design implication:
-- Add answer ratings after each question: `Missed`, `Hard`, `Good`, `Easy`.
+- Remove the second manual grading decision from the default flow.
+- Incorrect answers are always `Missed`. Correct answers are tagged `Easy` below 5 seconds, `Medium` from 5–10 seconds, and `Hard` above 10 seconds.
+- Pause timing while the app is unfocused and cap recorded time at 60 seconds so interruptions do not masquerade as difficult recall.
+- Keep response time in the immutable event ledger so thresholds can become personalized after enough local evidence exists.
 - Keep the algorithm understandable in the UI.
 - Show "next review" directly on a concept.
+
+This is an intentional Revember simplification, not a claim that Anki or FSRS schedule from response time. Anki says about 10 seconds is a useful point to stop struggling, but its timer is statistical and does not affect scheduling. FSRS uses review intervals and grades, not per-card response time. Memory research also cautions that accuracy and latency measure different aspects of memory, so correctness remains authoritative and latency only divides correct retrievals.
+
+Sources:
+- Anki answer guidance: https://docs.ankiweb.net/studying.html#answer-buttons
+- Anki timer behavior: https://docs.ankiweb.net/deck-options.html#timers
+- FSRS grading and timing FAQ: https://github.com/open-spaced-repetition/fsrs4anki/blob/main/docs/tutorial.md
+- MacLeod and Nelson, 1984, response latency and accuracy: https://doi.org/10.1016/0001-6918(84)90032-5
 
 Suggested v1 scheduler:
 
@@ -229,17 +240,17 @@ Revember should have three primary surfaces:
    - most fragile concepts
    - start review button
 
-2. Topic Map
-   - concept ladder
-   - weak vs stable concepts
-   - dependencies
-   - source learning checkpoint
+2. Topic Overview
+   - short topic summary
+   - concise concept list
+   - one review action
+   - one route to manage questions
 
-3. Check-In
+3. Review Session
    - one question
    - 2-4 high-quality choices
    - immediate explanation
-   - answer rating
+   - automatically inferred difficulty
    - next review date
 
 ### High-pull microinteractions
@@ -265,12 +276,12 @@ See [Closed-Loop Learning Architecture](architecture/closed-loop-learning-system
 ## Historical Build Order
 
 1. **Today queue — implemented.** It shows due items, time estimates, and the review action.
-2. **Answer ratings — implemented.** A review saves the answer, effort rating, and next due date together.
+2. **Automatic difficulty — implemented.** A review saves the first answer, active response time, inferred difficulty, and next due date together without a second grading task.
 3. **Local scheduling — implemented.** Progress migration, due sorting, and revision-bound evidence live in the shared domain.
 4. **Diagnostic explanations — implemented.** Cards support choice rationales, misconceptions, gap tags, and concept links.
-5. **Dark cockpit UI — partially implemented.** Today, topic, graph, cards, and Check-In share the visual system; visual release evidence remains separate.
+5. **Focused topic UI — implemented.** The topic surface intentionally contains only its summary, concept list, review action, and question management; visual release evidence remains separate.
 6. **Codex handoff — implemented.** The stdio MCP server authors topics and reads the learner brief through local files.
 
 ## One-Sentence Product Strategy
 
-Revember should not be Anki with a nicer coat of paint. It should be a local, beautiful, gap-aware retrieval cockpit that turns Codex learning sessions into a daily fundamentals hardening loop.
+Revember should not be Anki with a nicer coat of paint. It should be a local, beautiful, gap-aware retrieval workspace that turns Codex learning sessions into a daily fundamentals hardening loop.

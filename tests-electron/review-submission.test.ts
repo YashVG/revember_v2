@@ -9,8 +9,8 @@ describe("review submission identity", () => {
   const question = { id: "question:1", revision: 2 };
 
   test("is stable for an identical retry", () => {
-    expect(reviewSubmissionKey("topic:1", question, "choice:1", "good"))
-      .toBe(reviewSubmissionKey("topic:1", question, "choice:1", "good"));
+    expect(reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_001))
+      .toBe(reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_001));
   });
 
   test("changes whenever the persisted answer payload changes", () => {
@@ -18,6 +18,8 @@ describe("review submission identity", () => {
     expect(reviewSubmissionKey("topic:1", question, "choice:1", "easy")).not.toBe(original);
     expect(reviewSubmissionKey("topic:1", question, "choice:2", "good")).not.toBe(original);
     expect(reviewSubmissionKey("topic:1", { ...question, revision: 3 }, "choice:1", "good")).not.toBe(original);
+    expect(reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_001))
+      .not.toBe(reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_002));
   });
 
   test("escapes IDs so delimiter characters cannot collide", () => {
@@ -27,7 +29,7 @@ describe("review submission identity", () => {
 
   test("retries with the exact same event ID and review timestamp", () => {
     const cache = new Map();
-    const key = reviewSubmissionKey("topic:1", question, "choice:1", "good");
+    const key = reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_001);
     const first = getOrCreateReviewSubmission(
       cache,
       key,
@@ -50,8 +52,8 @@ describe("review submission identity", () => {
 
   test("changed answer payload gets a fresh event ID and timestamp", () => {
     const cache = new Map();
-    const originalKey = reviewSubmissionKey("topic:1", question, "choice:1", "good");
-    const changedKey = reviewSubmissionKey("topic:1", question, "choice:1", "easy");
+    const originalKey = reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_001);
+    const changedKey = reviewSubmissionKey("topic:1", question, "choice:1", "good", 5_002);
     const original = getOrCreateReviewSubmission(
       cache,
       originalKey,

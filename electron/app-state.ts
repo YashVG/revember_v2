@@ -16,7 +16,10 @@ import type {
   CommitReviewInput,
   CommitReviewResult,
   CreateCardInput,
+  CreateTopicInput,
+  CreateTopicResult,
   EditCardInput,
+  GenerateDistractorsInput,
   KnowledgeTopic,
   LearnerCapture,
   PlannerMutationResult,
@@ -32,8 +35,13 @@ import {
   correctChoice,
   emptyProgress,
   normalizeProgress,
-  normalizeTopic
+  normalizeTopic,
+  validateTopic
 } from "../shared/domain";
+import {
+  inferReviewRating,
+  REVIEW_RESPONSE_TIME_CAP_MS
+} from "../shared/review-timing";
 import { planExamReviews } from "../shared/planner";
 import { createTopicCard, editTopicCard, retireTopicCard } from "./topic-authoring";
 import { emptyPlanner, PlannerStore } from "./planner-store";
@@ -42,7 +50,11 @@ import {
   NoteEnrichmentCoordinator,
   noteEnrichmentStorageFailureMessage
 } from "./note-enrichment-coordinator";
-import type { LocalNoteModel } from "./ollama-note-model";
+import {
+  NoteSegmentationCoordinator,
+  noteSegmentationStorageFailureMessage
+} from "./note-segmentation-coordinator";
+import { OllamaNoteModel, type LocalNoteModel } from "./ollama-note-model";
 import {
   booleanValue,
   nonEmptyExactString,
@@ -72,10 +84,18 @@ export class RevemberState extends EventEmitter {
   private watchers: FSWatcher[] = [];
   private reloadTimer?: NodeJS.Timeout;
   private readonly noteEnrichment: NoteEnrichmentCoordinator;
+  private readonly noteSegmentation: NoteSegmentationCoordinator;
+  private readonly localNoteModel: LocalNoteModel;
+  private readonly topicNoteRequests = new Map<string, Promise<LearnerCapture>>();
 
-  constructor(private readonly paths: StatePaths, noteModel?: LocalNoteModel) {
+  constructor(private readonly paths: StatePaths, noteModel: LocalNoteModel = new OllamaNoteModel()) {
     super();
-    this.noteEnrichment = new NoteEnrichmentCoordinator(noteModel, (message) => {
+    this.localNoteModel = noteModel;
+    this.noteEnrichment = new NoteEnrichmentCoordinator(this.localNoteModel, (message) => {
+      this.backgroundWarning = message;
+      this.broadcast();
+    });
+    this.noteSegmentation = new NoteSegmentationCoordinator(this.localNoteModel, (message) => {
       this.backgroundWarning = message;
       this.broadcast();
     });
@@ -99,6 +119,50 @@ export class RevemberState extends EventEmitter {
     this.refreshFromDiskAndWatch();
     this.broadcast();
     return this.snapshot;
+  }
+
+  createTopic(rawInput: CreateTopicInput): CreateTopicResult {
+    const input = normalizeCreateTopicInput(rawInput);
+    const topicID = topicIDFromTitle(input.title);
+    const topicsDirectory = path.join(this.settings.knowledgeRootPath, "topics");
+    const notesDirectory = path.join(this.settings.knowledgeRootPath, "notes");
+    const topicPath = path.join(topicsDirectory, `${topicID}.json`);
+    const notesPath = path.join(notesDirectory, `${topicID}.md`);
+    if (existsSync(topicPath) || existsSync(notesPath)) {
+      throw new Error(`A topic named \"${input.title}\" already exists. Choose a different name.`);
+    }
+
+    mkdirSync(topicsDirectory, { recursive: true });
+    mkdirSync(notesDirectory, { recursive: true });
+    const topic = normalizeTopic({
+      schemaVersion: 2,
+      revision: 1,
+      id: topicID,
+      title: input.title,
+      summary: input.summary || `${input.title} study topic.`,
+      sources: [],
+      relationships: [],
+      concepts: [],
+      gaps: [],
+      questions: []
+    });
+    validateTopic(topic, topicID);
+    try {
+      writeFileSync(topicPath, JSON.stringify(topic, null, 2) + "\n", { encoding: "utf8", flag: "wx", mode: 0o600 });
+      writeFileSync(notesPath, `# ${input.title}\n\n${topic.summary}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`A topic named \"${input.title}\" already exists. Choose a different name.`);
+      }
+      throw error;
+    }
+
+    this.refreshFromDiskAndWatch();
+    this.errorMessage = undefined;
+    this.broadcast();
+    const createdTopic = this.topics.find((candidate) => candidate.id === topicID);
+    if (!createdTopic) throw new Error(`Created topic ${topicID} could not be reloaded.`);
+    return { snapshot: this.snapshot, topic: createdTopic };
   }
 
   setKnowledgeRoot(knowledgeRootPath: string): AppSnapshot {
@@ -128,6 +192,12 @@ export class RevemberState extends EventEmitter {
     if (!choice) throw new Error("The selected answer no longer exists.");
     const reviewedAt = input.reviewedAt ?? new Date().toISOString();
     const answer = correctChoice(question);
+    const rating = input.responseTimeMs === undefined
+      ? choice.isCorrect ? input.rating : "missed"
+      : inferReviewRating(choice.isCorrect, input.responseTimeMs);
+    if (input.responseTimeMs !== undefined && input.rating !== rating) {
+      throw new Error("The review rating does not match its correctness and response time.");
+    }
     const event: ReviewEvent = {
       id: input.eventID.toLowerCase(),
       topicID: topic.id,
@@ -141,7 +211,11 @@ export class RevemberState extends EventEmitter {
       correctChoiceID: answer?.id,
       correctChoiceText: answer?.text,
       isCorrect: choice.isCorrect,
-      rating: choice.isCorrect ? input.rating : "missed",
+      rating,
+      ...(input.responseTimeMs === undefined ? {} : {
+        responseTimeMs: input.responseTimeMs,
+        ratingSource: "responseTime" as const
+      }),
       conceptIDs: question.conceptIDs,
       gapTags: question.gapTags,
       misconceptionIDs: choice.misconceptionID ? [choice.misconceptionID] : [],
@@ -205,6 +279,42 @@ export class RevemberState extends EventEmitter {
     });
   }
 
+  async generateTopicNote(rawTopicID: unknown): Promise<LearnerCapture> {
+    const topicID = strictIdentifier(rawTopicID, "topicID");
+    const topic = this.topics.find((candidate) => candidate.id === topicID);
+    if (!topic) throw new Error("The selected topic is no longer in this knowledge store.");
+    const pending = this.topicNoteRequests.get(topicID);
+    if (pending) return await pending;
+
+    const request = this.createTopicNote(topic);
+    this.topicNoteRequests.set(topicID, request);
+    try {
+      return await request;
+    } finally {
+      if (this.topicNoteRequests.get(topicID) === request) this.topicNoteRequests.delete(topicID);
+    }
+  }
+
+  async generateDistractors(rawInput: unknown): Promise<string[]> {
+    if (!this.localNoteModel.generateDistractors) {
+      throw new Error("The configured local model cannot generate distractors.");
+    }
+    const input = normalizeGenerateDistractorsInput(rawInput);
+    const topic = this.topics.find((candidate) => candidate.id === input.topicID);
+    if (!topic) throw new Error("The selected topic is no longer in this knowledge store.");
+    const conceptTitle = input.conceptID
+      ? topic.concepts.find((concept) => concept.id === input.conceptID)?.title
+      : undefined;
+    if (input.conceptID && !conceptTitle) throw new Error("The selected concept is no longer in this topic.");
+    return await this.localNoteModel.generateDistractors({
+      topicTitle: topic.title,
+      topicContext: topicNoteContext(topic),
+      sentence: input.sentence,
+      answer: input.answer,
+      conceptTitle
+    }, new AbortController().signal);
+  }
+
   finishCapture(rawID: unknown, rawExpectedRevision: unknown): LearnerCapture {
     const id = strictIdentifier(rawID, "capture id");
     const expectedRevision = nonNegativeInteger(rawExpectedRevision, "expectedRevision");
@@ -214,6 +324,7 @@ export class RevemberState extends EventEmitter {
       throw new CaptureRevisionConflictError(expectedRevision, current.revision);
     }
     if (current.status === "archived") throw new Error("Archived notes cannot be finished.");
+    if (current.origin === "ollama") return current;
     if (!current.rawText.trim()) throw new Error("Add note text before finishing this lecture.");
 
     const capture = current.status === "ready"
@@ -240,6 +351,14 @@ export class RevemberState extends EventEmitter {
       this.backgroundWarning = noteEnrichmentStorageFailureMessage(error);
       this.broadcast();
     }
+    try {
+      this.noteSegmentation.enqueue(capture, this.settings.knowledgeRootPath);
+    } catch (error) {
+      // Deterministic organization is derived and stored separately; failure
+      // here cannot invalidate or modify the already-saved capture revision.
+      this.backgroundWarning = noteSegmentationStorageFailureMessage(error);
+      this.broadcast();
+    }
     return capture;
   }
 
@@ -248,9 +367,10 @@ export class RevemberState extends EventEmitter {
   }
 
   getCaptureEnrichment(captureID: string, captureRevision: number) {
+    const capture = this.getCapture(captureID);
+    if (capture.origin === "ollama") return undefined;
     const enrichment = this.noteEnrichment.get(captureID, captureRevision, this.settings.knowledgeRootPath);
     if (enrichment && enrichment.status !== "queued" && enrichment.status !== "running") return enrichment;
-    const capture = this.getCapture(captureID);
     if (capture.revision !== captureRevision) return enrichment;
     if (capture.status !== "ready") return enrichment;
     const scheduled = enrichment
@@ -265,6 +385,9 @@ export class RevemberState extends EventEmitter {
 
   retryCaptureEnrichment(captureID: string, captureRevision: number) {
     const capture = this.getCapture(captureID);
+    if (capture.origin === "ollama") {
+      throw new Error("This note was already generated by Ollama and does not need a second local study response.");
+    }
     if (capture.revision !== captureRevision) {
       throw new Error("This note changed before its study response could be retried. Open the current revision instead.");
     }
@@ -273,6 +396,40 @@ export class RevemberState extends EventEmitter {
     this.backgroundWarning = undefined;
     this.broadcast();
     return enrichment;
+  }
+
+  getCaptureSegmentation(captureID: string, captureRevision: number) {
+    const capture = this.getCapture(captureID);
+    const segmentation = this.noteSegmentation.get(
+      captureID,
+      captureRevision,
+      this.settings.knowledgeRootPath
+    );
+    if (segmentation?.status === "ready") return segmentation;
+    if (capture.revision !== captureRevision) return segmentation;
+    if (capture.status !== "ready") return segmentation;
+    const scheduled = segmentation
+      ? this.noteSegmentation.resume(capture, this.settings.knowledgeRootPath)
+      : this.noteSegmentation.enqueue(capture, this.settings.knowledgeRootPath);
+    if (this.backgroundWarning) {
+      this.backgroundWarning = undefined;
+      this.broadcast();
+    }
+    return scheduled;
+  }
+
+  retryCaptureSegmentation(captureID: string, captureRevision: number) {
+    const capture = this.getCapture(captureID);
+    if (capture.revision !== captureRevision) {
+      throw new Error("This note changed before its sections could be reorganized. Open the current revision instead.");
+    }
+    if (capture.status !== "ready") {
+      throw new Error("Only a ready note can be reorganized into reading sections.");
+    }
+    const segmentation = this.noteSegmentation.retry(capture, this.settings.knowledgeRootPath);
+    this.backgroundWarning = undefined;
+    this.broadcast();
+    return segmentation;
   }
 
   async createCard(input: CreateCardInput): Promise<CardMutationResult> {
@@ -319,6 +476,7 @@ export class RevemberState extends EventEmitter {
 
   dispose(): void {
     this.noteEnrichment.dispose();
+    this.noteSegmentation.dispose();
     for (const watcher of this.watchers) watcher.close();
     this.watchers = [];
     if (this.reloadTimer) clearTimeout(this.reloadTimer);
@@ -443,6 +601,34 @@ export class RevemberState extends EventEmitter {
     return { snapshot: this.snapshot, topic, question };
   }
 
+  private async createTopicNote(topic: KnowledgeTopic): Promise<LearnerCapture> {
+    if (!this.localNoteModel.generateTopicNote) {
+      throw new Error("The configured local model cannot create topic notes.");
+    }
+    const generated = await this.localNoteModel.generateTopicNote({
+      topicTitle: topic.title,
+      topicContext: topicNoteContext(topic)
+    }, new AbortController().signal);
+    const capture = new CaptureStore(this.settings.knowledgeRootPath).createOllamaGenerated({
+      topicID: topic.id,
+      title: generated.title,
+      rawText: generated.rawText,
+      concisePoints: generated.concisePoints
+    }, new Date(), (topicID) => {
+      if (!this.topics.some((candidate) => candidate.id === topicID)) {
+        throw new Error(`Capture references missing topic ${topicID}.`);
+      }
+    });
+    try {
+      this.noteSegmentation.enqueue(capture, this.settings.knowledgeRootPath);
+      this.backgroundWarning = undefined;
+    } catch (error) {
+      this.backgroundWarning = noteSegmentationStorageFailureMessage(error);
+    }
+    this.broadcast();
+    return capture;
+  }
+
   private loadTopics(knowledgeRootPath = this.settings.knowledgeRootPath): KnowledgeTopic[] {
     const topicsDirectory = path.join(knowledgeRootPath, "topics");
     if (!existsSync(topicsDirectory)) return [];
@@ -517,15 +703,54 @@ export class RevemberState extends EventEmitter {
   }
 }
 
+function normalizeGenerateDistractorsInput(rawInput: unknown): GenerateDistractorsInput {
+  const input = record(rawInput, "distractor request");
+  return {
+    topicID: strictIdentifier(input.topicID, "topicID"),
+    sentence: boundedRequestText(input.sentence, "sentence", 1_200),
+    answer: boundedRequestText(input.answer, "answer", 500),
+    ...(input.conceptID === undefined ? {} : { conceptID: strictIdentifier(input.conceptID, "conceptID") })
+  };
+}
+
+function normalizeCreateTopicInput(rawInput: unknown): CreateTopicInput {
+  const input = record(rawInput, "create topic input");
+  const title = boundedRequestText(input.title, "title", 120);
+  const summary = input.summary === undefined
+    ? ""
+    : typeof input.summary === "string"
+      ? input.summary.trim().slice(0, 500)
+      : (() => { throw new Error("summary must be a string."); })();
+  return { title, summary };
+}
+
+function topicIDFromTitle(title: string): string {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+  return slug || `topic-${Date.now()}`;
+}
+
+function boundedRequestText(value: unknown, label: string, maximum: number): string {
+  const text = nonEmptyExactString(value, label).trim();
+  if (text.length > maximum) throw new Error(`${label} must be at most ${maximum} characters.`);
+  return text;
+}
+
 function normalizeCommitReviewInput(rawInput: unknown): CommitReviewInput {
   const input = record(rawInput, "review input");
   const reviewedAt = optionalCanonicalTimestamp(input.reviewedAt, "reviewedAt");
+  const responseTimeMs = input.responseTimeMs === undefined
+    ? undefined
+    : nonNegativeInteger(input.responseTimeMs, "responseTimeMs");
+  if (responseTimeMs !== undefined && responseTimeMs > REVIEW_RESPONSE_TIME_CAP_MS) {
+    throw new Error(`responseTimeMs must be at most ${REVIEW_RESPONSE_TIME_CAP_MS}.`);
+  }
   return {
     topicID: strictIdentifier(input.topicID, "topicID"),
     questionID: nonEmptyExactString(input.questionID, "questionID"),
     questionRevision: positiveInteger(input.questionRevision, "questionRevision"),
     choiceID: nonEmptyExactString(input.choiceID, "choiceID"),
     rating: oneOf(input.rating, reviewRatings, "rating"),
+    ...(responseTimeMs === undefined ? {} : { responseTimeMs }),
     eventID: strictIdentifier(input.eventID, "eventID"),
     ...(reviewedAt ? { reviewedAt } : {})
   };
@@ -539,6 +764,31 @@ function optionalCanonicalTimestamp(value: unknown, label: string): string | und
     throw new Error(`${label} must be a canonical ISO timestamp.`);
   }
   return value;
+}
+
+function topicNoteContext(topic: KnowledgeTopic): string {
+  const lines = [
+    `Topic: ${topic.title}`,
+    `Summary: ${topic.summary}`,
+    "Concepts:"
+  ];
+  for (const concept of topic.concepts) {
+    lines.push(`- ${concept.title}: ${concept.firstPrinciples}`);
+    if (concept.explanation && concept.explanation !== concept.firstPrinciples) {
+      lines.push(`  Explanation: ${concept.explanation}`);
+    }
+  }
+  const activeQuestions = topic.questions.filter((question) => !question.retiredAt);
+  if (activeQuestions.length > 0) {
+    lines.push("Existing review questions:");
+    for (const question of activeQuestions) {
+      const correct = question.choices.find((choice) => choice.isCorrect);
+      lines.push(`- Prompt: ${question.prompt}`);
+      if (correct) lines.push(`  Correct answer: ${correct.text}`);
+      lines.push(`  Explanation: ${question.explanation}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 function atomicWrite(filePath: string, contents: string): void {

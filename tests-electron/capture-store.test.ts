@@ -89,6 +89,7 @@ describe("learner capture persistence", () => {
       revision: 1,
       topicID: "bits",
       title: "  Raw notes — keep Unicode  ",
+      origin: "user",
       status: "draft",
       concisePointCount: 2,
       createdAt: "2026-07-21T10:00:00.000Z",
@@ -128,6 +129,52 @@ describe("learner capture persistence", () => {
     expect(new CaptureStore(knowledgeRoot).get(created.id)).toEqual(archived);
     expect(() => firstStore.save({ ...newCapture("no"), id: created.id, expectedRevision: 3 })).toThrow(/archived/i);
     expect(() => firstStore.save({ ...newCapture("no"), status: "archived" })).toThrow(/status is invalid/i);
+  });
+
+  it("persists Ollama-generated notes separately from learner notes", async () => {
+    const { knowledgeRoot } = await fixture();
+    const generated = new CaptureStore(knowledgeRoot).createOllamaGenerated({
+      topicID: "bits",
+      title: "Bits — AI study note",
+      rawText: "A bit represents one distinguishable state. Eight bits form a byte.",
+      concisePoints: ["A bit is a distinguishable state.", "Eight bits form a byte."]
+    }, new Date("2026-07-27T12:00:00.000Z"));
+
+    expect(generated).toMatchObject({
+      topicID: "bits",
+      origin: "ollama",
+      status: "ready",
+      concisePoints: [
+        { text: "A bit is a distinguishable state." },
+        { text: "Eight bits form a byte." }
+      ]
+    });
+    expect(generated.concisePoints.every((point) => point.id.startsWith("point-"))).toBe(true);
+    expect(new CaptureStore(knowledgeRoot).listSummaries()).toMatchObject([{
+      id: generated.id,
+      origin: "ollama",
+      status: "ready"
+    }]);
+  });
+
+  it("treats older captures without an origin as learner-authored", async () => {
+    const { knowledgeRoot } = await fixture();
+    const store = new CaptureStore(knowledgeRoot);
+    await fs.mkdir(store.directoryPath, { recursive: true });
+    await fs.writeFile(path.join(store.directoryPath, "capture-legacy.json"), JSON.stringify({
+      schemaVersion: 1,
+      id: "capture-legacy",
+      revision: 1,
+      topicID: "bits",
+      title: "Earlier note",
+      rawText: "A learner wrote this before note origins existed.",
+      concisePoints: [],
+      status: "draft",
+      createdAt: "2026-07-20T10:00:00.000Z",
+      updatedAt: "2026-07-20T10:00:00.000Z"
+    }, null, 2) + "\n");
+
+    expect(store.get("capture-legacy").origin).toBe("user");
   });
 
   it("rejects stale writes and client-minted or duplicate point IDs without changing disk bytes", async () => {

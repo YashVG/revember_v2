@@ -36,17 +36,17 @@ describe("renderer before-leave guards", () => {
     expect(event.returnValue).toBe("");
   });
 
-  test("guards mode changes and treats the active mode as a no-op", async () => {
+  test("guards view changes and treats the active view as a no-op", async () => {
     const apply = vi.fn();
     const guard = vi.fn(async () => true);
 
-    await expect(runGuardedTransition("cards", "cards", guard, apply)).resolves.toBe(false);
+    await expect(runGuardedTransition("questions", "questions", guard, apply)).resolves.toBe(false);
     expect(guard).not.toHaveBeenCalled();
 
-    await expect(runGuardedTransition("cards", "graph", async () => false, apply)).resolves.toBe(false);
+    await expect(runGuardedTransition("questions", "overview", async () => false, apply)).resolves.toBe(false);
     expect(apply).not.toHaveBeenCalled();
 
-    await expect(runGuardedTransition("cards", "graph", guard, apply)).resolves.toBe(true);
-    expect(apply).toHaveBeenCalledWith("graph");
+    await expect(runGuardedTransition("questions", "overview", guard, apply)).resolves.toBe(true);
+    expect(apply).toHaveBeenCalledWith("overview");
   });
 });
