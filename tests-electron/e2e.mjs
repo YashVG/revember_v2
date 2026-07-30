@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, cp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,28 +35,16 @@ try {
   await window.getByRole("button", { name: "Questions", exact: true }).click();
   await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
   await window.getByRole("button", { name: /Review due now/ }).waitFor();
+  assert.equal(await window.getByRole("button", { name: "Notes", exact: true }).count(), 0);
   await window.getByRole("button", { name: "Home", exact: true }).click();
-  const lectureNote = window.getByRole("textbox", { name: "Lecture note", exact: true });
-  await lectureNote.waitFor();
-  await lectureNote.fill("A quick note from the homepage must stay local.");
-  await window.getByRole("status").filter({ hasText: /^Saved$/ }).waitFor();
-  const homepageCaptureFiles = (await readdir(path.join(knowledgeRoot, "captures"))).filter((name) => name.endsWith(".json"));
-  assert.equal(homepageCaptureFiles.length, 1, "the lecture note pad must save a local draft automatically");
-  const homepageCapture = JSON.parse(await readFile(path.join(knowledgeRoot, "captures", homepageCaptureFiles[0]), "utf8"));
-  assert.equal(homepageCapture.rawText, "A quick note from the homepage must stay local.");
-  await window.screenshot({ path: path.join(root, "work", "homepage-note-saved-e2e.png"), fullPage: true });
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
   await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByText("Topic overview", { exact: true }).waitFor();
-  await window.getByText("Concepts", { exact: true }).waitFor();
-  await window.getByRole("button", { name: "View notes", exact: true }).click();
-  await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
-  await window.getByRole("complementary", { name: "Notes list", exact: true }).getByText("Bluetooth Low Energy", { exact: true }).waitFor();
-  await window.getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
-  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+  assert.equal(await window.getByRole("button", { name: "View notes", exact: true }).count(), 0);
+  assert.equal(await window.getByRole("button", { name: "Create AI note", exact: true }).count(), 0);
+  assert.equal(await window.getByText("Concepts", { exact: true }).count(), 0);
   await window.getByRole("button", { name: "Manage questions", exact: true }).click();
   await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
   await window.getByRole("button", { name: "Review question", exact: true }).first().click();
@@ -136,94 +124,6 @@ try {
   const sessions = await readdir(path.join(knowledgeRoot, "sessions"));
   assert.equal(sessions.length, 1);
   await window.getByRole("button", { name: "Done", exact: true }).click();
-
-  await window.getByRole("button", { name: "Notes", exact: true }).click();
-  await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
-  await window.getByRole("navigation", { name: "Notes topics" }).getByRole("button", { name: "Bluetooth Low Energy", exact: true }).click();
-  await window.getByRole("button", { name: "New note", exact: true }).click();
-  await window.getByRole("dialog", { name: "New note", exact: true }).waitFor();
-  const noteEditor = window.getByRole("dialog");
-  const noteRawText = "  Leading and trailing spaces stay here  \n\nBluetooth Low Energy — café notes use hyphenated-text and repeated phrases.\nRepeated phrases remain repeated phrases.\n\tA tab begins this final line.  ";
-  await noteEditor.getByRole("combobox", { name: /^Topic/ }).selectOption({ label: "Bluetooth Low Energy" });
-  await noteEditor.getByLabel("Title", { exact: true }).fill("BLE exact-text note");
-  await noteEditor.getByRole("textbox", { name: /^Raw text/ }).fill(noteRawText);
-  await window.keyboard.press(process.platform === "darwin" ? "Meta+S" : "Control+S");
-  try {
-    await noteEditor.getByRole("status").filter({ hasText: /^Saved$/ }).waitFor({ timeout: 5_000 });
-  } catch {
-    const saveState = await noteEditor.getByRole("status").textContent();
-    const visibleError = await noteEditor.locator(".inline-error").textContent().catch(() => "none");
-    assert.fail(`Keyboard save did not complete (state: ${saveState}; error: ${visibleError})`);
-  }
-
-  const captureDirectory = path.join(knowledgeRoot, "captures");
-  const captureFiles = (await readdir(captureDirectory)).filter((name) => name.endsWith(".json"));
-  assert.deepEqual(captureFiles.length, 2);
-  const captureFile = (await Promise.all(captureFiles.map(async (fileName) => ({ fileName, capture: JSON.parse(await readFile(path.join(captureDirectory, fileName), "utf8")) })))).find(({ capture }) => capture.title === "BLE exact-text note");
-  assert.ok(captureFile, "the explicitly authored note must be present alongside the homepage draft");
-  const capturePath = path.join(captureDirectory, captureFile.fileName);
-  const savedCaptureBytes = await readFile(capturePath);
-  const savedCapture = JSON.parse(savedCaptureBytes.toString("utf8"));
-  assert.equal(savedCapture.title, "BLE exact-text note");
-  assert.equal(savedCapture.topicID, "ble");
-  assert.equal(savedCapture.rawText, noteRawText, "raw note text must be persisted exactly");
-  assert.equal((await stat(capturePath)).mode & 0o777, 0o600, "private capture files must be owner-readable only");
-
-  const captureSummaries = await window.evaluate(() => window.revember.listCaptureSummaries());
-  assert.equal(captureSummaries.length, 2);
-  const authoredSummary = captureSummaries.find((capture) => capture.title === "BLE exact-text note");
-  assert.ok(authoredSummary);
-  assert.equal(Object.hasOwn(authoredSummary, "rawText"), false, "capture summaries must not expose raw note text");
-  const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
-  assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
-
-  await noteEditor.getByRole("button", { name: "Make question", exact: true }).click();
-  await window.getByRole("dialog", { name: "Create question", exact: true }).waitFor();
-  const seededCardEditor = window.locator(".card-editor-dialog");
-  assert.match(await seededCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), /Leading and trailing spaces stay here/);
-  await seededCardEditor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await seededCardEditor.waitFor({ state: "detached" });
-  assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "opening and cancelling a note-seeded card must not mutate the capture");
-
-  await app.close();
-  app = await launch();
-  window = await app.firstWindow();
-  await window.waitForLoadState("domcontentloaded");
-  await window.getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
-  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-  await window.getByRole("button", { name: "Notes", exact: true }).click();
-  await window.getByRole("heading", { name: "Notes", exact: true }).waitFor();
-  await window.getByRole("navigation", { name: "Notes topics" }).getByRole("button", { name: "Bluetooth Low Energy", exact: true }).click();
-  await window.getByRole("button", { name: /BLE exact-text note/ }).click();
-  await window.getByRole("button", { name: "Edit", exact: true }).click();
-  const reopenedNoteEditor = window.getByRole("dialog", { name: "Edit note", exact: true });
-  await reopenedNoteEditor.waitFor();
-  assert.equal(await reopenedNoteEditor.getByLabel("Title", { exact: true }).inputValue(), "BLE exact-text note");
-  assert.equal(await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).inputValue(), noteRawText, "raw text must survive app relaunch unchanged");
-
-  const externallyEditedCapture = {
-    ...savedCapture,
-    revision: savedCapture.revision + 1,
-    rawText: "External writer preserved this newer copy.",
-    updatedAt: new Date(Date.parse(savedCapture.updatedAt) + 1_000).toISOString()
-  };
-  await writeFile(capturePath, `${JSON.stringify(externallyEditedCapture, null, 2)}\n`, "utf8");
-  const externalCaptureBytes = await readFile(capturePath);
-  const localUnsavedRawText = `${noteRawText}\nLocal editor text must remain after the conflict.`;
-  await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).fill(localUnsavedRawText);
-  await window.keyboard.press(process.platform === "darwin" ? "Meta+S" : "Control+S");
-  await reopenedNoteEditor.getByRole("status").filter({ hasText: /^Conflict$/ }).waitFor();
-  assert.equal(await reopenedNoteEditor.getByRole("textbox", { name: /^Raw text/ }).inputValue(), localUnsavedRawText, "a conflict must retain local unsaved note text");
-  assert.deepEqual(await readFile(capturePath), externalCaptureBytes, "a conflict must not overwrite the external capture revision");
-  const discardDialogPromise = window.waitForEvent("dialog");
-  const cancelEditorPromise = reopenedNoteEditor.getByRole("button", { name: "Cancel", exact: true }).click();
-  const discardDialog = await discardDialogPromise;
-  assert.equal(discardDialog.type(), "confirm");
-  assert.equal(discardDialog.message(), "Discard your unsaved note changes?");
-  await discardDialog.accept();
-  await cancelEditorPromise;
-  await reopenedNoteEditor.waitFor({ state: "detached" });
   console.log("Electron E2E passed.");
 } finally {
   try {

@@ -82,7 +82,6 @@ export class RevemberState extends EventEmitter {
   private reloadTimer?: NodeJS.Timeout;
   private readonly noteSegmentation: NoteSegmentationCoordinator;
   private readonly localNoteModel: LocalNoteModel;
-  private readonly topicNoteRequests = new Map<string, Promise<LearnerCapture>>();
 
   constructor(private readonly paths: StatePaths, noteModel: LocalNoteModel = new OllamaNoteModel()) {
     super();
@@ -267,22 +266,6 @@ export class RevemberState extends EventEmitter {
     return this.captureStore().save(input, new Date(), (topicID) => this.assertKnownCaptureTopic(topicID));
   }
 
-  async generateTopicNote(rawTopicID: unknown): Promise<LearnerCapture> {
-    const topicID = strictIdentifier(rawTopicID, "topicID");
-    const topic = this.topics.find((candidate) => candidate.id === topicID);
-    if (!topic) throw new Error("The selected topic is no longer in this knowledge store.");
-    const pending = this.topicNoteRequests.get(topicID);
-    if (pending) return await pending;
-
-    const request = this.createTopicNote(topic);
-    this.topicNoteRequests.set(topicID, request);
-    try {
-      return await request;
-    } finally {
-      if (this.topicNoteRequests.get(topicID) === request) this.topicNoteRequests.delete(topicID);
-    }
-  }
-
   async generateDistractors(rawInput: unknown): Promise<string[]> {
     if (!this.localNoteModel.generateDistractors) {
       throw new Error("The configured local model cannot generate distractors.");
@@ -290,16 +273,11 @@ export class RevemberState extends EventEmitter {
     const input = normalizeGenerateDistractorsInput(rawInput);
     const topic = this.topics.find((candidate) => candidate.id === input.topicID);
     if (!topic) throw new Error("The selected topic is no longer in this knowledge store.");
-    const conceptTitle = input.conceptID
-      ? topic.concepts.find((concept) => concept.id === input.conceptID)?.title
-      : undefined;
-    if (input.conceptID && !conceptTitle) throw new Error("The selected concept is no longer in this topic.");
     return await this.localNoteModel.generateDistractors({
       topicTitle: topic.title,
-      topicContext: topicNoteContext(topic),
+      topicContext: topicContextForDistractors(topic),
       sentence: input.sentence,
-      answer: input.answer,
-      conceptTitle
+      answer: input.answer
     }, new AbortController().signal);
   }
 
@@ -542,29 +520,6 @@ export class RevemberState extends EventEmitter {
     return { snapshot: this.snapshot, topic, question };
   }
 
-  private async createTopicNote(topic: KnowledgeTopic): Promise<LearnerCapture> {
-    if (!this.localNoteModel.generateTopicNote) {
-      throw new Error("The configured local model cannot create topic notes.");
-    }
-    const generated = await this.localNoteModel.generateTopicNote({
-      topicTitle: topic.title,
-      topicContext: topicNoteContext(topic)
-    }, new AbortController().signal);
-    const capture = this.captureStore().createOllamaGenerated({
-      topicID: topic.id,
-      title: generated.title,
-      rawText: generated.rawText
-    }, new Date(), (topicID) => this.assertKnownCaptureTopic(topicID));
-    try {
-      this.noteSegmentation.enqueue(capture, this.settings.knowledgeRootPath);
-      this.backgroundWarning = undefined;
-    } catch (error) {
-      this.backgroundWarning = noteSegmentationStorageFailureMessage(error);
-    }
-    this.broadcast();
-    return capture;
-  }
-
   private captureStore(): CaptureStore {
     return new CaptureStore(this.settings.knowledgeRootPath);
   }
@@ -654,8 +609,7 @@ function normalizeGenerateDistractorsInput(rawInput: unknown): GenerateDistracto
   return {
     topicID: strictIdentifier(input.topicID, "topicID"),
     sentence: boundedRequestText(input.sentence, "sentence", 1_200),
-    answer: boundedRequestText(input.answer, "answer", 500),
-    ...(input.conceptID === undefined ? {} : { conceptID: strictIdentifier(input.conceptID, "conceptID") })
+    answer: boundedRequestText(input.answer, "answer", 500)
   };
 }
 
@@ -712,7 +666,7 @@ function optionalCanonicalTimestamp(value: unknown, label: string): string | und
   return value;
 }
 
-function topicNoteContext(topic: KnowledgeTopic): string {
+function topicContextForDistractors(topic: KnowledgeTopic): string {
   const lines = [
     `Topic: ${topic.title}`,
     `Summary: ${topic.summary}`,

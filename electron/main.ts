@@ -184,7 +184,6 @@ function registerIPC(): void {
   handleTrusted("revember:list-capture-summaries", () => state.listCaptureSummaries());
   handleTrusted("revember:get-capture", (_event, id: string) => state.getCapture(id));
   handleTrusted("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
-  handleTrusted("revember:generate-topic-note", (_event, topicID: string) => state.generateTopicNote(topicID));
   handleTrusted("revember:finish-capture", (_event, id: string, expectedRevision: number) => state.finishCapture(id, expectedRevision));
   handleTrusted("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
   handleTrusted("revember:get-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.getCaptureSegmentation(captureID, captureRevision));

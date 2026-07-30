@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>A private, local-first learning workspace for turning technical notes into deliberate recall practice.</strong>
+  <strong>A private, local-first practice layer for turning technical material into deliberate recall.</strong>
 </p>
 
 <p align="center">
@@ -15,29 +15,27 @@
 
 # Revember
 
-Revember is a macOS desktop app for learners who want to keep the full loop local: write or import notes, make the facts worth retaining into questions, and return to them on a spaced-review schedule. There is no account or cloud backend; source notes, topic material, and review history stay in readable local files.
+Revember is a macOS desktop app for learners who want a focused local review loop: make the facts worth retaining into questions, then return to them on a spaced-review schedule. Source material can remain in the tools where it already lives; Revember focuses on authored questions and review evidence.
 
-It is built with Electron, React, and TypeScript. An optional local [Ollama](https://ollama.com/) connection can organize long notes and suggest distractors while keeping the learner in control of every saved change.
+It is built with Electron, React, and TypeScript. An optional local [Ollama](https://ollama.com/) connection can suggest distractors while keeping the learner in control of every saved change.
 
 > **Status:** active pre-release development. Revember can be built and packaged locally for macOS; signed and notarized public releases are not available yet.
 
 ## How it works
 
 ```text
-Notes → readable source sections → authored questions → spaced review → next recall session
+Course material → authored questions → spaced review → next recall session
 ```
 
-1. **Keep the source.** Create a note under a topic; Revember preserves the exact original text.
-2. **Read without the scroll tax.** Long notes are split into focused sections, with an immediate deterministic fallback when local AI is unavailable.
-3. **Make a question deliberately.** Start from any visible note section or from the Questions page. Write the sentence, answer, alternatives, and explanation; nothing is auto-saved for you.
-4. **Review what matters.** Choose a queue or open a question directly. Revember records the answer and calculates the next review time.
+1. **Choose the material.** Keep your source notes, slides, and readings in the tools you already use.
+2. **Make a question deliberately.** Start from the Questions page. Write the sentence, answer, alternatives, and explanation; nothing is auto-saved for you.
+3. **Review what matters.** Choose a queue or open a question directly. Revember records the answer and calculates the next review time.
 
 ## What is included
 
-- Topic-based concepts, questions, and concise source notes.
-- Notes reader with section navigation for long material.
+- Topic-based concepts, questions, and provenance metadata.
 - Fill-in-the-blank recall cards with answer explanations and revision-aware scheduling.
-- Question authoring from a topic or a selected note section.
+- Question authoring from a topic or the Questions page.
 - A focused queue for due, new, and scheduled questions.
 - Local backups, checkpoints, deep links, tray state, and opt-in reminders.
 - An optional stdio MCP server for revision-checked local knowledge authoring.
@@ -46,10 +44,9 @@ Notes → readable source sections → authored questions → spaced review → 
 
 Ollama is an assistive layer, never the source of truth:
 
-- It can organize a long note into labelled reading sections.
-- It can create a topic note and propose three plausible distractors for a question.
+- It can propose three plausible distractors for a question.
 - Generated text stays editable and requires the normal save action.
-- Your original note is never overwritten. Core note-taking, authoring, and review still work when Ollama is offline.
+- Core question authoring and review still work when Ollama is offline.
 
 To enable the configured local model:
 
@@ -86,9 +83,7 @@ npm run bootstrap
 | Location | Contains |
 | --- | --- |
 | `RevemberKnowledge/topics/` | Versioned concepts, relationships, gaps, and review cards |
-| `RevemberKnowledge/notes/` | Authored source explanations |
-| `RevemberKnowledge/captures/` | Exact learner notes and locally generated topic notes |
-| `RevemberKnowledge/capture-segmentations/` | Revision-keyed note reading sections |
+| `RevemberKnowledge/notes/` | Authored source explanations for the knowledge store |
 | `RevemberKnowledge/sessions/` | Learning checkpoints |
 | `~/Library/Application Support/RevemberV2/progress.json` | Review events and derived schedules |
 
@@ -116,8 +111,8 @@ Create an unpacked macOS app under `release/` with `npm run package`. `npm run d
 
 | Path | Purpose |
 | --- | --- |
-| `electron/` | Main process, local persistence, note organization, and native integrations |
-| `src/renderer/` | React interfaces for notes, topics, questions, review, and settings |
+| `electron/` | Main process, local persistence, and native integrations |
+| `src/renderer/` | React interfaces for topics, questions, review, and settings |
 | `shared/` | Data contracts, validation, scheduling, and queue logic |
 | `tests-electron/` | Unit, integration, Electron, and package-smoke coverage |
 | `RevemberKnowledge/` | Seed learning material and authoring guidance |

@@ -232,7 +232,6 @@ export interface GenerateDistractorsInput {
   topicID: string;
   sentence: string;
   answer: string;
-  conceptID?: string;
 }
 
 export interface UpsertExamPlanInput {
@@ -363,7 +362,6 @@ export interface RevemberAPI {
   listCaptureSummaries(): Promise<CaptureSummary[]>;
   getCapture(id: string): Promise<LearnerCapture>;
   saveCapture(input: SaveCaptureInput): Promise<LearnerCapture>;
-  generateTopicNote(topicID: string): Promise<LearnerCapture>;
   finishCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   archiveCapture(id: string, expectedRevision: number): Promise<LearnerCapture>;
   getCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation | undefined>;

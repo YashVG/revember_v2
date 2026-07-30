@@ -1,6 +1,6 @@
 # Closed-Loop Learning Architecture
 
-Revember keeps authored knowledge, learner evidence, and scheduling state local and separable. Codex changes authored knowledge through a stdio MCP server; the Electron desktop app watches those files, presents reviews, and writes progress; the MCP learner brief reads that progress back for the next learning session.
+Revember keeps authored knowledge, learner evidence, and scheduling state local and separable. Codex changes authored knowledge through a stdio MCP server; the Electron desktop app presents authored questions, reviews, and checkpoints, then writes progress; the MCP learner brief reads that progress back for the next learning session.
 
 ```mermaid
 flowchart TD
@@ -9,9 +9,6 @@ flowchart TD
     notes["notes/*.md<br/>source explanations"]
     topics["topics/*.json<br/>versioned knowledge + assessment"]
     sessions["sessions/*.json<br/>learning checkpoints"]
-    captures["captures/*.json<br/>draft / ready learner notes"]
-    finish["Finish lecture<br/>explicit section-organization boundary"]
-    ollama["local Ollama llama3<br/>optional note organization"]
     watcher["Debounced knowledge-folder watcher"]
     main["Electron main process<br/>validation / persistence / native surfaces"]
     preload["Isolated preload API<br/>typed IPC boundary"]
@@ -24,7 +21,6 @@ flowchart TD
     mcp --> topics
     mcp --> sessions
     topics --> watcher --> main --> preload --> app
-    app --> captures --> finish --> ollama --> app
     app --> progress --> brief --> codex
 ```
 
@@ -35,7 +31,7 @@ flowchart TD
 | `RevemberKnowledge/notes/*.md` | Knowledge base | MCP or direct editing | Human- and LLM-readable source explanation |
 | `RevemberKnowledge/topics/*.json` | Knowledge base | Revision-checked MCP tools or direct editing | App-readable concepts, provenance, relationships, gaps, and checks |
 | `RevemberKnowledge/sessions/*.json` | Knowledge base | `capture_learning_session` or the Electron checkpoint dialog | Durable learning-session residue |
-| `RevemberKnowledge/captures/*.json` | App | Atomic Electron main-process saves | Exact draft/ready learner notes and locally generated topic notes |
+| `RevemberKnowledge/captures/*.json` | Legacy compatibility store | Atomic Electron main-process saves | Older learner notes; no current renderer entry point |
 | `~/Library/Application Support/RevemberV2/progress.json` | App | Atomic Electron main-process saves | Review-event ledger, compatibility aggregates, and derived schedules |
 | `RevemberKnowledge/.backups/` | MCP server | Automatic before replacing topic or note files | Recovery copies for authored content |
 
@@ -112,11 +108,9 @@ The review and review-completion flows show the exact persisted `dueAt` and inte
 
 Due reviews sort overdue scheduled cards first, revised questions second, and unseen questions last. A three-minute session assumes 45 seconds per question, so it selects up to four items.
 
-## Lecture Notes And Local Organization
+## Focused Renderer Surface
 
-Today autosaves the learner's exact note as a `draft` after a 700 ms typing pause. This persistence path does not call a model. The explicit **Finish lecture** action saves the latest revision as `ready` and queues optional local section organization through Ollama `llama3`.
-
-Organization output is stored separately from the capture and can only group exact source blocks; it never rewrites the learner's note. If Ollama is unavailable, deterministic sections remain available. Question authoring is a separate user-reviewed flow that can request local distractor suggestions.
+The current renderer intentionally does not expose a Notes workspace, learner-capture editor, topic-note generation, or manual concept/relationship management. Existing `captures/` and segmentation artifacts remain readable for compatibility, but new learning work starts from authored questions and review evidence. The optional local Ollama integration is limited to editable distractor suggestions during question authoring.
 
 ## Closed-Loop MCP
 
@@ -146,6 +140,6 @@ These surfaces route through the same app state and scheduler. They do not maint
 - Topic mutations serialize within the MCP process, reject stale `expectedRevision` values, and keep topic/card revisions server-managed.
 - Progress v1 is copied before automatic migration to v2; malformed progress is quarantined instead of overwritten.
 - The app keeps the last known-good knowledge snapshot during a bad or partial topic save.
-- Draft-note autosave and note organization are separate. An unavailable or invalid local model response cannot roll back a saved note.
+- Legacy capture artifacts remain separate from authored topics and progress; removing their renderer entry points does not mutate existing files.
 - The sandboxed renderer has no Node.js or direct filesystem access; all mutations cross a narrow `contextBridge` API.
 - Desktop notifications are created only when the user enables review reminders.

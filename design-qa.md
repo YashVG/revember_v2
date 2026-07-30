@@ -4,11 +4,11 @@
 
 The original visual target and Electron captures were local working artifacts. They are not tracked in this repository, so this file is not a reproducible current visual baseline. The compared implementation also included calendar and exam-planner surfaces that have since been removed from the renderer.
 
+The Notes workspace, lecture-note capture, AI topic-note, and visible concept-panel surfaces described in later sections have also been removed from the current renderer.
+
 ## Evidence That Still Applies
 
-- The app retains its dark macOS desktop shell, topic navigation, Today focus drawer, and lecture-note editor.
-- The lecture editor autosaves exact draft text after a typing pause.
-- **Finish lecture** is now the explicit boundary for optional local note organization.
+- The app retains its dark macOS desktop shell, topic navigation, and Today focus drawer.
 - The interface uses the system font stack, Lucide icons, visible keyboard focus, and responsive layout rules.
 
 ## Superseded Findings
@@ -35,8 +35,8 @@ git diff --check
 Before publishing a portfolio or release build, capture new screenshots from the packaged app and record:
 
 - the exact commit and viewport;
-- Today with draft and finished-note states;
-- note section organization and question authoring;
+- Today with due and empty-queue states;
+- question authoring and review;
 - Check-In across more than one question;
 - Graph zoom and navigation;
 - narrow-window behavior.

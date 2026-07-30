@@ -54,7 +54,6 @@ describe("existing card edits", () => {
       sentence: richQuestion.prompt,
       answer: "Noise exceeded the receiver threshold",
       distractors: [{ id: "packet", text: "A packet always changes state" }],
-      conceptID: "signal",
       explanation: "The updated measurement crossed the receiver's threshold."
     };
 
@@ -62,7 +61,6 @@ describe("existing card edits", () => {
       sentence: richQuestion.prompt,
       answer: "Noise crossed the decision threshold",
       distractors: [{ id: "packet", text: "A packet always changes the bit" }],
-      conceptID: "signal",
       explanation: richQuestion.explanation
     };
     const edit = buildExistingCardEdit(
@@ -101,36 +99,6 @@ describe("existing card edits", () => {
     ]);
   });
 
-  it("changes the selected concept without removing other existing links", () => {
-    const question = {
-      id: "concept-links",
-      revision: 1,
-      kind: "multipleChoice",
-      transferLevel: "application",
-      prompt: "Prompt",
-      difficulty: "medium",
-      conceptIDs: ["signal", "protocol"],
-      gapTags: [],
-      sourceRefs: [],
-      choices: [
-        { id: "yes", text: "Yes", isCorrect: true },
-        { id: "no", text: "No", isCorrect: false }
-      ],
-      explanation: "Explanation"
-    } satisfies Question;
-    const form: CardForm = {
-      sentence: "Prompt",
-      answer: "Yes",
-      distractors: [{ id: "no", text: "No" }],
-      conceptID: "decoder",
-      explanation: "Explanation"
-    };
-
-    const initial = { ...form, conceptID: "signal" };
-    expect(buildExistingCardEdit(question, initial, form, "Prompt")!.conceptIDs)
-      .toEqual(["decoder", "protocol"]);
-  });
-
   it("does not produce an edit payload when visible values are unchanged", () => {
     const question = {
       id: "no-op",
@@ -152,7 +120,6 @@ describe("existing card edits", () => {
       sentence: question.prompt,
       answer: "A bit",
       distractors: [{ id: "no", text: "A packet" }],
-      conceptID: "bit",
       explanation: question.explanation
     };
 

@@ -14,7 +14,6 @@ export type CardForm = {
   sentence: string;
   answer: string;
   distractors: Array<{ id: string; text: string }>;
-  conceptID: string;
   explanation: string;
 };
 
@@ -72,7 +71,6 @@ function initialForm(question?: Question, seedSentence?: string): CardForm {
     distractors: question
       ? question.choices.filter((choice) => !choice.isCorrect).map((choice) => ({ id: choice.id, text: choice.text }))
       : [{ id: "choice-distractor-1", text: "" }],
-    conceptID: question?.conceptIDs[0] ?? "",
     explanation: question?.explanation ?? ""
   };
 }
@@ -88,18 +86,11 @@ export function buildExistingCardEdit(
     ...(correctChoiceID ? [[correctChoiceID, form.answer.trim()] as const] : []),
     ...form.distractors.map((choice) => [choice.id, choice.text.trim()] as const)
   ]);
-  const conceptIDs = form.conceptID === initial.conceptID
-    ? question.conceptIDs
-    : [
-        ...(form.conceptID ? [form.conceptID] : []),
-        ...question.conceptIDs.filter((id) => id !== initial.conceptID && id !== form.conceptID)
-      ];
-
   const current = questionEditFrom(question);
   const edit: QuestionEdit = {
     ...current,
     prompt: storedPrompt,
-    conceptIDs,
+    conceptIDs: question.conceptIDs,
     choices: question.choices.map((choice) => ({
       ...choice,
       text: editedChoiceText.get(choice.id) ?? choice.text
@@ -197,7 +188,7 @@ export function CardWorkspace({
         <div>
           <Eyebrow>{active.length} {active.length === 1 ? "question" : "questions"} in this topic</Eyebrow>
           <h2 id="cards-heading">Questions</h2>
-          <p>Build a small, reliable question bank from the concepts you want to remember.</p>
+          <p>Build a small, reliable question bank from the ideas you want to remember.</p>
         </div>
         <button className="primary" onClick={startCreating}><Plus /> New question</button>
       </header>
@@ -351,8 +342,7 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
       const generated = await window.revember.generateDistractors({
         topicID: topic.id,
         sentence: form.sentence.trim(),
-        answer: form.answer.trim(),
-        ...(form.conceptID ? { conceptID: form.conceptID } : {})
+        answer: form.answer.trim()
       });
       const next = question
         ? replaceGeneratedDistractors(form.distractors, generated, form.answer)
@@ -389,7 +379,7 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
       transferLevel: "recall" as const,
       prompt: storedPrompt,
       difficulty: "intro" as const,
-      conceptIDs: form.conceptID ? [form.conceptID] : [],
+      conceptIDs: [],
       gapTags: [],
       sourceRefs: [],
       choices,
@@ -433,13 +423,6 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
               <span>Answer</span>
               <input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" />
               <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "The answer appears in the sentence and will be shown as a blank during review." : "Use the exact answer once in the sentence."}</small>
-            </label>
-            <label className="card-editor-field">
-              <span>Linked concept <small>(optional)</small></span>
-              <select value={form.conceptID} onChange={(event) => update("conceptID", event.target.value)}>
-                <option value="">No linked concept</option>
-                {topic.concepts.map((concept) => <option key={concept.id} value={concept.id}>{concept.title}</option>)}
-              </select>
             </label>
           </section>
           <fieldset className="card-editor-distractors">

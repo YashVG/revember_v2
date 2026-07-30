@@ -40,7 +40,6 @@ const api: RevemberAPI = {
   listCaptureSummaries: () => invoke<CaptureSummary[]>("revember:list-capture-summaries"),
   getCapture: (id: string) => invoke<LearnerCapture>("revember:get-capture", id),
   saveCapture: (input: SaveCaptureInput) => invoke<LearnerCapture>("revember:save-capture", input),
-  generateTopicNote: (topicID: string) => invoke<LearnerCapture>("revember:generate-topic-note", topicID),
   finishCapture: (id: string, expectedRevision: number) => invoke<LearnerCapture>("revember:finish-capture", id, expectedRevision),
   archiveCapture: (id: string, expectedRevision: number) => invoke<LearnerCapture>("revember:archive-capture", id, expectedRevision),
   getCaptureSegmentation: (captureID: string, captureRevision: number) => invoke<CaptureSegmentation | undefined>("revember:get-capture-segmentation", captureID, captureRevision),

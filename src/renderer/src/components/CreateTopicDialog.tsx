@@ -55,7 +55,7 @@ export function CreateTopicDialog({ onCreated, onClose }: {
             rows={4}
           />
         </label>
-        <p className="create-topic-hint">The topic starts empty. Add notes, concepts, and review questions as you learn.</p>
+        <p className="create-topic-hint">The topic starts empty. Add review questions as you learn.</p>
         {error && <InlineError message={error} />}
         <div className="dialog-footer">
           <button type="button" onClick={onClose} disabled={saving}>Cancel</button>

@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Cog,
   ExternalLink,
-  FileText,
   Folder,
   House,
   Play,
@@ -19,7 +18,6 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
-  Sparkles,
   SquarePen,
 } from "lucide-react";
 import type {
@@ -33,7 +31,6 @@ import {
   dueReviewItems
 } from "../../../shared/domain";
 import { CardWorkspace } from "./components/CardWorkspace";
-import { NotesPage } from "./components/NotesPage";
 import { HomePage } from "./components/HomePage";
 import { QuestionsPage } from "./components/QuestionsPage";
 import { Eyebrow } from "./components/ui";
@@ -46,7 +43,7 @@ import { runBeforeLeaveGuards, type BeforeLeaveGuard } from "./navigationGuard";
 import { toErrorMessage } from "./utils";
 
 type TopicView = "overview" | "questions";
-type GlobalView = "home" | "topic" | "notes" | "questions";
+type GlobalView = "home" | "topic" | "questions";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
@@ -59,9 +56,6 @@ export function App() {
   const [reviewItems, setReviewItems] = useState<DueReviewItem[] | null>(null);
   const [globalView, setGlobalView] = useState<GlobalView>("home");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [notesVisitKey, setNotesVisitKey] = useState(0);
-  const [notesTopicID, setNotesTopicID] = useState<string>();
-  const [notesCaptureID, setNotesCaptureID] = useState<string>();
   const [questionTopicPickerRequested, setQuestionTopicPickerRequested] = useState(false);
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence?: string; token: string }>();
   const beforeLeaveGuards = useRef(new Map<string, BeforeLeaveGuard>());
@@ -70,14 +64,6 @@ export function App() {
     if (handler) beforeLeaveGuards.current.set(key, handler);
     else beforeLeaveGuards.current.delete(key);
   }, []);
-
-  const registerHomeBeforeLeave = useCallback((handler: BeforeLeaveGuard | undefined) => {
-    registerBeforeLeave("home", handler);
-  }, [registerBeforeLeave]);
-
-  const registerNotesBeforeLeave = useCallback((handler: BeforeLeaveGuard | undefined) => {
-    registerBeforeLeave("notes-editor", handler);
-  }, [registerBeforeLeave]);
 
   const registerCardsBeforeLeave = useCallback((handler: BeforeLeaveGuard | undefined) => {
     registerBeforeLeave("card-editor", handler);
@@ -168,8 +154,6 @@ export function App() {
     setReviewItems(null);
     setCheckpointOpen(false);
     setCardSeed(undefined);
-    setNotesTopicID(undefined);
-    setNotesCaptureID(undefined);
     setTopicView("overview");
     setSelectedTopicID(next.topics[0]?.id);
     setGlobalView("home");
@@ -202,14 +186,6 @@ export function App() {
             onOpenHome={() => {
               if (globalView !== "home") void leaveCurrent(() => setGlobalView("home"));
             }}
-            onOpenNotes={() => {
-              void leaveCurrent(() => {
-                setNotesTopicID(undefined);
-                setNotesCaptureID(undefined);
-                setNotesVisitKey((current) => current + 1);
-                setGlobalView("notes");
-              });
-            }}
             onOpenQuestions={() => {
               if (globalView !== "questions") void leaveCurrent(() => setGlobalView("questions"));
             }}
@@ -232,29 +208,10 @@ export function App() {
               key={snapshot.settings.knowledgeRootPath}
               snapshot={snapshot}
               onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
-              onOpenNotes={(topicID) => void leaveCurrent(() => {
-                setNotesTopicID(topicID);
-                setNotesCaptureID(undefined);
-                setNotesVisitKey((current) => current + 1);
-                setGlobalView("notes");
-              })}
               onCreateQuestion={() => void leaveCurrent(() => {
                 setQuestionTopicPickerRequested(true);
                 setGlobalView("questions");
               })}
-              onRegisterBeforeLeave={registerHomeBeforeLeave}
-            /> : globalView === "notes" ? <NotesPage
-              key={`${snapshot.settings.knowledgeRootPath}:${notesVisitKey}`}
-              snapshot={snapshot}
-              initialTopicID={notesTopicID}
-              initialCaptureID={notesCaptureID}
-              onCreateQuestionFromNote={(topicID, sentence) => void leaveCurrent(() => {
-                setSelectedTopicID(topicID);
-                setTopicView("questions");
-                setCardSeed({ topicID, sentence, token: crypto.randomUUID() });
-                setGlobalView("topic");
-              })}
-              onRegisterBeforeLeave={registerNotesBeforeLeave}
             /> : globalView === "questions" ? <QuestionsPage
               snapshot={snapshot}
               onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
@@ -273,25 +230,10 @@ export function App() {
                 snapshot={snapshot}
                 view={topicView}
                 onOpenQuestions={() => void leaveCurrent(() => setTopicView("questions"))}
-                onOpenNotes={() => void leaveCurrent(() => {
-                  setNotesTopicID(selectedTopic.id);
-                  setNotesCaptureID(undefined);
-                  setNotesVisitKey((current) => current + 1);
-                  setGlobalView("notes");
-                })}
                 onCreateQuestion={() => void leaveCurrent(() => {
                   setCardSeed({ topicID: selectedTopic.id, token: crypto.randomUUID() });
                   setTopicView("questions");
                 })}
-                onGenerateTopicNote={async () => {
-                  const capture = await window.revember.generateTopicNote(selectedTopic.id);
-                  await leaveCurrent(() => {
-                    setNotesTopicID(capture.topicID);
-                    setNotesCaptureID(capture.id);
-                    setNotesVisitKey((current) => current + 1);
-                    setGlobalView("notes");
-                  });
-                }}
                 onBackToOverview={() => void leaveCurrent(() => setTopicView("overview"))}
                 onSnapshot={setSnapshot}
                 onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
@@ -330,14 +272,13 @@ export function App() {
   );
 }
 
-function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSelect, onOpenHome, onOpenNotes, onOpenQuestions, onCreateTopic, globalView }: {
+function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSelect, onOpenHome, onOpenQuestions, onCreateTopic, globalView }: {
   snapshot: AppSnapshot;
   selectedTopicID?: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onSelect: (id: string) => void;
   onOpenHome: () => void;
-  onOpenNotes: () => void;
   onOpenQuestions: () => void;
   onCreateTopic: () => void;
   globalView: GlobalView;
@@ -369,7 +310,6 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
         </button>
       </div>
       <button className={`plan-nav ${globalView === "home" ? "selected" : ""}`} aria-label="Home" aria-current={globalView === "home" ? "page" : undefined} onClick={onOpenHome}><House /><span>Home</span></button>
-      <button className={`plan-nav ${globalView === "notes" ? "selected" : ""}`} aria-label="Notes" aria-current={globalView === "notes" ? "page" : undefined} onClick={onOpenNotes}><SquarePen /><span>Notes</span></button>
       <button className={`plan-nav ${globalView === "questions" ? "selected" : ""}`} aria-label="Questions" aria-current={globalView === "questions" ? "page" : undefined} onClick={onOpenQuestions}><CircleHelp /><span>Questions</span></button>
       <button
         className="plan-nav topics-nav"
@@ -403,14 +343,12 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
   );
 }
 
-function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCreateQuestion, onGenerateTopicNote, onBackToOverview, onSnapshot, onStartReview, onReviewQuestion, onRegisterCardsBeforeLeave, cardSeed, onCardSeedConsumed }: {
+function TopicDetail({ topic, snapshot, view, onOpenQuestions, onCreateQuestion, onBackToOverview, onSnapshot, onStartReview, onReviewQuestion, onRegisterCardsBeforeLeave, cardSeed, onCardSeedConsumed }: {
   topic: KnowledgeTopic;
   snapshot: AppSnapshot;
   view: TopicView;
   onOpenQuestions: () => void;
-  onOpenNotes: () => void;
   onCreateQuestion: () => void;
-  onGenerateTopicNote: () => Promise<void>;
   onBackToOverview: () => void;
   onSnapshot: (snapshot: AppSnapshot) => void;
   onStartReview: (items: DueReviewItem[]) => void;
@@ -420,21 +358,6 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
   onCardSeedConsumed: () => void;
 }) {
   const reviewItems = dueReviewItems(snapshot).filter((item) => item.topicID === topic.id);
-  const [generatingNote, setGeneratingNote] = useState(false);
-  const [generationError, setGenerationError] = useState<string>();
-
-  const generateNote = async () => {
-    if (generatingNote) return;
-    try {
-      setGeneratingNote(true);
-      setGenerationError(undefined);
-      await onGenerateTopicNote();
-    } catch (cause) {
-      setGenerationError(toErrorMessage(cause));
-    } finally {
-      setGeneratingNote(false);
-    }
-  };
 
   if (view === "questions") {
     return <div className="topic-detail questions-topic-detail">
@@ -469,29 +392,9 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
               <span className="topic-action-copy"><strong>Manage questions</strong><small>Browse, edit, or add review cards.</small></span>
               <ArrowRight />
             </button>
-            <button className="topic-action-card" type="button" onClick={onOpenNotes}>
-              <span className="topic-action-icon"><FileText /></span>
-              <span className="topic-action-copy"><strong>View notes</strong><small>Open the notes connected to this topic.</small></span>
-              <ArrowRight />
-            </button>
-            <button className="topic-action-card" type="button" disabled={generatingNote} onClick={() => void generateNote()}>
-              <span className="topic-action-icon"><Sparkles /></span>
-              <span className="topic-action-copy"><strong>{generatingNote ? "Creating AI note…" : "Create AI note"}</strong><small>Generate a local study note from this topic.</small></span>
-              <ArrowRight />
-            </button>
           </div>
         </div>
-        {generationError && <InlineError message={generationError} />}
       </header>
-      <section className="topic-concepts" aria-labelledby="topic-concepts-heading">
-        <Eyebrow id="topic-concepts-heading">Concepts</Eyebrow>
-        <div className="topic-concept-list">
-          {topic.concepts.map((concept) => <article key={concept.id} className="topic-concept-row">
-            <FileText aria-hidden="true" />
-            <div><h2>{concept.title}</h2><p>{concept.firstPrinciples}</p></div>
-          </article>)}
-        </div>
-      </section>
     </div>
   );
 }
@@ -530,7 +433,7 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
       setError(undefined);
       const result = await runGuardedKnowledgeRootChange(onBeforeKnowledgeRootChange, operation);
       if (!result.changed) {
-        setError("The knowledge folder was not changed because the current lecture note could not be saved.");
+        setError("The knowledge folder was not changed because the current workflow could not be closed.");
         return;
       }
       if (result.snapshot.settings.knowledgeRootPath === snapshot.settings.knowledgeRootPath) {
@@ -615,7 +518,7 @@ function EmptyKnowledge({ root, onOpenSettings, onReload }: { root: string; onOp
   return <div className="empty-state">
     <BookOpen />
     <h1>Set up your knowledge folder</h1>
-    <p>Revember needs at least one valid topic before it can save lecture notes. Add topic JSON files to <code>{root}/topics</code>, or choose another folder.</p>
+    <p>Revember needs at least one valid topic before it can create review questions. Add topic JSON files to <code>{root}/topics</code>, or choose another folder.</p>
     <div className="empty-state-actions">
       <button className="primary" type="button" onClick={onOpenSettings}><Folder /> Choose folder</button>
       <button type="button" disabled={reloading} onClick={() => void reload()}><RefreshCw className={reloading ? "spin" : undefined} /> {reloading ? "Reloading…" : "Reload topics"}</button>
