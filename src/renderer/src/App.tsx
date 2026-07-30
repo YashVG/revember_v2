@@ -61,7 +61,7 @@ export function App() {
   const [notesVisitKey, setNotesVisitKey] = useState(0);
   const [notesTopicID, setNotesTopicID] = useState<string>();
   const [notesCaptureID, setNotesCaptureID] = useState<string>();
-  const [questionTopicPickerRequested, setQuestionTopicPickerRequested] = useState(false);
+  const [notesCreateRequested, setNotesCreateRequested] = useState(false);
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence?: string; token: string }>();
   const beforeLeaveGuards = useRef(new Map<string, BeforeLeaveGuard>());
 
@@ -182,6 +182,7 @@ export function App() {
           items={reviewItems}
           onSnapshot={setSnapshot}
           onFinish={() => setReviewItems(null)}
+          onOpenCheckpoint={() => setCheckpointOpen(true)}
         />
       ) : (
         <div className={`workspace ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -205,6 +206,7 @@ export function App() {
               void leaveCurrent(() => {
                 setNotesTopicID(undefined);
                 setNotesCaptureID(undefined);
+                setNotesCreateRequested(false);
                 setNotesVisitKey((current) => current + 1);
                 setGlobalView("notes");
               });
@@ -217,8 +219,6 @@ export function App() {
           />
           <main className="main-stage">
             <div className="toolbar-actions">
-              <button className="icon-button" title="Reload topics" onClick={() => void window.revember.reload()}><RefreshCw size={16} /></button>
-              <button className="icon-button" title="Capture learning checkpoint" onClick={() => setCheckpointOpen(true)}><SquarePen size={16} /></button>
               <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}><Cog size={16} /></button>
             </div>
             {globalView === "home" && snapshot.topics.length === 0 ? (
@@ -234,12 +234,16 @@ export function App() {
               onOpenNotes={(topicID) => void leaveCurrent(() => {
                 setNotesTopicID(topicID);
                 setNotesCaptureID(undefined);
+                setNotesCreateRequested(false);
                 setNotesVisitKey((current) => current + 1);
                 setGlobalView("notes");
               })}
-              onCreateQuestion={() => void leaveCurrent(() => {
-                setQuestionTopicPickerRequested(true);
-                setGlobalView("questions");
+              onCreateNote={() => void leaveCurrent(() => {
+                setNotesTopicID(undefined);
+                setNotesCaptureID(undefined);
+                setNotesCreateRequested(true);
+                setNotesVisitKey((current) => current + 1);
+                setGlobalView("notes");
               })}
               onRegisterBeforeLeave={registerHomeBeforeLeave}
             /> : globalView === "notes" ? <NotesPage
@@ -247,10 +251,11 @@ export function App() {
               snapshot={snapshot}
               initialTopicID={notesTopicID}
               initialCaptureID={notesCaptureID}
-              onCreateQuestionFromNote={(topicID, sentence) => void leaveCurrent(() => {
+              initialCreate={notesCreateRequested}
+              onCreateQuestionForTopic={(topicID) => void leaveCurrent(() => {
                 setSelectedTopicID(topicID);
                 setTopicView("questions");
-                setCardSeed({ topicID, sentence, token: crypto.randomUUID() });
+                setCardSeed({ topicID, token: crypto.randomUUID() });
                 setGlobalView("topic");
               })}
               onRegisterBeforeLeave={registerNotesBeforeLeave}
@@ -258,12 +263,16 @@ export function App() {
               snapshot={snapshot}
               onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
               onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
-              openTopicPicker={questionTopicPickerRequested}
-              onTopicPickerOpened={() => setQuestionTopicPickerRequested(false)}
               onCreateQuestion={(topic) => void leaveCurrent(() => {
                 setSelectedTopicID(topic.id);
                 setTopicView("questions");
                 setCardSeed({ topicID: topic.id, token: crypto.randomUUID() });
+                setGlobalView("topic");
+              })}
+              onOpenTopic={(topic) => void leaveCurrent(() => {
+                setSelectedTopicID(topic.id);
+                setTopicView("questions");
+                setCardSeed(undefined);
                 setGlobalView("topic");
               })}
             /> : selectedTopic ? (
@@ -275,6 +284,7 @@ export function App() {
                 onOpenNotes={() => void leaveCurrent(() => {
                   setNotesTopicID(selectedTopic.id);
                   setNotesCaptureID(undefined);
+                  setNotesCreateRequested(false);
                   setNotesVisitKey((current) => current + 1);
                   setGlobalView("notes");
                 })}
@@ -333,6 +343,10 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
   globalView: GlobalView;
 }) {
   const [topicsOpen, setTopicsOpen] = useState(false);
+
+  useEffect(() => {
+    if (globalView !== "topic") setTopicsOpen(false);
+  }, [globalView]);
 
   const toggleTopics = () => {
     if (collapsed) {
@@ -532,12 +546,12 @@ function CheckpointDialog({ snapshot, onClose }: { snapshot: AppSnapshot; onClos
       setSavedPath(result.filePath); setError(undefined);
     } catch (cause) { setError(toErrorMessage(cause)); }
   };
-  return <Modal title="Capture Learning Checkpoint" icon={<SquarePen />} className="checkpoint-dialog" onClose={onClose}>
-    {savedPath ? <div className="checkpoint-saved"><Check /><h3>Checkpoint saved</h3><p>Your learning evidence is now available to Revember and the local MCP server.</p><code>{savedPath}</code><button className="primary" onClick={onClose}>Done</button></div> : <div className="checkpoint-form">
+  return <Modal title="Reflect on this session" icon={<SquarePen />} className="checkpoint-dialog" onClose={onClose}>
+    {savedPath ? <div className="checkpoint-saved"><Check /><h3>Reflection saved</h3><p>Your learning reflection is now available to Revember and the local MCP server.</p><code>{savedPath}</code><button className="primary" onClick={onClose}>Done</button></div> : <div className="checkpoint-form">
       <label><span>What changed in your understanding?</span><textarea autoFocus value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="Write one concrete thing you can now explain or distinguish…" /></label>
       <label><span>Topic</span><select value={topicID} onChange={(event) => setTopicID(event.target.value)}><option value="">General checkpoint</option>{snapshot.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}</select></label>
       <label><span>Open question <small>optional</small></span><input value={openQuestion} onChange={(event) => setOpenQuestion(event.target.value)} placeholder="What still feels unresolved?" /></label>
-      {error && <InlineError message={error} />}<div className="dialog-footer"><button onClick={onClose}>Cancel</button><button className="primary" disabled={!summary.trim()} onClick={save}>Save Checkpoint</button></div>
+      {error && <InlineError message={error} />}<div className="dialog-footer"><button onClick={onClose}>Cancel</button><button className="primary" disabled={!summary.trim()} onClick={save}>Save reflection</button></div>
     </div>}
   </Modal>;
 }

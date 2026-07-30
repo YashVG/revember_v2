@@ -40,11 +40,12 @@ type NotesPageProps = {
   snapshot: AppSnapshot;
   initialTopicID?: string;
   initialCaptureID?: string;
-  onCreateQuestionFromNote: (topicID: string, sentence: string) => void;
+  initialCreate?: boolean;
+  onCreateQuestionForTopic: (topicID: string) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 };
 
-export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreateQuestionFromNote, onRegisterBeforeLeave }: NotesPageProps) {
+export function NotesPage({ snapshot, initialTopicID, initialCaptureID, initialCreate = false, onCreateQuestionForTopic, onRegisterBeforeLeave }: NotesPageProps) {
   const [summaries, setSummaries] = useState<CaptureSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string>();
@@ -52,7 +53,7 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
   const [selectedTopicID, setSelectedTopicID] = useState<string | undefined>(initialTopicID);
   const [selectedID, setSelectedID] = useState<string>();
   const [selectedCapture, setSelectedCapture] = useState<LearnerCapture>();
-  const [editor, setEditor] = useState<LearnerCapture | "new">();
+  const [editor, setEditor] = useState<LearnerCapture | "new" | undefined>(initialCreate ? "new" : undefined);
   const [archiveTarget, setArchiveTarget] = useState<CaptureSummary>();
   const [finishingID, setFinishingID] = useState<string>();
   const finishInFlight = useRef(false);
@@ -189,8 +190,9 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
         <section className="surface notes-topic-browser" aria-labelledby="notes-topics-heading">
           <div className="notes-topic-browser-heading">
             <div>
-              <Eyebrow id="notes-topics-heading">Topics</Eyebrow>
-              <h2>Where do you want to review your notes?</h2>
+              <Eyebrow id="notes-topics-heading">Notes</Eyebrow>
+              <h2>Your notes</h2>
+              <p className="notes-topic-browser-description">Choose a topic to open its notes, or start writing immediately.</p>
             </div>
             <div className="notes-topic-browser-actions">
               <span>{snapshot.topics.length}</span>
@@ -276,7 +278,7 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, onCreate
                 onArchive={() => setArchiveTarget(summaryOf(selectedCapture))}
                 onFinish={() => void finishCapture(selectedCapture)}
                 finishing={finishingID === selectedCapture.id}
-                onCreateQuestionFromNote={onCreateQuestionFromNote}
+                onCreateQuestionForTopic={onCreateQuestionForTopic}
               />
             ) : (
               <NoteReaderEmpty topicTitle={selectedTopic.title} hasNotes={topicNotes.length > 0} onCreate={() => setEditor("new")} />
@@ -311,20 +313,20 @@ function NoteListItem({ note, selected, loading, onSelect }: {
       <span className="note-list-icon">{loading ? <LoaderCircle className="spin" /> : <FileText />}</span>
       <span className="note-list-copy">
         <strong>{note.title}</strong>
-        <small>{note.origin === "ollama" ? "AI-generated · " : ""}{note.status === "ready" ? "Ready" : "Draft"}</small>
+        <small>{note.origin === "ollama" ? "AI-generated · " : ""}{note.status === "ready" ? "Ready to review" : "Draft"}</small>
       </span>
     </button>
   );
 }
 
-function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing, onCreateQuestionFromNote }: {
+function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing, onCreateQuestionForTopic }: {
   capture: LearnerCapture;
   snapshot: AppSnapshot;
   onEdit: () => void;
   onArchive: () => void;
   onFinish: () => void;
   finishing: boolean;
-  onCreateQuestionFromNote: (topicID: string, sentence: string) => void;
+  onCreateQuestionForTopic: (topicID: string) => void;
 }) {
   return (
     <article className="note-reader-content">
@@ -349,8 +351,20 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing,
         </div>
       </header>
       <div className="note-reader-body">
-        <NoteSourceReader capture={capture} onCreateQuestionFromNote={onCreateQuestionFromNote} />
+        <NoteSourceReader capture={capture} />
       </div>
+      {capture.status === "ready" && (
+        <section className="note-reader-next-step" aria-labelledby="note-reader-next-step-heading">
+          <div>
+            <Eyebrow id="note-reader-next-step-heading">Next step</Eyebrow>
+            <h3>Turn this note into recall</h3>
+            <p>Choose the ideas worth remembering and add them to your question bank.</p>
+          </div>
+          <button className="primary" type="button" onClick={() => onCreateQuestionForTopic(capture.topicID)}>
+            <Plus /> Add a question
+          </button>
+        </section>
+      )}
     </article>
   );
 }

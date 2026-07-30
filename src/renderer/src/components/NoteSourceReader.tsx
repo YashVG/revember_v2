@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   segmentNoteDeterministically,
   type NoteReadingChunk,
@@ -19,12 +19,17 @@ export type MaterializedReadingSection = {
   text: string;
 };
 
-type NoteSourceReaderProps = {
-  capture: LearnerCapture;
-  onCreateQuestionFromNote: (topicID: string, sentence: string) => void;
+type NoteSourcePresentation = {
+  metadataOnly: boolean;
+  topic?: string;
+  summary?: string;
 };
 
-export function NoteSourceReader({ capture, onCreateQuestionFromNote }: NoteSourceReaderProps) {
+type NoteSourceReaderProps = {
+  capture: LearnerCapture;
+};
+
+export function NoteSourceReader({ capture }: NoteSourceReaderProps) {
   const deterministic = useMemo(
     () => segmentNoteDeterministically(capture.rawText),
     [capture.rawText]
@@ -142,9 +147,12 @@ export function NoteSourceReader({ capture, onCreateQuestionFromNote }: NoteSour
   };
 
   const displayedTitle = readAll ? "All source" : activeSection?.title ?? "Source";
-  const displayedText = readAll
-    ? capture.rawText
-    : activeSection?.text ?? capture.rawText;
+  const presentation = useMemo(() => presentNoteSource(capture.rawText), [capture.rawText]);
+  const displayedText = presentation.metadataOnly
+    ? ""
+    : readAll
+      ? capture.rawText
+      : activeSection?.text ?? capture.rawText;
 
   return (
     <section
@@ -169,7 +177,7 @@ export function NoteSourceReader({ capture, onCreateQuestionFromNote }: NoteSour
                 {readAll ? "One section" : "Read all"}
               </button>
               <details ref={outlineRef} className="note-source-outline">
-                <summary>All sections <ChevronDown /></summary>
+                <summary>Jump to section <ChevronDown /></summary>
                 <nav aria-label="Source section outline">
                   {sections.map((section, index) => (
                     <button
@@ -184,18 +192,21 @@ export function NoteSourceReader({ capture, onCreateQuestionFromNote }: NoteSour
                   ))}
                 </nav>
               </details>
-              <button
-                className="note-source-create-question"
-                type="button"
-                onClick={() => onCreateQuestionFromNote(capture.topicID, activeSection?.text ?? capture.rawText)}
-              >
-                <Plus /> Make question
-              </button>
             </div>
           </div>
 
           <div className="note-source-copy">
-            <div className="note-source-text">{displayedText}</div>
+            {presentation.metadataOnly ? (
+              <div className="note-source-metadata" aria-label="Note summary">
+                <div className="note-source-metadata-heading">
+                  <span>Structured note</span>
+                  <strong>Review the summary before creating questions.</strong>
+                </div>
+                {presentation.topic && <div className="note-source-metadata-row"><span>Topic</span><strong>{presentation.topic}</strong></div>}
+                {presentation.summary && <div className="note-source-metadata-row"><span>Summary</span><p>{presentation.summary}</p></div>}
+                <p className="note-source-metadata-empty">No original source text was captured for this note.</p>
+              </div>
+            ) : <div className="note-source-text">{displayedText}</div>}
           </div>
 
           <div className="note-source-navigation" aria-label="Source section navigation">
@@ -213,6 +224,47 @@ export function NoteSourceReader({ capture, onCreateQuestionFromNote }: NoteSour
       )}
     </section>
   );
+}
+
+function presentNoteSource(rawText: string): NoteSourcePresentation {
+  const lines = rawText.replaceAll("\r\n", "\n").split("\n");
+  let index = 0;
+  let recognized = 0;
+  let topic: string | undefined;
+  let summary: string | undefined;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+    if (line.startsWith("Topic:")) {
+      topic = line.slice("Topic:".length).trim() || undefined;
+      recognized += 1;
+      index += 1;
+      continue;
+    }
+    if (line.startsWith("Summary:")) {
+      summary = line.slice("Summary:".length).trim() || undefined;
+      recognized += 1;
+      index += 1;
+      continue;
+    }
+    if (line === "Concepts:" || line === "Existing review questions:") {
+      recognized += 1;
+      index += 1;
+      while (index < lines.length && (!lines[index].trim() || lines[index].trim().startsWith("-"))) index += 1;
+      continue;
+    }
+    break;
+  }
+
+  return {
+    metadataOnly: recognized >= 2 && !lines.slice(index).some((line) => line.trim()),
+    ...(topic ? { topic } : {}),
+    ...(summary ? { summary } : {})
+  };
 }
 
 export function materializeReadingSections(

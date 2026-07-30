@@ -1,5 +1,5 @@
 import { CalendarClock, CircleHelp, Clock3, Plus, Play, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AppSnapshot, DueReviewItem, KnowledgeTopic, Question, ReviewCardState } from "../../../../shared/types";
 import { activeQuestions } from "../../../../shared/domain";
@@ -49,20 +49,14 @@ export function buildQuestionReviewQueues(snapshot: Pick<AppSnapshot, "topics" |
   return queues;
 }
 
-export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuestion, openTopicPicker = false, onTopicPickerOpened }: {
+export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuestion, onOpenTopic }: {
   snapshot: AppSnapshot;
   onReview: (topic: KnowledgeTopic, question: Question) => void;
   onStartReview: (items: DueReviewItem[]) => void;
   onCreateQuestion: (topic: KnowledgeTopic) => void;
-  openTopicPicker?: boolean;
-  onTopicPickerOpened?: () => void;
+  onOpenTopic: (topic: KnowledgeTopic) => void;
 }) {
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
-  useEffect(() => {
-    if (!openTopicPicker) return;
-    setTopicPickerOpen(true);
-    onTopicPickerOpened?.();
-  }, [onTopicPickerOpened, openTopicPicker]);
   const now = new Date();
   const queues = buildQuestionReviewQueues(snapshot, now);
   const questions = snapshot.topics.flatMap((topic) => activeQuestions(topic).map((question): QuestionEntry => ({
@@ -76,9 +70,9 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
     <div className="questions-page">
       <header className="questions-heading">
         <div>
-          <Eyebrow>Local retrieval library</Eyebrow>
+          <Eyebrow>Question bank</Eyebrow>
           <h1>Questions</h1>
-        <p>Choose a queue above to start, or review any question directly below.</p>
+        <p>Choose what to review, or manage any question directly below.</p>
         </div>
         <div className="questions-heading-actions">
           <span className="questions-total">{questions.length} {questions.length === 1 ? "question" : "questions"}</span>
@@ -94,14 +88,14 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
       </header>
       <section className="surface questions-review-queue" aria-labelledby="questions-review-queue-heading">
         <div className="questions-review-queue-copy">
-          <Eyebrow>Review queue</Eyebrow>
-          <h2 id="questions-review-queue-heading">Pick a queue</h2>
+          <Eyebrow>Review questions</Eyebrow>
+          <h2 id="questions-review-queue-heading">Choose what to review</h2>
           <span className="questions-queue-total">{queueTotal} total</span>
         </div>
         <div className="questions-review-actions">
-          <QueueAction label="Due now" count={queues.due.length} description="Ready" icon={<Clock3 />} onStart={() => onStartReview(queues.due)} />
-          <QueueAction label="New" count={queues.fresh.length} description="Unseen" icon={<Sparkles />} onStart={() => onStartReview(queues.fresh)} />
-          <QueueAction label="Scheduled" count={queues.scheduled.length} description="Ahead" icon={<CalendarClock />} scheduled onStart={() => onStartReview(queues.scheduled)} />
+          <QueueAction label="Due now" count={queues.due.length} description="Needs review" icon={<Clock3 />} onStart={() => onStartReview(queues.due)} />
+          <QueueAction label="New" count={queues.fresh.length} description="Not seen yet" icon={<Sparkles />} onStart={() => onStartReview(queues.fresh)} />
+          <QueueAction label="Scheduled" count={queues.scheduled.length} description="Coming up" icon={<CalendarClock />} scheduled onStart={() => onStartReview(queues.scheduled)} />
         </div>
       </section>
       {questions.length > 0 ? (
@@ -121,7 +115,10 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
                     {question.conceptIDs.map((id) => <Tag key={id}>{topic.concepts.find((concept) => concept.id === id)?.title ?? id}</Tag>)}
                   </div>
                 </div>
-                <button type="button" className="question-library-action" onClick={() => onReview(topic, question)}><Play /> Review question</button>
+                <div className="question-library-actions">
+                  <button type="button" className="question-library-action" onClick={() => onReview(topic, question)}><Play /> Review</button>
+                  <button type="button" className="question-library-manage" onClick={() => onOpenTopic(topic)}>Manage topic</button>
+                </div>
               </article>
             );
           })}

@@ -59,9 +59,10 @@ type ReviewSessionProps = {
   items: DueReviewItem[];
   onSnapshot: (snapshot: AppSnapshot) => void;
   onFinish: () => void;
+  onOpenCheckpoint: () => void;
 };
 
-export function ReviewSession({ items, onSnapshot, onFinish }: ReviewSessionProps) {
+export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }: ReviewSessionProps) {
   const [index, setIndex] = useState(0);
   const [schedules, setSchedules] = useState<ReviewCardState[]>([]);
   const [saving, setSaving] = useState(false);
@@ -88,6 +89,7 @@ export function ReviewSession({ items, onSnapshot, onFinish }: ReviewSessionProp
         completed={schedules.length}
         schedules={schedules}
         onFinish={onFinish}
+        onOpenCheckpoint={onOpenCheckpoint}
       />
     );
   }
@@ -209,9 +211,10 @@ type ReviewCompletionProps = {
   completed: number;
   schedules: ReviewCardState[];
   onFinish: () => void;
+  onOpenCheckpoint: () => void;
 };
 
-function ReviewCompletion({ empty, completed, schedules, onFinish }: ReviewCompletionProps) {
+function ReviewCompletion({ empty, completed, schedules, onFinish, onOpenCheckpoint }: ReviewCompletionProps) {
   const earliest = [...schedules].sort((left, right) => left.dueAt.localeCompare(right.dueAt))[0];
 
   return (
@@ -231,7 +234,10 @@ function ReviewCompletion({ empty, completed, schedules, onFinish }: ReviewCompl
             <span>{intervalLabel(earliest)}</span>
           </div>
         )}
-        <button className="primary" onClick={onFinish}>Return to Topic</button>
+        <div className="completion-actions">
+          <button className="primary" onClick={onFinish}>Return to study focus</button>
+          {!empty && <button type="button" className="completion-secondary" onClick={onOpenCheckpoint}>Reflect on this session</button>}
+        </div>
       </section>
     </div>
   );

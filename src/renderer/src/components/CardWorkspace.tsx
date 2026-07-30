@@ -415,18 +415,20 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
     >
       <form className="card-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <label className="card-editor-field card-editor-question-field">
-            <span>Sentence containing the answer</span>
-            <textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder="For example: A bit is a distinguishable physical state." />
+            <span>Question sentence</span>
+            <textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder="Example: The kernel mediates a program’s protected access to hardware." />
+            <small className="card-editor-example">Write one sentence with the answer in it. Revember blanks it during review.</small>
           </label>
           <section className="card-editor-answer-panel" aria-label="Answer details">
             <label className="card-editor-field">
               <span>Answer</span>
               <input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" />
-              <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "The answer appears in the sentence and will be shown as a blank during review." : "Use the exact answer once in the sentence."}</small>
+              <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "Ready: this answer will become a blank during review." : "Type the exact answer once in the sentence."}</small>
             </label>
           </section>
           <fieldset className="card-editor-distractors">
-            <legend>Distractors</legend>
+            <legend>Wrong answers</legend>
+            <small className="card-editor-section-help">Add plausible alternatives so the correct answer is not obvious.</small>
             {form.distractors.map((item, index) => (
               <label className="card-editor-field" key={item.id}>
                 <span>Alternative {index + 1}</span>
@@ -436,10 +438,10 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
             {!question && form.distractors.length < 3 && <button type="button" className="text-button" onClick={addDistractor}><Plus /> Add distractor</button>}
             <div className="distractor-assist">
               <div>{question
-                ? <><strong>Replace current options?</strong><small>Generate comparable wrong answers locally. Saving creates a new question revision.</small></>
-                : <><strong>Need suggestions?</strong><small>Generate up to three comparable wrong answers locally. Your existing options stay untouched.</small></>
+                ? <><strong>Need new alternatives?</strong><small>Generate comparable wrong answers locally. Saving creates a new question revision.</small></>
+                : <><strong>Need suggestions?</strong><small>Optionally generate up to three plausible wrong answers locally.</small></>
               }</div>
-              <button type="button" className="local-assist-button" disabled={generatingDistractors || (!question && populatedDistractors >= 3)} onClick={() => void generateDistractors()}><Sparkles /> {generatingDistractors ? "Generating…" : question ? "Replace distractors" : "Generate distractors"}</button>
+              <button type="button" className="local-assist-button" disabled={generatingDistractors || (!question && populatedDistractors >= 3)} onClick={() => void generateDistractors()}><Sparkles /> {generatingDistractors ? "Generating…" : question ? "Suggest alternatives" : "Suggest wrong answers"}</button>
             </div>
             {generatedDistractors && <p className="distractor-generation-note"><Sparkles /> {question ? "New options generated locally. Review them, then save this revision." : "Generated locally. Review every option before saving."}</p>}
             {distractorError && <InlineError message={distractorError} />}

@@ -177,13 +177,12 @@ try {
   const snapshotWithoutCaptures = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(Object.hasOwn(snapshotWithoutCaptures, "captures"), false, "the application snapshot must not include captures");
 
-  await noteEditor.getByRole("button", { name: "Make question", exact: true }).click();
+  await noteEditor.getByRole("button", { name: "Cancel", exact: true }).click();
+  await window.getByRole("button", { name: "Finish lecture", exact: true }).click();
+  await window.getByRole("button", { name: "Add a question", exact: true }).click();
   await window.getByRole("dialog", { name: "Create question", exact: true }).waitFor();
-  const seededCardEditor = window.locator(".card-editor-dialog");
-  assert.match(await seededCardEditor.getByRole("textbox", { name: "Sentence containing the answer", exact: true }).inputValue(), /Leading and trailing spaces stay here/);
-  await seededCardEditor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await seededCardEditor.waitFor({ state: "detached" });
-  assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "opening and cancelling a note-seeded card must not mutate the capture");
+  await window.locator(".card-editor-dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "closing the note editor must not mutate the capture");
 
   await app.close();
   app = await launch();

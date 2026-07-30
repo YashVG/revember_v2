@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, CircleAlert, FileText, LoaderCircle, Play, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CircleAlert, FileText, LoaderCircle, Play, Sparkles } from "lucide-react";
 import type { AppSnapshot, DueReviewItem, LearnerCapture } from "../../../../shared/types";
 import { dueReviewItems } from "../../../../shared/domain";
 import { Eyebrow } from "./ui";
@@ -14,12 +14,12 @@ type ReviewItems = ReturnType<typeof dueReviewItems>;
 type HomePageProps = {
   snapshot: AppSnapshot;
   onOpenNotes: (topicID?: string) => void;
-  onCreateQuestion: () => void;
+  onCreateNote: () => void;
   onStartReview: (items: DueReviewItem[]) => void;
   onRegisterBeforeLeave: (handler: (() => Promise<boolean>) | undefined) => void;
 };
 
-export function HomePage({ snapshot, onOpenNotes, onCreateQuestion, onStartReview, onRegisterBeforeLeave }: HomePageProps) {
+export function HomePage({ snapshot, onOpenNotes, onCreateNote, onStartReview, onRegisterBeforeLeave }: HomePageProps) {
   const [topicID, setTopicID] = useState(snapshot.topics[0]?.id ?? "");
   const [noteText, setNoteText] = useState("");
   const [savedCapture, setSavedCapture] = useState<LearnerCapture>();
@@ -135,7 +135,7 @@ export function HomePage({ snapshot, onOpenNotes, onCreateQuestion, onStartRevie
         now={today}
         onStartReview={onStartReview}
         onOpenNotes={onOpenNotes}
-        onCreateQuestion={onCreateQuestion}
+        onCreateNote={onCreateNote}
       />
 
       {!due.length && (
@@ -204,7 +204,7 @@ type StudyFocusProps = {
   due: ReviewItems;
   onStartReview: (items: DueReviewItem[]) => void;
   onOpenNotes: (topicID?: string) => void;
-  onCreateQuestion: () => void;
+  onCreateNote: () => void;
   now: Date;
 };
 
@@ -213,7 +213,7 @@ function StudyFocus({
   due,
   onStartReview,
   onOpenNotes,
-  onCreateQuestion,
+  onCreateNote,
   now
 }: StudyFocusProps) {
   const focus = useMemo(() => buildHomeStudyFocus(snapshot, due, now), [due, now, snapshot]);
@@ -221,7 +221,7 @@ function StudyFocus({
   const reviewDescription = `${estimateReviewMinutes(focus.reviewItems.length)} · ${formatTopicList(focus.reviewItems)}`;
   const primaryAction = hasReview
     ? () => onStartReview(focus.reviewItems)
-    : () => onOpenNotes();
+    : onCreateNote;
   const practiceAttention = () => {
     if (!focus.attention) return;
     if (focus.attention.reviewItems.length) onStartReview(focus.attention.reviewItems);
@@ -281,8 +281,7 @@ function StudyFocus({
       <section className="study-focus-continue" aria-labelledby="study-focus-continue-title">
         <h2 id="study-focus-continue-title">Keep learning</h2>
         <div>
-          <button type="button" onClick={() => onOpenNotes()}><FileText />Write a note</button>
-          <button type="button" onClick={onCreateQuestion}><Plus />Create a question</button>
+          <button type="button" onClick={onCreateNote}><FileText />Write a note</button>
         </div>
       </section>
 
