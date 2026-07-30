@@ -2,7 +2,7 @@ export type KnowledgeRootChangeResult<T> =
   | { changed: false }
   | { changed: true; snapshot: T };
 
-export type RootScopedView = "home" | "topic" | "questions";
+export type RootScopedView = "home" | "topic" | "notes" | "questions";
 
 export function isKnowledgeRootChangeAllowed(view: RootScopedView, hasActiveRootScopedWorkflow: boolean): boolean {
   return view === "home" && !hasActiveRootScopedWorkflow;

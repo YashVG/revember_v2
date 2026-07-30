@@ -1,6 +1,6 @@
 # Local Intelligence Research Record
 
-**Status: historical research record from 25 July 2026.** The extracted study-response experiment described here has been removed. This record remains only as design history; note organization and topic-note generation have since been removed from the current product surface. The remaining local AI surface is review-gated distractor assistance.
+**Status: historical research record from 25 July 2026.** The extracted study-response experiment described here has been removed. This record remains only as design history; note section organization remains in the Notes reader, while topic-note generation has been removed from the current product surface. The other local AI surface is review-gated distractor assistance.
 
 ## Superseded study-response experiment
 
@@ -35,4 +35,4 @@ If implemented, compression needs a distinct author-provided source and explicit
 
 ## Current boundary
 
-The current product keeps authored questions, review scheduling, and review-gated distractor suggestions. Add compression only as a separate source-and-recall feature after real-material evaluation validates that loop.
+The current product keeps learner note capture, source section organization, authored questions, review scheduling, and review-gated distractor suggestions. Add compression only as a separate source-and-recall feature after real-material evaluation validates that loop.

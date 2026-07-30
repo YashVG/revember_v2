@@ -4,11 +4,12 @@
 
 The original visual target and Electron captures were local working artifacts. They are not tracked in this repository, so this file is not a reproducible current visual baseline. The compared implementation also included calendar and exam-planner surfaces that have since been removed from the renderer.
 
-The Notes workspace, lecture-note capture, AI topic-note, and visible concept-panel surfaces described in later sections have also been removed from the current renderer.
+The Notes workspace and lecture-note capture described in later sections are active again. The AI topic-note and visible concept-panel surfaces remain removed from the current renderer.
 
 ## Evidence That Still Applies
 
 - The app retains its dark macOS desktop shell, topic navigation, and Today focus drawer.
+- The app also retains the Notes workspace, lecture-note editor, and source reader; topic-note generation and manual concept-panel surfaces remain out of scope.
 - The interface uses the system font stack, Lucide icons, visible keyboard focus, and responsive layout rules.
 
 ## Superseded Findings
