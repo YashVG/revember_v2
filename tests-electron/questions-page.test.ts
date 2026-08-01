@@ -30,7 +30,7 @@ function topic(id: string, revision = 1): KnowledgeTopic {
 }
 
 describe("Questions review queue", () => {
-  test("separates due, new or revised, and future-scheduled questions", () => {
+  test("separates due, new, revised, and future-scheduled questions", () => {
     const due = topic("due");
     const fresh = topic("fresh");
     const revised = topic("revised", 2);
@@ -51,8 +51,9 @@ describe("Questions review queue", () => {
     const queues = buildQuestionReviewQueues(snapshot, new Date("2026-07-15T00:00:00.000Z"));
 
     expect(queues.due.map((item) => item.topicID)).toEqual(["due"]);
-    expect(queues.fresh.map((item) => item.topicID)).toEqual(["fresh", "revised"]);
-    expect(queues.fresh.find((item) => item.topicID === "revised")?.isRevised).toBe(true);
+    expect(queues.fresh.map((item) => item.topicID)).toEqual(["fresh"]);
+    expect(queues.revised.map((item) => item.topicID)).toEqual(["revised"]);
+    expect(queues.revised[0].isRevised).toBe(true);
     expect(queues.scheduled.map((item) => item.topicID)).toEqual(["scheduled"]);
     expect(queues.scheduled[0].isScheduled).toBe(true);
   });

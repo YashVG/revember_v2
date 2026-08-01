@@ -1,4 +1,4 @@
-import { CalendarClock, CircleHelp, Clock3, Plus, Play, Sparkles } from "lucide-react";
+import { CalendarClock, CircleHelp, Clock3, Plus, Play, RefreshCw, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AppSnapshot, DueReviewItem, KnowledgeTopic, Question, ReviewCardState } from "../../../../shared/types";
@@ -15,6 +15,7 @@ type QuestionEntry = {
 export type QuestionReviewQueues = {
   due: DueReviewItem[];
   fresh: DueReviewItem[];
+  revised: DueReviewItem[];
   scheduled: DueReviewItem[];
 };
 
@@ -31,20 +32,21 @@ export function questionReviewState(
 }
 
 export function buildQuestionReviewQueues(snapshot: Pick<AppSnapshot, "topics" | "progress">, now = new Date()): QuestionReviewQueues {
-  const queues: QuestionReviewQueues = { due: [], fresh: [], scheduled: [] };
+  const queues: QuestionReviewQueues = { due: [], fresh: [], revised: [], scheduled: [] };
   for (const topic of snapshot.topics) {
     for (const question of activeQuestions(topic)) {
       const schedule = snapshot.progress.topics[topic.id]?.reviewCardsByQuestionID[question.id];
       const base = { id: `${topic.id}::${question.id}`, topicID: topic.id, questionID: question.id, topic, question };
       const state = questionReviewState(question, schedule, now);
       if (state === "new") queues.fresh.push({ ...base, isNew: true, isRevised: false });
-      else if (state === "revised") queues.fresh.push({ ...base, isNew: false, isRevised: true });
+      else if (state === "revised") queues.revised.push({ ...base, isNew: false, isRevised: true });
       else if (state === "due") queues.due.push({ ...base, dueAt: schedule!.dueAt, isNew: false, isRevised: false });
       else queues.scheduled.push({ ...base, dueAt: schedule!.dueAt, isNew: false, isRevised: false, isScheduled: true });
     }
   }
   queues.due.sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? "") || left.id.localeCompare(right.id));
   queues.fresh.sort((left, right) => left.id.localeCompare(right.id));
+  queues.revised.sort((left, right) => left.id.localeCompare(right.id));
   queues.scheduled.sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? "") || left.id.localeCompare(right.id));
   return queues;
 }
@@ -64,7 +66,7 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
     question,
     schedule: snapshot.progress.topics[topic.id]?.reviewCardsByQuestionID[question.id]
   })));
-  const queueTotal = queues.due.length + queues.fresh.length + queues.scheduled.length;
+  const queueTotal = queues.due.length + queues.fresh.length + queues.revised.length + queues.scheduled.length;
 
   return (
     <div className="questions-page">
@@ -94,6 +96,7 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
         </div>
         <div className="questions-review-actions">
           <QueueAction label="Due now" count={queues.due.length} description="Needs review" icon={<Clock3 />} onStart={() => onStartReview(queues.due)} />
+          <QueueAction label="Needs refresh" count={queues.revised.length} description="Updated since review" icon={<RefreshCw />} revised onStart={() => onStartReview(queues.revised)} />
           <QueueAction label="New" count={queues.fresh.length} description="Not seen yet" icon={<Sparkles />} onStart={() => onStartReview(queues.fresh)} />
           <QueueAction label="Scheduled" count={queues.scheduled.length} description="Coming up" icon={<CalendarClock />} scheduled onStart={() => onStartReview(queues.scheduled)} />
         </div>
@@ -142,13 +145,15 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
   );
 }
 
-function questionReviewStateLabel(state: QuestionReviewState): "Due now" | "New" | "Scheduled" {
+function questionReviewStateLabel(state: QuestionReviewState): "Due now" | "Needs refresh" | "New" | "Scheduled" {
   if (state === "due") return "Due now";
+  if (state === "revised") return "Needs refresh";
   return state === "scheduled" ? "Scheduled" : "New";
 }
 
-function questionReviewStateClass(state: QuestionReviewState): "due" | "new" | "scheduled" {
+function questionReviewStateClass(state: QuestionReviewState): "due" | "new" | "revised" | "scheduled" {
   if (state === "due") return "due";
+  if (state === "revised") return "revised";
   return state === "scheduled" ? "scheduled" : "new";
 }
 
@@ -180,18 +185,19 @@ function QuestionTopicPicker({ topics, onClose, onSelect }: {
   );
 }
 
-function QueueAction({ label, count, description, icon, scheduled = false, onStart }: {
-  label: "Due now" | "New" | "Scheduled";
+function QueueAction({ label, count, description, icon, scheduled = false, revised = false, onStart }: {
+  label: "Due now" | "Needs refresh" | "New" | "Scheduled";
   count: number;
   description: string;
   icon: ReactNode;
   scheduled?: boolean;
+  revised?: boolean;
   onStart: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`question-queue-action ${scheduled ? "scheduled" : ""}`}
+      className={`question-queue-action ${scheduled ? "scheduled" : ""} ${revised ? "revised" : ""}`}
       disabled={count === 0}
       aria-label={`Review ${label.toLowerCase()} (${count})`}
       onClick={onStart}

@@ -19,7 +19,7 @@ Revember is a macOS desktop app for learners who want a local learning loop: cap
 
 It is built with Electron, React, and TypeScript. An optional local [Ollama](https://ollama.com/) connection can suggest distractors while keeping the learner in control of every saved change.
 
-> **Status:** active pre-release development. Revember can be built and packaged locally for macOS; signed and notarized public releases are not available yet.
+> **Status:** portfolio-ready local demo. The app and its optional MCP server pass the repository verification checks, and the macOS package passes an unpacked-app smoke test. Public distribution is still pre-release: the local build is ad-hoc signed, not Apple-signed or notarized.
 
 ## How it works
 
@@ -37,7 +37,7 @@ Notes → readable source sections → authored questions → spaced review → 
 - Fill-in-the-blank recall cards with answer explanations and revision-aware scheduling.
 - A Notes reader with section navigation for long material.
 - Question authoring from a finished note, a topic, or the Questions page.
-- A focused queue for due, new, and scheduled questions.
+- A focused queue for due, needs-refresh, new, and scheduled questions.
 - Local backups, checkpoints, deep links, tray state, and opt-in reminders.
 - An optional stdio MCP server for revision-checked local knowledge authoring.
 
@@ -109,6 +109,13 @@ export REVEMBER_PROGRESS_PATH="$HOME/Library/Application Support/RevemberV2/prog
 | `git diff --check` | Whitespace and conflict-marker hygiene |
 
 Create an unpacked macOS app under `release/` with `npm run package`. `npm run dist` creates DMG and ZIP artifacts; public distribution still needs Apple signing and notarization credentials.
+
+The current readiness checks are:
+
+- `npm run verify` — app typecheck, all unit/integration tests, production build, MCP checks, and stdio transport smoke test.
+- `npm run test:package` — packaged macOS app build and unpacked-app smoke test.
+
+The full Electron end-to-end flow remains a separate check because it exercises the installed app and local data paths.
 
 ## Project map
 

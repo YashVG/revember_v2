@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import {
   segmentNoteDeterministically,
   type NoteReadingChunk,
@@ -27,9 +27,10 @@ type NoteSourcePresentation = {
 
 type NoteSourceReaderProps = {
   capture: LearnerCapture;
+  onCreateQuestionFromSection?: (sentence: string) => void;
 };
 
-export function NoteSourceReader({ capture }: NoteSourceReaderProps) {
+export function NoteSourceReader({ capture, onCreateQuestionFromSection }: NoteSourceReaderProps) {
   const deterministic = useMemo(
     () => segmentNoteDeterministically(capture.rawText),
     [capture.rawText]
@@ -211,6 +212,15 @@ export function NoteSourceReader({ capture }: NoteSourceReaderProps) {
 
           <div className="note-source-navigation" aria-label="Source section navigation">
             <span>{readAll ? "All source" : `${activeIndex + 1} of ${sections.length}`}</span>
+            {!readAll && !presentation.metadataOnly && activeSection?.text.trim() && onCreateQuestionFromSection && (
+              <button
+                type="button"
+                className="note-source-create-question"
+                onClick={() => onCreateQuestionFromSection(activeSection.text.trim())}
+              >
+                <Plus /> Create question from this section
+              </button>
+            )}
             <button type="button" disabled={readAll || activeIndex === 0} onClick={() => navigateTo(activeIndex - 1)}>
               <ChevronLeft /> Previous
             </button>
@@ -234,7 +244,8 @@ function presentNoteSource(rawText: string): NoteSourcePresentation {
   let summary: string | undefined;
 
   while (index < lines.length) {
-    const line = lines[index].trim();
+    const rawLine = lines[index];
+    const line = rawLine.trim();
     if (!line) {
       index += 1;
       continue;
@@ -254,7 +265,15 @@ function presentNoteSource(rawText: string): NoteSourcePresentation {
     if (line === "Concepts:" || line === "Existing review questions:") {
       recognized += 1;
       index += 1;
-      while (index < lines.length && (!lines[index].trim() || lines[index].trim().startsWith("-"))) index += 1;
+      while (index < lines.length) {
+        const sectionLine = lines[index];
+        const sectionText = sectionLine.trim();
+        if (!sectionText || sectionLine.startsWith(" ") || sectionLine.startsWith("\t") || sectionText.startsWith("-")) {
+          index += 1;
+          continue;
+        }
+        break;
+      }
       continue;
     }
     break;

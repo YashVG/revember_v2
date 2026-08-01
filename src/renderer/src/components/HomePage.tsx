@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, CircleAlert, FileText, LoaderCircle, Play, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, FileText, LoaderCircle, Play, Sparkles } from "lucide-react";
 import type { AppSnapshot, DueReviewItem, LearnerCapture } from "../../../../shared/types";
 import { dueReviewItems } from "../../../../shared/domain";
 import { Eyebrow } from "./ui";
@@ -130,11 +130,8 @@ export function HomePage({ snapshot, onOpenNotes, onCreateNote, onStartReview, o
   return (
     <div className={`home-page home-study-page ${due.length ? "has-review" : "has-capture"}`}>
       <StudyFocus
-        snapshot={snapshot}
         due={due}
-        now={today}
         onStartReview={onStartReview}
-        onOpenNotes={onOpenNotes}
         onCreateNote={onCreateNote}
       />
 
@@ -200,33 +197,22 @@ export function HomePage({ snapshot, onOpenNotes, onCreateNote, onStartReview, o
 }
 
 type StudyFocusProps = {
-  snapshot: AppSnapshot;
   due: ReviewItems;
   onStartReview: (items: DueReviewItem[]) => void;
-  onOpenNotes: (topicID?: string) => void;
   onCreateNote: () => void;
-  now: Date;
 };
 
 function StudyFocus({
-  snapshot,
   due,
   onStartReview,
-  onOpenNotes,
-  onCreateNote,
-  now
+  onCreateNote
 }: StudyFocusProps) {
-  const focus = useMemo(() => buildHomeStudyFocus(snapshot, due, now), [due, now, snapshot]);
+  const focus = useMemo(() => buildHomeStudyFocus(due), [due]);
   const hasReview = focus.reviewItems.length > 0;
   const reviewDescription = `${estimateReviewMinutes(focus.reviewItems.length)} · ${formatTopicList(focus.reviewItems)}`;
   const primaryAction = hasReview
     ? () => onStartReview(focus.reviewItems)
     : onCreateNote;
-  const practiceAttention = () => {
-    if (!focus.attention) return;
-    if (focus.attention.reviewItems.length) onStartReview(focus.attention.reviewItems);
-    else onOpenNotes(focus.attention.topicID);
-  };
 
   return (
     <section className="study-focus" aria-labelledby="study-focus-title">
@@ -266,18 +252,6 @@ function StudyFocus({
         )}
       </article>
 
-      <section className={`study-focus-attention ${focus.attention ? "has-attention" : ""}`} aria-label="Attention summary">
-        <CircleAlert aria-hidden="true" />
-        <strong>{focus.attention ? "Needs attention" : "On track"}</strong>
-        <span>{focus.attention?.title ?? "No recent misses"}</span>
-        <small>{focus.attention ? `${focus.attention.misses} recent ${focus.attention.misses === 1 ? "miss" : "misses"}` : "Keep your current review rhythm"}</small>
-        {focus.attention && (
-          <button type="button" onClick={practiceAttention}>
-            Practice this topic <ArrowRight />
-          </button>
-        )}
-      </section>
-
       <section className="study-focus-continue" aria-labelledby="study-focus-continue-title">
         <h2 id="study-focus-continue-title">Keep learning</h2>
         <div>
@@ -285,7 +259,6 @@ function StudyFocus({
         </div>
       </section>
 
-      <footer className="study-focus-footer">Based on the last 7 days</footer>
     </section>
   );
 }
@@ -293,54 +266,13 @@ function StudyFocus({
 type HomeStudyFocus = {
   reviewItems: DueReviewItem[];
   reviewState: "due" | "ready";
-  attention?: {
-    title: string;
-    misses: number;
-    topicID: string;
-    reviewItems: DueReviewItem[];
-  };
 };
 
-function buildHomeStudyFocus(snapshot: AppSnapshot, due: ReviewItems, now: Date): HomeStudyFocus {
+function buildHomeStudyFocus(due: ReviewItems): HomeStudyFocus {
   const scheduled = due.filter((item) => !item.isNew && !item.isRevised);
   const reviewItems = scheduled.length ? scheduled : due;
-  const currentQuestionRevisions = new Map(snapshot.topics.flatMap((topic) => (
-    topic.questions.map((question) => [`${topic.id}:${question.id}`, question.revision] as const)
-  )));
-  const cutoff = now.getTime() - 7 * 86_400_000;
-  const groups = new Map<string, { title: string; misses: number; topicID: string; conceptID?: string }>();
 
-  for (const event of snapshot.progress.reviewEvents) {
-    if (event.isCorrect || new Date(event.reviewedAt).getTime() < cutoff) continue;
-    if (currentQuestionRevisions.get(`${event.topicID}:${event.questionID}`) !== event.questionRevision) continue;
-    const topic = snapshot.topics.find((candidate) => candidate.id === event.topicID);
-    const conceptID = event.conceptIDs[0];
-    const concept = conceptID ? topic?.concepts.find((candidate) => candidate.id === conceptID) : undefined;
-    const key = concept ? `${event.topicID}:${concept.id}` : `topic:${event.topicID}`;
-    const current = groups.get(key) ?? {
-      title: concept?.title ?? topic?.title ?? "Recent questions",
-      misses: 0,
-      topicID: event.topicID,
-      ...(concept ? { conceptID: concept.id } : {})
-    };
-    current.misses += 1;
-    groups.set(key, current);
-  }
-
-  const strongestNeed = [...groups.values()]
-    .sort((left, right) => right.misses - left.misses || left.title.localeCompare(right.title))[0];
-  const attention = strongestNeed && {
-    title: strongestNeed.title,
-    misses: strongestNeed.misses,
-    topicID: strongestNeed.topicID,
-    reviewItems: reviewItems.filter((item) => (
-      strongestNeed.conceptID
-        ? item.question.conceptIDs.includes(strongestNeed.conceptID)
-        : item.topicID === strongestNeed.topicID
-    ))
-  };
-
-  return { reviewItems, reviewState: scheduled.length ? "due" : "ready", ...(attention ? { attention } : {}) };
+  return { reviewItems, reviewState: scheduled.length ? "due" : "ready" };
 }
 
 function estimateReviewMinutes(questionCount: number): string {
