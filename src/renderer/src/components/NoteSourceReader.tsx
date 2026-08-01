@@ -234,7 +234,8 @@ function presentNoteSource(rawText: string): NoteSourcePresentation {
   let summary: string | undefined;
 
   while (index < lines.length) {
-    const line = lines[index].trim();
+    const rawLine = lines[index];
+    const line = rawLine.trim();
     if (!line) {
       index += 1;
       continue;
@@ -254,7 +255,15 @@ function presentNoteSource(rawText: string): NoteSourcePresentation {
     if (line === "Concepts:" || line === "Existing review questions:") {
       recognized += 1;
       index += 1;
-      while (index < lines.length && (!lines[index].trim() || lines[index].trim().startsWith("-"))) index += 1;
+      while (index < lines.length) {
+        const sectionLine = lines[index];
+        const sectionText = sectionLine.trim();
+        if (!sectionText || sectionLine.startsWith(" ") || sectionLine.startsWith("\t") || sectionText.startsWith("-")) {
+          index += 1;
+          continue;
+        }
+        break;
+      }
       continue;
     }
     break;
