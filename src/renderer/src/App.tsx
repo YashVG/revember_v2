@@ -181,7 +181,10 @@ export function App() {
         <ReviewSession
           items={reviewItems}
           onSnapshot={setSnapshot}
-          onFinish={() => setReviewItems(null)}
+          onFinish={() => {
+            setReviewItems(null);
+            setGlobalView("home");
+          }}
           onOpenCheckpoint={() => setCheckpointOpen(true)}
         />
       ) : (
