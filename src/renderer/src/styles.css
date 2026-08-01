@@ -82,7 +82,7 @@ svg { flex: none; }
 .questions-review-queue-copy { min-width: 0; display: grid; align-content: center; }
 .questions-review-queue-copy h2 { margin: 5px 0 7px; color: var(--ink); font-size: 15px; letter-spacing: -.15px; }
 .questions-queue-total { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-.questions-review-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.questions-review-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .question-queue-action { min-width: 0; min-height: 66px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--control-border); border-radius: 8px; background: rgba(255,255,255,.02); color: var(--secondary); padding: 9px 10px; text-align: left; cursor: pointer; }
 .question-queue-action:hover:not(:disabled) { border-color: rgba(82,209,218,.42); background: rgba(82,209,218,.055); color: var(--ink); }
 .question-queue-action:disabled { cursor: default; opacity: .45; }
@@ -95,6 +95,7 @@ svg { flex: none; }
 .question-queue-copy small { color: var(--muted); font-size: 8px; letter-spacing: .45px; text-transform: uppercase; }
 .question-queue-action > svg:last-child { width: 12px; color: var(--secondary); }
 .question-queue-action.scheduled .question-queue-icon { background: rgba(230,163,76,.1); color: var(--amber); }
+.question-queue-action.revised .question-queue-icon { background: rgba(230,163,76,.1); color: var(--amber); }
 .questions-list { max-width: 960px; display: grid; gap: 11px; }
 .question-library-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 17px; }
 .question-library-copy { min-width: 0; }
@@ -103,6 +104,7 @@ svg { flex: none; }
 .question-library-status { color: var(--secondary); font-size: 10px; font-weight: 650; }
 .question-library-status.new { color: var(--cyan); }
 .question-library-status.due { color: var(--amber); }
+.question-library-status.revised { color: var(--amber); }
 .question-library-card h2 { margin: 9px 0 12px; color: var(--ink); font-size: 14px; line-height: 1.4; }
 .question-library-concepts { display: flex; flex-wrap: wrap; gap: 2px; }
 .question-library-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; border: 1px solid var(--input-border); border-radius: 7px; background: var(--control-lift); color: var(--secondary); padding: 8px 10px; font-size: 10px; cursor: pointer; }
@@ -819,6 +821,9 @@ body { font-size: 14px; }
 .note-source-navigation button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 8px; background: transparent; color: var(--secondary); padding: 9px 12px; font-size: 12px; font-weight: 650; cursor: pointer; }
 .note-source-navigation button:hover:not(:disabled) { background: rgba(255,255,255,.045); color: var(--ink); }
 .note-source-navigation button:last-child { color: var(--cyan); }
+.note-source-navigation .note-source-create-question { border: 1px solid rgba(82,209,218,.24); background: rgba(82,209,218,.06); color: var(--cyan); }
+.note-source-navigation .note-source-create-question:hover:not(:disabled) { border-color: rgba(82,209,218,.5); background: rgba(82,209,218,.1); color: #99edf1; }
+.note-source-navigation .note-source-create-question svg { width: 14px; height: 14px; }
 .note-source-navigation button:disabled { cursor: default; opacity: .35; }
 .note-source-navigation button svg { width: 16px; height: 16px; }
 
@@ -854,7 +859,10 @@ body { font-size: 14px; }
   .note-source-metadata { padding: 18px; }
   .note-source-metadata-heading > strong { font-size: 15px; }
   .note-source-metadata-row > p, .note-source-metadata-empty { font-size: 13px; }
-  .note-source-navigation { min-height: 58px; padding-inline: 18px; }
+  .note-source-navigation { min-height: 58px; flex-wrap: wrap; padding-inline: 18px; }
+  .note-source-navigation > span { flex: 1 0 100%; margin-right: 0; }
+  .note-source-navigation .note-source-create-question { flex: 1 0 100%; }
+  .note-source-navigation button:not(.note-source-create-question) { flex: 1 1 0; }
 }
 
 /* Notes reading density: reserve the side rail for navigation and give the source a single, calm reading column. */

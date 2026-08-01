@@ -41,7 +41,7 @@ type NotesPageProps = {
   initialTopicID?: string;
   initialCaptureID?: string;
   initialCreate?: boolean;
-  onCreateQuestionForTopic: (topicID: string) => void;
+  onCreateQuestionForTopic: (topicID: string, sentence?: string) => void;
   onRegisterBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
 };
 
@@ -326,7 +326,7 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing,
   onArchive: () => void;
   onFinish: () => void;
   finishing: boolean;
-  onCreateQuestionForTopic: (topicID: string) => void;
+  onCreateQuestionForTopic: (topicID: string, sentence?: string) => void;
 }) {
   return (
     <article className="note-reader-content">
@@ -351,14 +351,19 @@ function NoteReader({ capture, snapshot, onEdit, onArchive, onFinish, finishing,
         </div>
       </header>
       <div className="note-reader-body">
-        <NoteSourceReader capture={capture} />
+        <NoteSourceReader
+          capture={capture}
+          onCreateQuestionFromSection={capture.status === "ready"
+            ? (sentence) => onCreateQuestionForTopic(capture.topicID, sentence)
+            : undefined}
+        />
       </div>
       {capture.status === "ready" && (
         <section className="note-reader-next-step" aria-labelledby="note-reader-next-step-heading">
           <div>
             <Eyebrow id="note-reader-next-step-heading">Next step</Eyebrow>
             <h3>Turn this note into recall</h3>
-            <p>Choose the ideas worth remembering and add them to your question bank.</p>
+            <p>Use the current section as a starting point, or add a blank question.</p>
           </div>
           <button className="primary" type="button" onClick={() => onCreateQuestionForTopic(capture.topicID)}>
             <Plus /> Add a question

@@ -252,10 +252,10 @@ export function App() {
               initialTopicID={notesTopicID}
               initialCaptureID={notesCaptureID}
               initialCreate={notesCreateRequested}
-              onCreateQuestionForTopic={(topicID) => void leaveCurrent(() => {
+              onCreateQuestionForTopic={(topicID, sentence) => void leaveCurrent(() => {
                 setSelectedTopicID(topicID);
                 setTopicView("questions");
-                setCardSeed({ topicID, token: crypto.randomUUID() });
+                setCardSeed({ topicID, ...(sentence ? { sentence } : {}), token: crypto.randomUUID() });
                 setGlobalView("topic");
               })}
               onRegisterBeforeLeave={registerNotesBeforeLeave}

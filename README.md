@@ -37,7 +37,7 @@ Notes → readable source sections → authored questions → spaced review → 
 - Fill-in-the-blank recall cards with answer explanations and revision-aware scheduling.
 - A Notes reader with section navigation for long material.
 - Question authoring from a finished note, a topic, or the Questions page.
-- A focused queue for due, new, and scheduled questions.
+- A focused queue for due, needs-refresh, new, and scheduled questions.
 - Local backups, checkpoints, deep links, tray state, and opt-in reminders.
 - An optional stdio MCP server for revision-checked local knowledge authoring.
 

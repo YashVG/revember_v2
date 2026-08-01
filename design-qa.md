@@ -1,6 +1,6 @@
 # Today Surface Design QA
 
-**Status: historical comparison record, superseded 26 July 2026.**
+**Status: archived comparison record, superseded 1 August 2026.** This file is not a product specification; the historical entries below intentionally mention removed surfaces and untracked screenshots.
 
 The original visual target and Electron captures were local working artifacts. They are not tracked in this repository, so this file is not a reproducible current visual baseline. The compared implementation also included calendar and exam-planner surfaces that have since been removed from the renderer.
 
@@ -36,10 +36,9 @@ git diff --check
 Before publishing a portfolio or release build, capture new screenshots from the packaged app and record:
 
 - the exact commit and viewport;
-- Today with due and empty-queue states;
-- question authoring and review;
-- Check-In across more than one question;
-- Graph zoom and navigation;
+- Home with due and empty-queue states;
+- Notes reading, section-to-question authoring, and question review;
+- the Questions queue with due, needs-refresh, new, and scheduled states;
 - narrow-window behavior.
 
 Until those artifacts are checked in or linked from a release, visual fidelity remains unverified.

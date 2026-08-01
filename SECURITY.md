@@ -6,12 +6,12 @@ The supported release surface is currently macOS. The renderer stays sandboxed a
 
 ## Dependency Audit Status
 
-As of 26 July 2026:
+As of 1 August 2026:
 
 - the root production dependency audit reports no known vulnerabilities;
-- the MCP production tree reports two moderate npm findings for `@modelcontextprotocol/sdk` and its transitive `@hono/node-server` dependency. Both entries track the same Windows `serve-static` path-traversal advisory.
+- the MCP production dependency audit also reports no known vulnerabilities.
 
-Revember's MCP server uses `StdioServerTransport` only. It does not start an HTTP server or expose Hono static-file serving, so the affected route is not reachable in the supported configuration. The findings remain monitored rather than dismissed. Re-evaluate the SDK when an upstream patched version is compatible, and treat any future HTTP transport as a security-boundary change.
+Revember's MCP server uses `StdioServerTransport` only and does not expose an HTTP transport. Treat any future HTTP transport as a security-boundary change and repeat both production audits before shipping it.
 
 ## Reporting a Vulnerability
 

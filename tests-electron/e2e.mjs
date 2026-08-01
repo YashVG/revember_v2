@@ -36,15 +36,8 @@ try {
   await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
   await window.getByRole("button", { name: /Review due now/ }).waitFor();
   await window.getByRole("button", { name: "Home", exact: true }).click();
-  const lectureNote = window.getByRole("textbox", { name: "Lecture note", exact: true });
-  await lectureNote.waitFor();
-  await lectureNote.fill("A quick note from the homepage must stay local.");
-  await window.getByRole("status").filter({ hasText: /^Saved$/ }).waitFor();
-  const homepageCaptureFiles = (await readdir(path.join(knowledgeRoot, "captures"))).filter((name) => name.endsWith(".json"));
-  assert.equal(homepageCaptureFiles.length, 1, "the lecture note pad must save a local draft automatically");
-  const homepageCapture = JSON.parse(await readFile(path.join(knowledgeRoot, "captures", homepageCaptureFiles[0]), "utf8"));
-  assert.equal(homepageCapture.rawText, "A quick note from the homepage must stay local.");
-  await window.screenshot({ path: path.join(root, "work", "homepage-note-saved-e2e.png"), fullPage: true });
+  await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
+  await window.screenshot({ path: path.join(root, "work", "homepage-study-focus-e2e.png"), fullPage: true });
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
   await window.getByRole("button", { name: "Topics", exact: true }).click();
   await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
@@ -158,9 +151,9 @@ try {
 
   const captureDirectory = path.join(knowledgeRoot, "captures");
   const captureFiles = (await readdir(captureDirectory)).filter((name) => name.endsWith(".json"));
-  assert.deepEqual(captureFiles.length, 2);
+  assert.deepEqual(captureFiles.length, 1);
   const captureFile = (await Promise.all(captureFiles.map(async (fileName) => ({ fileName, capture: JSON.parse(await readFile(path.join(captureDirectory, fileName), "utf8")) })))).find(({ capture }) => capture.title === "BLE exact-text note");
-  assert.ok(captureFile, "the explicitly authored note must be present alongside the homepage draft");
+  assert.ok(captureFile, "the explicitly authored note must be present");
   const capturePath = path.join(captureDirectory, captureFile.fileName);
   const savedCaptureBytes = await readFile(capturePath);
   const savedCapture = JSON.parse(savedCaptureBytes.toString("utf8"));
@@ -170,7 +163,7 @@ try {
   assert.equal((await stat(capturePath)).mode & 0o777, 0o600, "private capture files must be owner-readable only");
 
   const captureSummaries = await window.evaluate(() => window.revember.listCaptureSummaries());
-  assert.equal(captureSummaries.length, 2);
+  assert.equal(captureSummaries.length, 1);
   const authoredSummary = captureSummaries.find((capture) => capture.title === "BLE exact-text note");
   assert.ok(authoredSummary);
   assert.equal(Object.hasOwn(authoredSummary, "rawText"), false, "capture summaries must not expose raw note text");
@@ -179,7 +172,7 @@ try {
 
   await noteEditor.getByRole("button", { name: "Cancel", exact: true }).click();
   await window.getByRole("button", { name: "Finish lecture", exact: true }).click();
-  await window.getByRole("button", { name: "Add a question", exact: true }).click();
+  await window.getByRole("button", { name: "Create question from this section", exact: true }).click();
   await window.getByRole("dialog", { name: "Create question", exact: true }).waitFor();
   await window.locator(".card-editor-dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   assert.deepEqual(await readFile(capturePath), savedCaptureBytes, "closing the note editor must not mutate the capture");
