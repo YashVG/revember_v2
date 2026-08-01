@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/brand/revember-logo.svg" alt="Revember" width="512">
-</p>
+
 
 <p align="center">
   <strong>A private, local-first practice layer for turning technical material into deliberate recall.</strong>
