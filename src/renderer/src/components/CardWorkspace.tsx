@@ -18,6 +18,8 @@ export type CardForm = {
   explanation: string;
 };
 
+export type CardPromptStyle = "cloze" | "direct";
+
 export function fillGeneratedDistractors(
   existing: CardForm["distractors"],
   generated: readonly string[],
@@ -78,7 +80,6 @@ function initialForm(question?: Question, seedSentence?: string): CardForm {
 
 export function buildExistingCardEdit(
   question: Question,
-  initial: CardForm,
   form: CardForm,
   storedPrompt: string
 ): QuestionEdit | undefined {
@@ -115,10 +116,19 @@ function questionEditFrom(question: Question): QuestionEdit {
   };
 }
 
-export function storedPromptForCard(question: Question | undefined, sentence: string, answer: string): string {
+export function promptStyleForCard(question: Question | undefined): CardPromptStyle {
+  return question?.prompt.includes("________") ? "cloze" : "direct";
+}
+
+export function storedPromptForCard(
+  question: Question | undefined,
+  sentence: string,
+  answer: string,
+  promptStyle: CardPromptStyle = question ? promptStyleForCard(question) : "cloze"
+): string {
   const prompt = sentence.trim();
   const trimmedAnswer = answer.trim();
-  if (question && !question.prompt.includes("________")) return prompt;
+  if (promptStyle === "direct") return prompt;
   return trimmedAnswer ? prompt.replace(trimmedAnswer, "________") : prompt;
 }
 
@@ -211,7 +221,7 @@ export function CardWorkspace({
                 </div>
               </div>
               <div className="card-actions">
-                <button type="button" onClick={() => onReview(question)}><Play /> Review</button>
+                <button type="button" onClick={() => onReview(question)}><Play /> Practice</button>
                 <button type="button" onClick={() => startEditing(question)}><Pencil /> Edit</button>
                 <button
                   type="button"
@@ -300,6 +310,7 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
 }) {
   const [initial] = useState<CardForm>(() => initialForm(question, seedSentence));
   const [form, setForm] = useState<CardForm>(initial);
+  const [promptStyle, setPromptStyle] = useState<CardPromptStyle>(() => question ? promptStyleForCard(question) : "cloze");
   const { pending: saving, error, setError, run: saveCard } = useAsyncAction();
   const {
     pending: generatingDistractors,
@@ -308,13 +319,13 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
     run: generateDistractorsForCard
   } = useAsyncAction();
   const [generatedDistractors, setGeneratedDistractors] = useState(false);
-  const pendingStoredPrompt = storedPromptForCard(question, form.sentence, form.answer);
+  const pendingStoredPrompt = storedPromptForCard(question, form.sentence, form.answer, promptStyle);
   const pendingExistingEdit = question
-    ? buildExistingCardEdit(question, initial, form, pendingStoredPrompt)
+    ? buildExistingCardEdit(question, form, pendingStoredPrompt)
     : undefined;
   const dirty = question
     ? Boolean(pendingExistingEdit)
-    : JSON.stringify(form) !== JSON.stringify(initial);
+    : promptStyle !== "cloze" || JSON.stringify(form) !== JSON.stringify(initial);
   useBeforeUnloadGuard(dirty);
   const confirmDiscard = useCallback(
     () => !dirty || window.confirm("Discard your unsaved question changes?"),
@@ -327,7 +338,7 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
     onRegisterBeforeLeave(dirty ? confirmDiscard : undefined);
     return () => onRegisterBeforeLeave(undefined);
   }, [confirmDiscard, dirty, onRegisterBeforeLeave]);
-  const sentenceIncludesAnswer = form.answer.trim() && form.sentence.includes(form.answer.trim());
+  const answerIsInPrompt = form.answer.trim() && form.sentence.includes(form.answer.trim());
   const cardID = useMemo(() => `card-${crypto.randomUUID()}`, []);
   const correctChoiceID = question?.choices.find((choice) => choice.isCorrect)?.id ?? "choice-correct";
   const update = <K extends keyof CardForm>(key: K, value: CardForm[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -337,7 +348,7 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
 
   const generateDistractors = async () => {
     if (!form.sentence.trim() || !form.answer.trim()) {
-      setDistractorError("Add the sentence and answer first so the local model has enough context.");
+      setDistractorError("Add the question and answer first so the local model has enough context.");
       return;
     }
     const generated = await generateDistractorsForCard(() => window.revember.generateDistractors({
@@ -362,14 +373,14 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
     const prompt = form.sentence.trim();
     const choices = [{ id: correctChoiceID, text: answer, isCorrect: true }, ...form.distractors.map((item) => ({ id: item.id, text: item.text.trim(), isCorrect: false }))];
     if (!prompt || !answer || !form.explanation.trim() || choices.some((choice) => !choice.text)) {
-      setError("Add a sentence, answer, at least one distractor, and an explanation."); return;
+      setError("Add a question, answer, at least one distractor, and an explanation."); return;
     }
-    const answerOccurrences = form.sentence.split(answer).length - 1;
-    if ((!question || question.prompt.includes("________")) && answerOccurrences !== 1) {
+    const answerOccurrences = prompt.split(answer).length - 1;
+    if (promptStyle === "cloze" && answerOccurrences !== 1) {
       setError("Use the answer exactly once in the sentence. This keeps the blank unambiguous."); return;
     }
-    const storedPrompt = storedPromptForCard(question, prompt, answer);
-    const existingEdit = question ? buildExistingCardEdit(question, initial, form, storedPrompt) : undefined;
+    const storedPrompt = storedPromptForCard(question, prompt, answer, promptStyle);
+    const existingEdit = question ? buildExistingCardEdit(question, form, storedPrompt) : undefined;
     if (question && !existingEdit) return;
     const newCard = {
       kind: "multipleChoice" as const,
@@ -408,16 +419,29 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
       onClose={requestClose}
     >
       <form className="card-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <fieldset className="card-editor-style">
+            <legend>Question style</legend>
+            <div className="card-editor-style-options" role="radiogroup" aria-label="Question style">
+              <button type="button" role="radio" aria-checked={promptStyle === "cloze"} className={promptStyle === "cloze" ? "selected" : ""} onClick={() => setPromptStyle("cloze")}>
+                <strong>Fill in the blank</strong>
+                <small>Write a statement containing the answer once.</small>
+              </button>
+              <button type="button" role="radio" aria-checked={promptStyle === "direct"} className={promptStyle === "direct" ? "selected" : ""} onClick={() => setPromptStyle("direct")}>
+                <strong>Direct question</strong>
+                <small>Ask a complete question; the answer stays separate.</small>
+              </button>
+            </div>
+          </fieldset>
           <label className="card-editor-field card-editor-question-field">
-            <span>Question sentence</span>
-            <textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder="Example: The kernel mediates a program’s protected access to hardware." />
-            <small className="card-editor-example">Write one sentence with the answer in it. Revember blanks it during review.</small>
+            <span>{promptStyle === "cloze" ? "Sentence to complete" : "Question"}</span>
+            <textarea autoFocus value={form.sentence} onChange={(event) => update("sentence", event.target.value)} placeholder={promptStyle === "cloze" ? "Example: The kernel mediates a program’s protected access to hardware." : "Example: Which component mediates a program’s protected access to hardware?"} />
+            <small className="card-editor-example">{promptStyle === "cloze" ? "Write one sentence with the answer in it. Revember blanks it during review." : "Ask exactly what you want to recall. Revember keeps this question intact during review."}</small>
           </label>
           <section className="card-editor-answer-panel" aria-label="Answer details">
             <label className="card-editor-field">
               <span>Answer</span>
               <input value={form.answer} onChange={(event) => update("answer", event.target.value)} placeholder="A bit" />
-              <small>{question ? "Editing keeps the current answer structure." : sentenceIncludesAnswer ? "Ready: this answer will become a blank during review." : "Type the exact answer once in the sentence."}</small>
+              <small>{promptStyle === "cloze" ? answerIsInPrompt ? "Ready: this answer will become a blank during review." : "Type the exact answer once in the sentence." : "Type the best answer to this question."}</small>
             </label>
           </section>
           <fieldset className="card-editor-distractors">

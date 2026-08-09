@@ -3,6 +3,7 @@ import type { Question } from "../shared/types";
 import {
   buildExistingCardEdit,
   fillGeneratedDistractors,
+  promptStyleForCard,
   storedPromptForCard,
   type CardForm
 } from "../src/renderer/src/components/CardWorkspace";
@@ -57,15 +58,8 @@ describe("existing card edits", () => {
       explanation: "The updated measurement crossed the receiver's threshold."
     };
 
-    const initial: CardForm = {
-      sentence: richQuestion.prompt,
-      answer: "Noise crossed the decision threshold",
-      distractors: [{ id: "packet", text: "A packet always changes the bit" }],
-      explanation: richQuestion.explanation
-    };
     const edit = buildExistingCardEdit(
       richQuestion,
-      initial,
       form,
       "Why did the receiver decode the wrong state?"
     );
@@ -123,7 +117,7 @@ describe("existing card edits", () => {
       explanation: question.explanation
     };
 
-    expect(buildExistingCardEdit(question, unchanged, unchanged, question.prompt)).toBeUndefined();
+    expect(buildExistingCardEdit(question, unchanged, question.prompt)).toBeUndefined();
   });
 
   it("keeps non-cloze prompts non-cloze when they contain the answer text", () => {
@@ -147,6 +141,14 @@ describe("existing card edits", () => {
     expect(storedPromptForCard(question, question.prompt, "a bit")).toBe(question.prompt);
     expect(storedPromptForCard(question, "Why does a bit encode a state?", "a bit"))
       .toBe("Why does a bit encode a state?");
+    expect(promptStyleForCard(question)).toBe("direct");
+  });
+
+  it("keeps a new direct question intact instead of turning its answer into a blank", () => {
+    expect(storedPromptForCard(undefined, "Which component mediates protected hardware access?", "The kernel", "direct"))
+      .toBe("Which component mediates protected hardware access?");
+    expect(storedPromptForCard(undefined, "The kernel mediates protected hardware access.", "kernel", "cloze"))
+      .toBe("The ________ mediates protected hardware access.");
   });
 
   it("regenerates the blank when an existing cloze sentence is edited", () => {

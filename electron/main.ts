@@ -253,7 +253,6 @@ function createMenu(): void {
     {
       label: "File", submenu: [
         routeCommand("Start 3-Minute Review", "review:3", "CmdOrCtrl+Shift+R"),
-        routeCommand("Capture Learning Checkpoint…", "checkpoint", "CmdOrCtrl+Shift+K"),
         { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => state.reload() },
         { type: "separator" },
         { role: "close" }
@@ -296,7 +295,6 @@ function updateTray(snapshot: AppSnapshot): void {
     { type: "separator" },
     { label: "Open Revember", click: showMainWindow },
     routeCommand("Start 3-Minute Review", "review:3"),
-    routeCommand("Capture Learning Checkpoint…", "checkpoint"),
     { type: "separator" },
     { label: "Quit Revember", click: () => app.quit() }
   ]));

@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
   BookOpen,
-  Check,
   CircleAlert,
   CircleHelp,
-  ChevronDown,
   Cog,
   ExternalLink,
-  FileText,
   Folder,
   House,
-  Play,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
   RefreshCw,
   RotateCcw,
   Settings,
@@ -27,35 +21,45 @@ import type {
   KnowledgeTopic,
   Question
 } from "../../../shared/types";
-import {
-  activeQuestions,
-  dueReviewItems
-} from "../../../shared/domain";
+import { dueReviewItems } from "../../../shared/domain";
 import { CardWorkspace } from "./components/CardWorkspace";
 import { NotesPage } from "./components/NotesPage";
 import { HomePage } from "./components/HomePage";
-import { QuestionsPage } from "./components/QuestionsPage";
+import { QuestionsPage, type QuestionLibraryFocus } from "./components/QuestionsPage";
 import { Eyebrow } from "./components/ui";
 import { Modal } from "./components/modal";
 import { ReviewSession } from "./components/ReviewFlow";
 import { InlineError } from "./components/review-ui";
-import { CreateTopicDialog } from "./components/CreateTopicDialog";
 import { isKnowledgeRootChangeAllowed, runGuardedKnowledgeRootChange } from "./knowledgeRootChange";
 import { runBeforeLeaveGuards, type BeforeLeaveGuard } from "./navigationGuard";
 import { toErrorMessage } from "./utils";
 
-type TopicView = "overview" | "questions";
 type GlobalView = "home" | "topic" | "notes" | "questions";
+
+type ReviewReturnTarget =
+  | { view: "home"; label: "Study focus" }
+  | { view: "questions"; label: "Question Library"; focus: QuestionLibraryFocus }
+  | { view: "topic"; label: string; topicID: string };
+
+type ActiveReview = {
+  items: DueReviewItem[];
+  label: string;
+  returnTo: ReviewReturnTarget;
+};
+
+type ReviewOptions = {
+  label: string;
+  returnTo: ReviewReturnTarget;
+  limit?: number;
+};
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
   const [snapshotError, setSnapshotError] = useState<string>();
   const [selectedTopicID, setSelectedTopicID] = useState<string>();
-  const [topicView, setTopicView] = useState<TopicView>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [checkpointOpen, setCheckpointOpen] = useState(false);
-  const [createTopicOpen, setCreateTopicOpen] = useState(false);
-  const [reviewItems, setReviewItems] = useState<DueReviewItem[] | null>(null);
+  const [activeReview, setActiveReview] = useState<ActiveReview>();
+  const [questionLibraryFocus, setQuestionLibraryFocus] = useState<QuestionLibraryFocus>();
   const [globalView, setGlobalView] = useState<GlobalView>("home");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notesVisitKey, setNotesVisitKey] = useState(0);
@@ -74,10 +78,6 @@ export function App() {
     registerBeforeLeave("card-editor", handler);
   }, [registerBeforeLeave]);
 
-  const registerHomeBeforeLeave = useCallback((handler: BeforeLeaveGuard | undefined) => {
-    registerBeforeLeave("home", handler);
-  }, [registerBeforeLeave]);
-
   const registerNotesBeforeLeave = useCallback((handler: BeforeLeaveGuard | undefined) => {
     registerBeforeLeave("notes-editor", handler);
   }, [registerBeforeLeave]);
@@ -92,8 +92,24 @@ export function App() {
     action();
   }, [canLeaveCurrent]);
 
-  const openReview = useCallback((items: DueReviewItem[], limit = 4) => {
-    setReviewItems(items.slice(0, limit));
+  const openReview = useCallback((items: DueReviewItem[], { label, returnTo, limit = items.length }: ReviewOptions) => {
+    setActiveReview({ items: items.slice(0, limit), label, returnTo });
+  }, []);
+
+  const finishReview = useCallback((review: ActiveReview) => {
+    setActiveReview(undefined);
+    const { returnTo } = review;
+    if (returnTo.view === "home") {
+      setGlobalView("home");
+      return;
+    }
+    if (returnTo.view === "questions") {
+      setQuestionLibraryFocus(returnTo.focus);
+      setGlobalView("questions");
+      return;
+    }
+    setSelectedTopicID(returnTo.topicID);
+    setGlobalView("topic");
   }, []);
 
   const openNotes = useCallback((topicID?: string, create = false) => {
@@ -104,15 +120,13 @@ export function App() {
     setGlobalView("notes");
   }, []);
 
-  const openTopic = useCallback((topicID: string, view: TopicView = "overview") => {
+  const openTopic = useCallback((topicID: string) => {
     setGlobalView("topic");
     setSelectedTopicID(topicID);
-    setTopicView(view);
   }, []);
 
   const startQuestionAuthoring = useCallback((topicID: string, sentence?: string) => {
     setSelectedTopicID(topicID);
-    setTopicView("questions");
     setCardSeed({ topicID, ...(sentence ? { sentence } : {}), token: crypto.randomUUID() });
     setGlobalView("topic");
   }, []);
@@ -120,10 +134,14 @@ export function App() {
   const startReview = useCallback((minutes = 3) => {
     if (!snapshot) return;
     const capacity = Math.max(1, Math.floor(minutes * 60 / 45));
-    openReview(dueReviewItems(snapshot), capacity);
+    openReview(dueReviewItems(snapshot), {
+      limit: capacity,
+      label: "Study focus",
+      returnTo: { view: "home", label: "Study focus" }
+    });
   }, [openReview, snapshot]);
 
-  const startQuestionReview = useCallback((topic: KnowledgeTopic, question: Question) => {
+  const startQuestionReview = useCallback((topic: KnowledgeTopic, question: Question, returnTo: ReviewReturnTarget) => {
     const state = snapshot?.progress.topics[topic.id]?.reviewCardsByQuestionID?.[question.id];
     openReview([{
       id: `direct:${topic.id}:${question.id}`,
@@ -134,7 +152,7 @@ export function App() {
       ...(state?.dueAt ? { dueAt: state.dueAt } : {}),
       isNew: !state,
       isRevised: Boolean(state && state.questionRevision !== question.revision)
-    }], 1);
+    }], { limit: 1, label: "Practice", returnTo });
   }, [openReview, snapshot]);
 
   const loadInitialSnapshot = useCallback(async () => {
@@ -159,13 +177,12 @@ export function App() {
 
   useEffect(() => window.revember.onNavigate((route) => {
     if (route === "settings") setSettingsOpen(true);
-    else if (route === "checkpoint") setCheckpointOpen(true);
     else if (route.startsWith("review:")) void leaveCurrent(() => startReview(Number(route.split(":")[1]) || 3));
     else if (route.startsWith("topic:")) {
       const topicID = route.slice("topic:".length);
       if (globalView === "topic" && selectedTopicID === topicID) return;
       void leaveCurrent(() => {
-        setReviewItems(null);
+        setActiveReview(undefined);
         openTopic(topicID);
       });
     }
@@ -179,16 +196,14 @@ export function App() {
   const selectedTopic = snapshot.topics.find((topic) => topic.id === selectedTopicID) ?? snapshot.topics[0];
   const knowledgeRootChangeAllowed = isKnowledgeRootChangeAllowed(
     globalView,
-    reviewItems !== null || checkpointOpen
+    activeReview !== undefined
   );
   const applyKnowledgeRootSnapshot = (next: AppSnapshot) => {
     setSnapshot(next);
-    setReviewItems(null);
-    setCheckpointOpen(false);
+    setActiveReview(undefined);
     setCardSeed(undefined);
     setNotesTopicID(undefined);
     setNotesCaptureID(undefined);
-    setTopicView("overview");
     setSelectedTopicID(next.topics[0]?.id);
     setGlobalView("home");
   };
@@ -196,27 +211,19 @@ export function App() {
   return (
     <div className="app-shell">
       <div className="titlebar" aria-hidden="true"><span>Revember</span></div>
-      {reviewItems ? (
+      {activeReview ? (
         <ReviewSession
-          items={reviewItems}
+          items={activeReview.items}
+          sessionLabel={activeReview.label}
+          returnLabel={activeReview.returnTo.label}
           onSnapshot={setSnapshot}
-          onFinish={() => {
-            setReviewItems(null);
-            setGlobalView("home");
-          }}
-          onOpenCheckpoint={() => setCheckpointOpen(true)}
+          onFinish={() => finishReview(activeReview)}
         />
       ) : (
         <div className={`workspace ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
           <Sidebar
-            snapshot={snapshot}
-            selectedTopicID={globalView === "topic" ? selectedTopic?.id : undefined}
             collapsed={sidebarCollapsed}
             onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-            onSelect={(id) => {
-              if (globalView === "topic" && selectedTopic?.id === id) return;
-              void leaveCurrent(() => openTopic(id));
-            }}
             onOpenHome={() => {
               if (globalView !== "home") void leaveCurrent(() => setGlobalView("home"));
             }}
@@ -224,7 +231,6 @@ export function App() {
             onOpenQuestions={() => {
               if (globalView !== "questions") void leaveCurrent(() => setGlobalView("questions"));
             }}
-            onCreateTopic={() => setCreateTopicOpen(true)}
             globalView={globalView}
           />
           <main className="main-stage">
@@ -240,10 +246,11 @@ export function App() {
             ) : globalView === "home" ? <HomePage
               key={snapshot.settings.knowledgeRootPath}
               snapshot={snapshot}
-              onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
-              onOpenNotes={(topicID) => void leaveCurrent(() => openNotes(topicID))}
+              onStartReview={(items) => void leaveCurrent(() => openReview(items, {
+                label: "Study focus",
+                returnTo: { view: "home", label: "Study focus" }
+              }))}
               onCreateNote={() => void leaveCurrent(() => openNotes(undefined, true))}
-              onRegisterBeforeLeave={registerHomeBeforeLeave}
             /> : globalView === "notes" ? <NotesPage
               key={`${snapshot.settings.knowledgeRootPath}:${notesVisitKey}`}
               snapshot={snapshot}
@@ -254,25 +261,31 @@ export function App() {
               onRegisterBeforeLeave={registerNotesBeforeLeave}
             /> : globalView === "questions" ? <QuestionsPage
               snapshot={snapshot}
-              onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
-              onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
+              onStartReview={(items, label) => void leaveCurrent(() => openReview(items, {
+                label,
+                returnTo: { view: "questions", label: "Question Library", focus: { kind: "review-dock" } }
+              }))}
+              onStartTopicReview={(topic, items) => void leaveCurrent(() => openReview(items, {
+                label: topic.title + " review",
+                returnTo: { view: "questions", label: "Question Library", focus: { kind: "topic", topicID: topic.id } }
+              }))}
               onCreateQuestion={(topic) => void leaveCurrent(() => startQuestionAuthoring(topic.id))}
               onOpenTopic={(topic) => void leaveCurrent(() => {
-                openTopic(topic.id, "questions");
+                openTopic(topic.id);
                 setCardSeed(undefined);
               })}
+              returnFocus={questionLibraryFocus}
+              onReturnFocusHandled={() => setQuestionLibraryFocus(undefined)}
             /> : selectedTopic ? (
               <TopicDetail
                 topic={selectedTopic}
-                snapshot={snapshot}
-                view={topicView}
-                onOpenQuestions={() => void leaveCurrent(() => setTopicView("questions"))}
-                onOpenNotes={() => void leaveCurrent(() => openNotes(selectedTopic.id))}
-                onCreateQuestion={() => void leaveCurrent(() => startQuestionAuthoring(selectedTopic.id))}
-                onBackToOverview={() => void leaveCurrent(() => setTopicView("overview"))}
+                onBack={() => void leaveCurrent(() => setGlobalView("questions"))}
                 onSnapshot={setSnapshot}
-                onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
-                onReviewQuestion={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
+                onReviewQuestion={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question, {
+                  view: "topic",
+                  label: topic.title,
+                  topicID: topic.id
+                }))}
                 onRegisterCardsBeforeLeave={registerCardsBeforeLeave}
                 cardSeed={cardSeed?.topicID === selectedTopic.id ? cardSeed : undefined}
                 onCardSeedConsumed={() => setCardSeed(undefined)}
@@ -294,48 +307,20 @@ export function App() {
         knowledgeRootChangeAllowed={knowledgeRootChangeAllowed}
         onClose={() => setSettingsOpen(false)}
       />}
-      {checkpointOpen && <CheckpointDialog snapshot={snapshot} onClose={() => setCheckpointOpen(false)} />}
-      {createTopicOpen && <CreateTopicDialog
-        onClose={() => setCreateTopicOpen(false)}
-        onCreated={(result) => {
-          setSnapshot(result.snapshot);
-          setSelectedTopicID(result.topic.id);
-          setCreateTopicOpen(false);
-        }}
-      />}
     </div>
   );
 }
 
-function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSelect, onOpenHome, onOpenNotes, onOpenQuestions, onCreateTopic, globalView }: {
-  snapshot: AppSnapshot;
-  selectedTopicID?: string;
+function Sidebar({ collapsed, onToggleCollapsed, onOpenHome, onOpenNotes, onOpenQuestions, globalView }: {
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onSelect: (id: string) => void;
   onOpenHome: () => void;
   onOpenNotes: () => void;
   onOpenQuestions: () => void;
-  onCreateTopic: () => void;
   globalView: GlobalView;
 }) {
-  const [topicsOpen, setTopicsOpen] = useState(false);
-
-  useEffect(() => {
-    if (globalView !== "topic") setTopicsOpen(false);
-  }, [globalView]);
-
-  const toggleTopics = () => {
-    if (collapsed) {
-      onToggleCollapsed();
-      setTopicsOpen(true);
-      return;
-    }
-    setTopicsOpen((current) => !current);
-  };
-
   const navigation = [
-    { key: "home", label: "Home", icon: <House />, onClick: onOpenHome },
+    { key: "home", label: "Today", icon: <House />, onClick: onOpenHome },
     { key: "notes", label: "Notes", icon: <SquarePen />, onClick: onOpenNotes },
     { key: "questions", label: "Questions", icon: <CircleHelp />, onClick: onOpenQuestions }
   ] as const;
@@ -360,94 +345,23 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
           {icon}<span>{label}</span>
         </button>
       ))}
-      <button
-        className="plan-nav topics-nav"
-        aria-label={collapsed ? "Expand sidebar topics" : "Topics"}
-        aria-expanded={!collapsed && topicsOpen}
-        aria-controls="sidebar-topic-list"
-        onClick={toggleTopics}
-      >
-        <BookOpen /><span>Topics</span><ChevronDown className={topicsOpen ? "rotated" : ""} />
-      </button>
-      {topicsOpen && <div className="topic-list" id="sidebar-topic-list">
-        {snapshot.topics.map((topic) => <button
-          key={topic.id}
-          className={`topic-item ${selectedTopicID === topic.id ? "selected" : ""}`}
-          aria-current={selectedTopicID === topic.id ? "page" : undefined}
-          onClick={() => {
-            onSelect(topic.id);
-          }}
-        >
-          <i />
-          <div><strong>{topic.title}</strong><small>{activeQuestions(topic).length} questions</small></div>
-        </button>)}
-        <button type="button" className="new-topic-button" onClick={() => {
-          setTopicsOpen(false);
-          onCreateTopic();
-        }}>
-          <Plus /><span>New topic</span>
-        </button>
-      </div>}
     </aside>
   );
 }
 
-function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCreateQuestion, onBackToOverview, onSnapshot, onStartReview, onReviewQuestion, onRegisterCardsBeforeLeave, cardSeed, onCardSeedConsumed }: {
+function TopicDetail({ topic, onBack, onSnapshot, onReviewQuestion, onRegisterCardsBeforeLeave, cardSeed, onCardSeedConsumed }: {
   topic: KnowledgeTopic;
-  snapshot: AppSnapshot;
-  view: TopicView;
-  onOpenQuestions: () => void;
-  onOpenNotes: () => void;
-  onCreateQuestion: () => void;
-  onBackToOverview: () => void;
+  onBack: () => void;
   onSnapshot: (snapshot: AppSnapshot) => void;
-  onStartReview: (items: DueReviewItem[]) => void;
   onReviewQuestion: (topic: KnowledgeTopic, question: Question) => void;
   onRegisterCardsBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
   cardSeed?: { sentence?: string; token: string };
   onCardSeedConsumed: () => void;
   }) {
-  const reviewItems = dueReviewItems(snapshot).filter((item) => item.topicID === topic.id);
-
-  if (view === "questions") {
-    return <div className="topic-detail questions-topic-detail">
-      <button className="topic-back" type="button" onClick={onBackToOverview}><ArrowLeft /> Topic overview</button>
-      <CardWorkspace key={topic.id} topic={topic} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />
-    </div>;
-  }
-
-  const actions = [
-    { key: "create", icon: <SquarePen />, title: "Create question", description: "Turn a concept into a retrieval check.", onClick: onCreateQuestion },
-    { key: "manage", icon: <BookOpen />, title: "Manage questions", description: "Browse, edit, or add review cards.", onClick: onOpenQuestions },
-    { key: "notes", icon: <FileText />, title: "View notes", description: "Open the notes connected to this topic.", onClick: onOpenNotes }
-  ] as const;
-
   return (
-    <div className="topic-detail topic-overview">
-      <header className="topic-overview-header">
-        <Eyebrow>Topic overview</Eyebrow>
-        <h1>{topic.title}</h1>
-        <p>{topic.summary}</p>
-        <div className="topic-overview-actions">
-          <section className="surface topic-next-step" aria-labelledby="topic-next-step-heading">
-            <div>
-              <Eyebrow>Next step</Eyebrow>
-              <h2 id="topic-next-step-heading">Review what’s ready</h2>
-              <p>{reviewItems.length ? `${reviewItems.length} questions are ready for a focused review.` : "Nothing is due right now. You can still build this topic below."}</p>
-            </div>
-            <button className="primary topic-review-button" type="button" disabled={!reviewItems.length} onClick={() => onStartReview(reviewItems)}><Play fill="currentColor" /> {reviewItems.length ? `Review ${reviewItems.length}` : "Nothing ready"}</button>
-          </section>
-          <div className="topic-action-grid" aria-label="Topic actions">
-            {actions.map(({ key, icon, title, description, onClick }) => (
-              <button key={key} className="topic-action-card" type="button" onClick={onClick}>
-                <span className="topic-action-icon">{icon}</span>
-                <span className="topic-action-copy"><strong>{title}</strong><small>{description}</small></span>
-                <ArrowRight />
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+    <div className="topic-detail questions-topic-detail">
+      <button className="topic-back" type="button" onClick={onBack}><ArrowLeft /> Question Library</button>
+      <CardWorkspace key={topic.id} topic={topic} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />
     </div>
   );
 }
@@ -514,28 +428,6 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
     <div className="settings-section"><Eyebrow>Progress</Eyebrow><p>Progress stays readable and local at:</p><code>{snapshot.settings.progressPath}</code></div>
     <div className="settings-section notification-row"><div><Eyebrow>Review Reminders</Eyebrow><p>Notify you while Revember is running when a scheduled check becomes due.</p></div><button className={`toggle ${snapshot.settings.notificationsEnabled ? "on" : ""}`} type="button" role="switch" aria-label="Review reminders" aria-checked={snapshot.settings.notificationsEnabled} disabled={busy} onClick={() => void invoke(() => window.revember.setNotificationsEnabled(!snapshot.settings.notificationsEnabled))}><span /></button></div>
     {error && <div className="settings-error"><InlineError message={error} /></div>}
-  </Modal>;
-}
-
-function CheckpointDialog({ snapshot, onClose }: { snapshot: AppSnapshot; onClose: () => void }) {
-  const [summary, setSummary] = useState("");
-  const [topicID, setTopicID] = useState(snapshot.topics[0]?.id ?? "");
-  const [openQuestion, setOpenQuestion] = useState("");
-  const [savedPath, setSavedPath] = useState<string>();
-  const [error, setError] = useState<string>();
-  const save = async () => {
-    try {
-      const result = await window.revember.captureCheckpoint({ summary, topicID: topicID || undefined, openQuestion: openQuestion || undefined });
-      setSavedPath(result.filePath); setError(undefined);
-    } catch (cause) { setError(toErrorMessage(cause)); }
-  };
-  return <Modal title="Reflect on this session" icon={<SquarePen />} className="checkpoint-dialog" onClose={onClose}>
-    {savedPath ? <div className="checkpoint-saved"><Check /><h3>Reflection saved</h3><p>Your learning reflection is now available to Revember and the local MCP server.</p><code>{savedPath}</code><button className="primary" onClick={onClose}>Done</button></div> : <div className="checkpoint-form">
-      <label><span>What changed in your understanding?</span><textarea autoFocus value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="Write one concrete thing you can now explain or distinguish…" /></label>
-      <label><span>Topic</span><select value={topicID} onChange={(event) => setTopicID(event.target.value)}><option value="">General checkpoint</option>{snapshot.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}</select></label>
-      <label><span>Open question <small>optional</small></span><input value={openQuestion} onChange={(event) => setOpenQuestion(event.target.value)} placeholder="What still feels unresolved?" /></label>
-      {error && <InlineError message={error} />}<div className="dialog-footer"><button onClick={onClose}>Cancel</button><button className="primary" disabled={!summary.trim()} onClick={save}>Save reflection</button></div>
-    </div>}
   </Modal>;
 }
 

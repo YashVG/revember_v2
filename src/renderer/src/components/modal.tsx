@@ -4,7 +4,7 @@ import { useDialogFocus } from "./useDialogFocus";
 
 export function Modal({ title, icon, className = "", closeOnBackdrop = true, onClose, children }: {
   title: string;
-  icon: ReactNode;
+  icon?: ReactNode;
   className?: string;
   closeOnBackdrop?: boolean;
   onClose: () => void;
@@ -21,7 +21,7 @@ export function Modal({ title, icon, className = "", closeOnBackdrop = true, onC
   </div>;
 }
 
-function DialogHeader({ title, icon, onClose }: { title: string; icon: ReactNode; onClose: () => void }) {
+function DialogHeader({ title, icon, onClose }: { title: string; icon?: ReactNode; onClose: () => void }) {
   return <header>
     <div>{icon}<h2>{title}</h2></div>
     <button className="icon-button" aria-label={`Close ${title}`} onClick={onClose}><X /></button>
