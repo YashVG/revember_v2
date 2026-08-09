@@ -72,6 +72,7 @@ app.whenReady().then(() => {
   state = new RevemberState({
     settingsPath: path.join(app.getPath("userData"), "settings.json"),
     bundledKnowledgeRoot,
+    personalKnowledgeRoot: path.join(app.getPath("documents"), "RevemberKnowledge"),
     legacyProgressPath: process.platform === "darwin"
       ? path.join(app.getPath("appData"), "RevemberV2", "progress.json")
       : path.join(app.getPath("userData"), "progress.json")

@@ -11,6 +11,34 @@ afterEach(async () => {
 });
 
 describe("knowledge-root state transitions", () => {
+  it("sets up an editable personal copy of the bundled starter vault", async () => {
+    const fixture = await stateFixture();
+    const bundledRoot = path.join(fixture.root, "bundled-knowledge");
+    const personalRoot = path.join(fixture.root, "Documents", "RevemberKnowledge");
+    await writeTopic(bundledRoot, topic("starter-topic"));
+    await fs.mkdir(path.join(bundledRoot, "notes"), { recursive: true });
+    await fs.writeFile(path.join(bundledRoot, "notes", "starter-topic.md"), "# Starter topic\n");
+    const state = new RevemberState({
+      settingsPath: fixture.settingsPath,
+      bundledKnowledgeRoot: bundledRoot,
+      personalKnowledgeRoot: personalRoot,
+      legacyProgressPath: fixture.progressPath
+    });
+
+    try {
+      const snapshot = state.resetKnowledgeRoot();
+      expect(snapshot.settings.knowledgeRootPath).toBe(personalRoot);
+      expect(snapshot.topics.map((candidate) => candidate.id)).toEqual(["starter-topic"]);
+      await expect(fs.access(path.join(personalRoot, "notes", "starter-topic.md"))).resolves.toBeUndefined();
+
+      state.createTopic({ title: "Personal topic", summary: "Created in the editable copy." });
+      await expect(fs.access(path.join(personalRoot, "topics", "personal-topic.json"))).resolves.toBeUndefined();
+      await expect(fs.access(path.join(bundledRoot, "topics", "personal-topic.json"))).rejects.toThrow();
+    } finally {
+      state.dispose();
+    }
+  });
+
   it("keeps settings, topics, and mutation paths on the old root when the candidate root is invalid", async () => {
     const fixture = await stateFixture();
     const invalidRoot = path.join(fixture.root, "invalid-knowledge");

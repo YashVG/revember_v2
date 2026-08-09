@@ -25,15 +25,10 @@ Requires Node.js 22 LTS (or Node.js 24+) and npm. Node.js 23 is unsupported by t
 git clone https://github.com/YashVG/revember_v2.git
 cd revember_v2
 npm ci
-./script/set_project_knowledge_path.sh
 npm run dev
 ~~~
 
-The repository includes seeded material in RevemberKnowledge/. To study private material, copy it and select the copy in Settings:
-
-~~~bash
-cp -R RevemberKnowledge "$HOME/Documents/RevemberKnowledge"
-~~~
+On first launch, Revember automatically creates an editable `RevemberKnowledge` folder in your Documents directory from the starter vault included in this repository. You can begin reviewing immediately—no folder setup or terminal commands are required after the app starts. Use Settings only if you later want to switch to another learning folder.
 
 Run npm run bootstrap when you also need the optional MCP workspace.
 

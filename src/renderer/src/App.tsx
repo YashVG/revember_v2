@@ -416,13 +416,14 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
   };
   return <Modal title="Revember Settings" icon={<Settings />} onClose={onClose}>
     <div className="settings-section">
-      <Eyebrow>Knowledge Store</Eyebrow>
+      <Eyebrow>Your learning folder</Eyebrow>
+      <p>Revember keeps your editable notes and questions here. It is set up from the included starter vault the first time you open the app.</p>
       <code>{snapshot.settings.knowledgeRootPath}</code>
       {!knowledgeRootChangeAllowed && <p className="settings-guidance">To change knowledge folders, finish or exit the current workflow and return Home.</p>}
       <div className="settings-actions">
-        <button disabled={busy || !knowledgeRootChangeAllowed} onClick={() => void changeKnowledgeRoot(window.revember.chooseKnowledgeRoot)}><Folder /> Choose Folder</button>
+        <button disabled={busy || !knowledgeRootChangeAllowed} onClick={() => void changeKnowledgeRoot(window.revember.chooseKnowledgeRoot)}><Folder /> Use another folder</button>
         <button disabled={busy} onClick={() => void invoke(window.revember.openKnowledgeRoot)}><ExternalLink /> Open Folder</button>
-        <button disabled={busy || !knowledgeRootChangeAllowed} onClick={() => void changeKnowledgeRoot(window.revember.resetKnowledgeRoot)}><RotateCcw /> Reset</button>
+        <button disabled={busy || !knowledgeRootChangeAllowed} onClick={() => void changeKnowledgeRoot(window.revember.resetKnowledgeRoot)}><RotateCcw /> Use starter folder</button>
       </div>
     </div>
     <div className="settings-section"><Eyebrow>Progress</Eyebrow><p>Progress stays readable and local at:</p><code>{snapshot.settings.progressPath}</code></div>
