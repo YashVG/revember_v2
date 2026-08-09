@@ -33,6 +33,7 @@ import type {
 import {
   applyReviewEvent,
   correctChoice,
+  createScheduleDecision,
   emptyProgress,
   normalizeProgress,
   normalizeTopic,
@@ -214,15 +215,39 @@ export class RevemberState extends EventEmitter {
       reviewedAt
     };
     const existing = this.progress.reviewEvents.find((candidate) => candidate.id.toLowerCase() === event.id);
+    if (existing?.scheduleDecision) event.scheduleDecision = existing.scheduleDecision;
+    if (!existing) {
+      const latest = this.progress.reviewEvents
+        .filter((candidate) =>
+          candidate.topicID === event.topicID
+          && candidate.questionID === event.questionID
+        )
+        .sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt))[0];
+      if (latest && event.reviewedAt < latest.reviewedAt) {
+        throw new Error("A new review outcome cannot be recorded before this question's latest outcome.");
+      }
+    }
     const candidate = structuredClone(this.progress);
     const cardState = applyReviewEvent(candidate, event);
     if (!existing) {
+      const scheduleDecision = createScheduleDecision(candidate, event, cardState, new Date().toISOString());
+      event.scheduleDecision = scheduleDecision;
+      cardState.scheduleDecisionID = scheduleDecision.id;
       this.writeProgress(candidate);
       this.progress = candidate;
     }
+    const committedCardState = existing?.scheduleDecision
+      ? { ...existing.scheduleDecision.result, scheduleDecisionID: existing.scheduleDecision.id }
+      : cardState;
     this.errorMessage = undefined;
     this.broadcast();
-    return { snapshot: this.snapshot, event, cardState, wasInserted: !existing };
+    return {
+      snapshot: this.snapshot,
+      event,
+      cardState: committedCardState,
+      ...(event.scheduleDecision ? { scheduleDecision: event.scheduleDecision } : {}),
+      wasInserted: !existing
+    };
   }
 
   captureCheckpoint(input: CaptureCheckpointInput): CaptureCheckpointResult {

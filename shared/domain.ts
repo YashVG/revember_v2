@@ -9,6 +9,9 @@ import type {
   ReviewCardState,
   ReviewEvent,
   ReviewRating,
+  ScheduleDecisionReason,
+  ScheduleDecisionV1,
+  ScheduleStateSnapshot,
   TopicProgress,
   TransferLevel
 } from "./types";
@@ -20,6 +23,10 @@ import {
 export const schedulerVersion = "simple-v1";
 const minutesPerDay = 1_440;
 const millisecondsPerDay = 86_400_000;
+
+export function scheduleDecisionIDForEvent(eventID: string): string {
+  return `schedule-${eventID.toLowerCase()}`;
+}
 
 export function emptyProgress(): ProgressRecord {
   return { schemaVersion: 2, topics: {}, reviewEvents: [] };
@@ -55,6 +62,58 @@ export function scheduleReview(
     lapses: (previous?.lapses ?? 0) + (rating === "missed" ? 1 : 0),
     reviews: (previous?.reviews ?? 0) + 1,
     lastReviewedAt: reviewedDate.toISOString()
+  };
+}
+
+export function createScheduleDecision(
+  progress: ProgressRecord,
+  event: ReviewEvent,
+  state: ReviewCardState,
+  decidedAt: string
+): ScheduleDecisionV1 {
+  if (decidedAt < event.reviewedAt) {
+    throw new Error("A schedule decision cannot predate its source review outcome.");
+  }
+  const history = progress.reviewEvents
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate }) =>
+      candidate.topicID === event.topicID
+      && candidate.questionID === event.questionID
+      && candidate.questionRevision === event.questionRevision
+    )
+    .sort((left, right) => left.candidate.reviewedAt.localeCompare(right.candidate.reviewedAt) || left.index - right.index);
+  const position = history.findIndex(({ candidate }) => candidate.id.toLowerCase() === event.id.toLowerCase());
+  if (position < 0) throw new Error(`Review event ${event.id} must be applied before creating its schedule decision.`);
+  const previous = history[position - 1]?.candidate;
+  const hasEarlierRevision = progress.reviewEvents.some((candidate) =>
+    candidate.topicID === event.topicID
+    && candidate.questionID === event.questionID
+    && candidate.questionRevision < event.questionRevision
+  );
+  const reason: ScheduleDecisionReason = previous
+    ? "review"
+    : hasEarlierRevision ? "revision-reset" : "first-review";
+  const result: ScheduleStateSnapshot = {
+    schedulerVersion: state.schedulerVersion,
+    questionRevision: state.questionRevision,
+    dueAt: state.dueAt,
+    intervalDays: state.intervalDays,
+    stability: state.stability,
+    difficulty: state.difficulty,
+    ...(state.lastRating ? { lastRating: state.lastRating } : {}),
+    lapses: state.lapses,
+    reviews: state.reviews,
+    ...(state.lastReviewedAt ? { lastReviewedAt: state.lastReviewedAt } : {})
+  };
+  return {
+    schemaVersion: 1,
+    id: scheduleDecisionIDForEvent(event.id),
+    sourceReviewEventID: event.id,
+    ...(previous ? { previousReviewEventID: previous.id } : {}),
+    ...(previous?.scheduleDecision ? { previousScheduleDecisionID: previous.scheduleDecision.id } : {}),
+    decidedAt,
+    reason,
+    result
   };
 }
 
@@ -207,6 +266,7 @@ export function normalizeProgress(raw: unknown): ProgressRecord {
     if (reviewEventIDs.has(normalizedID)) throw new Error(`Progress contains duplicate review event ID ${event.id}.`);
     reviewEventIDs.add(normalizedID);
   }
+  validateScheduleDecisionLineage(topics, reviewEvents);
   return {
     schemaVersion,
     topics,
@@ -234,7 +294,8 @@ const reviewEventKeys = new Set([
   "gapTags",
   "misconceptionIDs",
   "sourceRefs",
-  "reviewedAt"
+  "reviewedAt",
+  "scheduleDecision"
 ]);
 
 function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
@@ -263,12 +324,23 @@ function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
   if (responseTimeMs !== undefined && inferReviewRating(event.isCorrect, responseTimeMs) !== event.rating) {
     throw new Error(`${label} rating does not match its correctness and response time.`);
   }
+  const questionRevision = event.questionRevision === undefined
+    ? 1
+    : positiveInteger(event.questionRevision, `${label} questionRevision`);
+  const reviewedAt = isoTimestamp(event.reviewedAt, `${label} reviewedAt`);
+  const scheduleDecision = event.scheduleDecision === undefined
+    ? undefined
+    : normalizeScheduleDecision(event.scheduleDecision, label, {
+      eventID: nonEmptyString(event.id, `${label} id`),
+      questionRevision,
+      reviewedAt
+    });
   return {
     ...safeUnknownFields(event, reviewEventKeys, label),
     id: nonEmptyString(event.id, `${label} id`),
     topicID: nonEmptyString(event.topicID, `${label} topicID`),
     questionID: nonEmptyString(event.questionID, `${label} questionID`),
-    questionRevision: event.questionRevision === undefined ? 1 : positiveInteger(event.questionRevision, `${label} questionRevision`),
+    questionRevision,
     ...(questionKind ? { questionKind } : {}),
     ...(transferLevel ? { transferLevel } : {}),
     ...(questionPrompt !== undefined ? { questionPrompt } : {}),
@@ -284,8 +356,234 @@ function normalizeReviewEvent(raw: unknown, index: number): ReviewEvent {
     gapTags: optionalStringArray(event.gapTags, `${label} gapTags`),
     misconceptionIDs: optionalStringArray(event.misconceptionIDs, `${label} misconceptionIDs`),
     sourceRefs: optionalStringArray(event.sourceRefs, `${label} sourceRefs`),
-    reviewedAt: isoTimestamp(event.reviewedAt, `${label} reviewedAt`)
+    reviewedAt,
+    ...(scheduleDecision ? { scheduleDecision } : {})
   };
+}
+
+const scheduleDecisionKeys = new Set([
+  "schemaVersion",
+  "id",
+  "sourceReviewEventID",
+  "previousReviewEventID",
+  "previousScheduleDecisionID",
+  "decidedAt",
+  "reason",
+  "policyArtifactID",
+  "featureSchemaVersion",
+  "result"
+]);
+
+const scheduleStateKeys = new Set([
+  "schedulerVersion",
+  "questionRevision",
+  "dueAt",
+  "intervalDays",
+  "stability",
+  "difficulty",
+  "lastRating",
+  "lapses",
+  "reviews",
+  "lastReviewedAt"
+]);
+
+function normalizeScheduleDecision(
+  raw: unknown,
+  eventLabel: string,
+  parent: { eventID: string; questionRevision: number; reviewedAt: string }
+): ScheduleDecisionV1 {
+  const label = `${eventLabel} scheduleDecision`;
+  const decision = recordValue(raw, label);
+  if (decision.schemaVersion !== 1) throw new Error(`${label} schemaVersion must be 1.`);
+  const id = nonEmptyString(decision.id, `${label} id`);
+  const sourceReviewEventID = nonEmptyString(decision.sourceReviewEventID, `${label} sourceReviewEventID`);
+  const previousReviewEventID = optionalNonEmptyString(decision.previousReviewEventID, `${label} previousReviewEventID`);
+  const previousScheduleDecisionID = optionalNonEmptyString(decision.previousScheduleDecisionID, `${label} previousScheduleDecisionID`);
+  const decidedAt = isoTimestamp(decision.decidedAt, `${label} decidedAt`);
+  const reason = scheduleDecisionReason(decision.reason, `${label} reason`);
+  const policyArtifactID = optionalNonEmptyString(decision.policyArtifactID, `${label} policyArtifactID`);
+  const featureSchemaVersion = optionalNonEmptyString(decision.featureSchemaVersion, `${label} featureSchemaVersion`);
+  const result = normalizeScheduleStateSnapshot(decision.result, `${label} result`);
+
+  if (id !== scheduleDecisionIDForEvent(parent.eventID)) {
+    throw new Error(`${label} id must be derived from its review event ID.`);
+  }
+  if (sourceReviewEventID !== parent.eventID) {
+    throw new Error(`${label} sourceReviewEventID must match its review event.`);
+  }
+  if (decidedAt < parent.reviewedAt) {
+    throw new Error(`${label} decidedAt cannot predate its review event.`);
+  }
+  if (result.questionRevision !== parent.questionRevision) {
+    throw new Error(`${label} result questionRevision must match its review event.`);
+  }
+  if (result.schedulerVersion !== schedulerVersion) {
+    throw new Error(`${label} result schedulerVersion is not supported by this app.`);
+  }
+  if (result.lastReviewedAt !== parent.reviewedAt) {
+    throw new Error(`${label} result lastReviewedAt must match its review event.`);
+  }
+  if (result.dueAt <= parent.reviewedAt) {
+    throw new Error(`${label} result dueAt must be after its review event.`);
+  }
+  if (previousScheduleDecisionID && !previousReviewEventID) {
+    throw new Error(`${label} previousScheduleDecisionID requires previousReviewEventID.`);
+  }
+
+  return {
+    ...safeUnknownFields(decision, scheduleDecisionKeys, label),
+    schemaVersion: 1,
+    id,
+    sourceReviewEventID,
+    ...(previousReviewEventID ? { previousReviewEventID } : {}),
+    ...(previousScheduleDecisionID ? { previousScheduleDecisionID } : {}),
+    decidedAt,
+    reason,
+    ...(policyArtifactID ? { policyArtifactID } : {}),
+    ...(featureSchemaVersion ? { featureSchemaVersion } : {}),
+    result
+  };
+}
+
+function normalizeScheduleStateSnapshot(raw: unknown, label: string): ScheduleStateSnapshot {
+  const state = recordValue(raw, label);
+  const schedulerVersion = nonEmptyString(state.schedulerVersion, `${label} schedulerVersion`);
+  const lastRating = state.lastRating;
+  if (lastRating !== undefined && !isReviewRating(lastRating)) {
+    throw new Error(`${label} lastRating is invalid.`);
+  }
+  const lastReviewedAt = optionalIsoTimestamp(state.lastReviewedAt, `${label} lastReviewedAt`);
+  return {
+    ...safeUnknownFields(state, scheduleStateKeys, label),
+    schedulerVersion,
+    questionRevision: positiveInteger(state.questionRevision, `${label} questionRevision`),
+    dueAt: isoTimestamp(state.dueAt, `${label} dueAt`),
+    intervalDays: positiveFiniteNumber(state.intervalDays, `${label} intervalDays`),
+    stability: nonNegativeFiniteNumber(state.stability, `${label} stability`),
+    difficulty: boundedFiniteNumber(state.difficulty, 1, 10, `${label} difficulty`),
+    ...(lastRating ? { lastRating } : {}),
+    lapses: nonNegativeInteger(state.lapses, `${label} lapses`),
+    reviews: nonNegativeInteger(state.reviews, `${label} reviews`),
+    ...(lastReviewedAt ? { lastReviewedAt } : {})
+  };
+}
+
+function scheduleDecisionReason(value: unknown, label: string): ScheduleDecisionReason {
+  if (value === "first-review" || value === "review" || value === "revision-reset") return value;
+  throw new Error(`${label} is invalid.`);
+}
+
+function validateScheduleDecisionLineage(
+  topics: Record<string, TopicProgress>,
+  events: ReviewEvent[]
+): void {
+  const decisionIDs = new Set<string>();
+  for (const event of events) {
+    const decision = event.scheduleDecision;
+    if (!decision) continue;
+    const normalizedID = decision.id.toLowerCase();
+    if (decisionIDs.has(normalizedID)) throw new Error(`Progress contains duplicate schedule decision ID ${decision.id}.`);
+    decisionIDs.add(normalizedID);
+  }
+
+  const groups = new Map<string, Array<{ event: ReviewEvent; index: number }>>();
+  events.forEach((event, index) => {
+    const key = reviewHistoryKey(event.topicID, event.questionID, event.questionRevision);
+    const group = groups.get(key) ?? [];
+    group.push({ event, index });
+    groups.set(key, group);
+  });
+
+  for (const group of groups.values()) {
+    group.sort((left, right) => left.event.reviewedAt.localeCompare(right.event.reviewedAt) || left.index - right.index);
+    let replayedState: ReviewCardState | undefined;
+    group.forEach(({ event }, position) => {
+      replayedState = scheduleReview(replayedState, event.isCorrect ? event.rating : "missed", event.reviewedAt);
+      replayedState.questionRevision = event.questionRevision;
+      const decision = event.scheduleDecision;
+      if (!decision) return;
+      const previous = group[position - 1]?.event;
+      const expectedPreviousEventID = previous?.id;
+      const expectedPreviousDecisionID = previous?.scheduleDecision?.id;
+      if (decision.previousReviewEventID !== expectedPreviousEventID) {
+        throw new Error(`Schedule decision ${decision.id} must link its immediate previous review event.`);
+      }
+      if (decision.previousScheduleDecisionID !== expectedPreviousDecisionID) {
+        throw new Error(`Schedule decision ${decision.id} has an invalid previous schedule decision link.`);
+      }
+      const hasEarlierRevision = events.some((candidate) =>
+        candidate.topicID === event.topicID
+        && candidate.questionID === event.questionID
+        && candidate.questionRevision < event.questionRevision
+      );
+      const expectedReason: ScheduleDecisionReason = previous
+        ? "review"
+        : hasEarlierRevision ? "revision-reset" : "first-review";
+      if (decision.reason !== expectedReason) {
+        throw new Error(`Schedule decision ${decision.id} reason must be ${expectedReason}.`);
+      }
+      if (!scheduleStateMatchesCard(decision.result, replayedState)) {
+        throw new Error(`Schedule decision ${decision.id} result does not match scheduler replay.`);
+      }
+      replayedState.scheduleDecisionID = decision.id;
+    });
+  }
+
+  const questionGroups = new Map<string, Array<{ event: ReviewEvent; index: number }>>();
+  events.forEach((event, index) => {
+    const key = `${event.topicID}\u0000${event.questionID}`;
+    const group = questionGroups.get(key) ?? [];
+    group.push({ event, index });
+    questionGroups.set(key, group);
+  });
+  for (const group of questionGroups.values()) {
+    group.sort((left, right) => left.event.reviewedAt.localeCompare(right.event.reviewedAt) || left.index - right.index);
+    let latestRevision = 0;
+    group.forEach(({ event }, position) => {
+      if (event.questionRevision < latestRevision) {
+        throw new Error("Question revisions must not move backward through review history.");
+      }
+      latestRevision = event.questionRevision;
+      const next = group[position + 1]?.event;
+      if (event.scheduleDecision && next && event.scheduleDecision.decidedAt > next.reviewedAt) {
+        throw new Error(`Schedule decision ${event.scheduleDecision.id} cannot postdate the next review outcome.`);
+      }
+    });
+  }
+
+  for (const [topicID, topic] of Object.entries(topics)) {
+    for (const [questionID, card] of Object.entries(topic.reviewCardsByQuestionID)) {
+      const group = groups.get(reviewHistoryKey(topicID, questionID, card.questionRevision)) ?? [];
+      const newest = group[group.length - 1]?.event.scheduleDecision;
+      if (newest) {
+        if (newest.id !== card.scheduleDecisionID) {
+          throw new Error(`Progress review card ${topicID}/${questionID} has an invalid scheduleDecisionID.`);
+        }
+        if (!scheduleStateMatchesCard(newest.result, card)) {
+          throw new Error(`Progress review card ${topicID}/${questionID} does not match its schedule decision.`);
+        }
+      } else if (card.scheduleDecisionID) {
+        throw new Error(`Progress review card ${topicID}/${questionID} links a missing schedule decision.`);
+      }
+    }
+  }
+}
+
+function reviewHistoryKey(topicID: string, questionID: string, questionRevision: number): string {
+  return `${topicID}\u0000${questionID}\u0000${questionRevision}`;
+}
+
+function scheduleStateMatchesCard(snapshot: ScheduleStateSnapshot, card: ReviewCardState): boolean {
+  return snapshot.schedulerVersion === card.schedulerVersion
+    && snapshot.questionRevision === card.questionRevision
+    && snapshot.dueAt === card.dueAt
+    && snapshot.intervalDays === card.intervalDays
+    && snapshot.stability === card.stability
+    && snapshot.difficulty === card.difficulty
+    && snapshot.lastRating === card.lastRating
+    && snapshot.lapses === card.lapses
+    && snapshot.reviews === card.reviews
+    && snapshot.lastReviewedAt === card.lastReviewedAt;
 }
 
 function normalizeReviewCard(raw: unknown, topicID: string, questionID: string): ReviewCardState {
@@ -300,9 +598,11 @@ function normalizeReviewCard(raw: unknown, topicID: string, questionID: string):
     throw new Error(`${label} lastRating is invalid.`);
   }
   const lastReviewedAt = optionalIsoTimestamp(card.lastReviewedAt, `${label} lastReviewedAt`);
+  const scheduleDecisionID = optionalNonEmptyString(card.scheduleDecisionID, `${label} scheduleDecisionID`);
   return {
     ...card,
     schedulerVersion: cardSchedulerVersion,
+    ...(scheduleDecisionID ? { scheduleDecisionID } : {}),
     questionRevision: card.questionRevision === undefined ? 1 : positiveInteger(card.questionRevision, `${label} questionRevision`),
     dueAt: isoTimestamp(card.dueAt, `${label} dueAt`),
     intervalDays: positiveFiniteNumber(card.intervalDays, `${label} intervalDays`),
@@ -511,6 +811,7 @@ export function applyReviewEvent(progress: ProgressRecord, event: ReviewEvent): 
   for (const historicalEvent of history) {
     state = scheduleReview(state, historicalEvent.isCorrect ? historicalEvent.rating : "missed", historicalEvent.reviewedAt);
     state.questionRevision = event.questionRevision;
+    if (historicalEvent.scheduleDecision) state.scheduleDecisionID = historicalEvent.scheduleDecision.id;
   }
   if (!state) throw new Error("Could not derive the review schedule.");
   topicProgress.reviewCardsByQuestionID[event.questionID] = state;

@@ -10,6 +10,7 @@ export type QuestionKind =
 export type TransferLevel = "recall" | "application" | "transfer";
 export type QuestionDifficulty = "intro" | "medium" | "hard";
 export type RelationshipKind = "prerequisite" | "partOf" | "contrastsWith" | "enables";
+export type ScheduleDecisionReason = "first-review" | "review" | "revision-reset";
 
 export interface KnowledgeSource {
   id: string;
@@ -86,6 +87,33 @@ export interface KnowledgeTopic {
   questions: Question[];
 }
 
+export interface ScheduleStateSnapshot {
+  schedulerVersion: string;
+  questionRevision: number;
+  dueAt: string;
+  intervalDays: number;
+  stability: number;
+  difficulty: number;
+  lastRating?: ReviewRating;
+  lapses: number;
+  reviews: number;
+  lastReviewedAt?: string;
+}
+
+/** Immutable record of the scheduling policy output caused by one review outcome. */
+export interface ScheduleDecisionV1 {
+  schemaVersion: 1;
+  id: string;
+  sourceReviewEventID: string;
+  previousReviewEventID?: string;
+  previousScheduleDecisionID?: string;
+  decidedAt: string;
+  reason: ScheduleDecisionReason;
+  policyArtifactID?: string;
+  featureSchemaVersion?: string;
+  result: ScheduleStateSnapshot;
+}
+
 export interface ReviewEvent {
   id: string;
   topicID: string;
@@ -107,10 +135,14 @@ export interface ReviewEvent {
   misconceptionIDs: string[];
   sourceRefs: string[];
   reviewedAt: string;
+  /** Present on newly instrumented outcomes; legacy outcomes intentionally remain unbackfilled. */
+  scheduleDecision?: ScheduleDecisionV1;
 }
 
 export interface ReviewCardState {
   schedulerVersion: string;
+  /** Links the current projection to the review event's immutable scheduling decision. */
+  scheduleDecisionID?: string;
   questionRevision: number;
   dueAt: string;
   intervalDays: number;
@@ -265,6 +297,7 @@ export interface CommitReviewResult {
   snapshot: AppSnapshot;
   event: ReviewEvent;
   cardState: ReviewCardState;
+  scheduleDecision?: ScheduleDecisionV1;
   wasInserted: boolean;
 }
 

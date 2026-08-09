@@ -1,0 +1,550 @@
+{
+  "id": "kv-cache-scheduler-simulator",
+  "title": "KV-Cache Scheduler Simulator",
+  "summary": "A C++17 simulator for studying how LLM-serving request schedulers allocate limited KV-cache capacity and trade off queueing delay, TTFT, latency, throughput, utilization, and starvation.",
+  "schemaVersion": 2,
+  "revision": 1,
+  "sources": [
+    {
+      "id": "project-readme",
+      "kind": "local-file",
+      "title": "KV Cache Scheduler Simulator README",
+      "locator": "/Users/yash/Desktop/kv-cache-scheduler-sim/README.md"
+    },
+    {
+      "id": "simulator-header",
+      "kind": "local-file",
+      "title": "Simulator public types",
+      "locator": "/Users/yash/Desktop/kv-cache-scheduler-sim/include/kvsim/simulator.hpp"
+    },
+    {
+      "id": "simulator-source",
+      "kind": "local-file",
+      "title": "Simulator implementation",
+      "locator": "/Users/yash/Desktop/kv-cache-scheduler-sim/src/simulator.cpp"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "llm-serving-to-kv-cache",
+      "sourceConceptID": "llm-serving",
+      "targetConceptID": "kv-cache",
+      "kind": "enables",
+      "rationale": "Serving concurrency is constrained by the memory required to retain attention state.",
+      "sourceRefs": []
+    },
+    {
+      "id": "kv-cache-to-scheduling",
+      "sourceConceptID": "kv-cache",
+      "targetConceptID": "scheduling-policies",
+      "kind": "enables",
+      "rationale": "The scheduler needs KV capacity estimates to decide which requests can enter.",
+      "sourceRefs": []
+    },
+    {
+      "id": "scheduling-to-metrics",
+      "sourceConceptID": "scheduling-policies",
+      "targetConceptID": "serving-metrics",
+      "kind": "enables",
+      "rationale": "Policies are meaningful only when their latency, throughput, utilization, and fairness tradeoffs are measured.",
+      "sourceRefs": []
+    },
+    {
+      "id": "loop-to-roadmap",
+      "sourceConceptID": "simulation-loop",
+      "targetConceptID": "project-roadmap",
+      "kind": "enables",
+      "rationale": "Understanding the current loop identifies the next realism increment: a shared token budget.",
+      "sourceRefs": []
+    }
+  ],
+  "concepts": [
+    {
+      "id": "llm-serving",
+      "title": "LLM inference serving",
+      "firstPrinciples": "Many users send prompts to one model server. The server has finite GPU memory and compute, so it must decide which requests run now and which wait.",
+      "explanation": "This project studies the serving layer around an LLM. It does not run a model; it simulates request admission and execution so scheduling ideas can be compared cheaply.",
+      "relatedTerms": [
+        "inference",
+        "request queue",
+        "GPU capacity",
+        "continuous batching"
+      ],
+      "confusableTerms": [],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    },
+    {
+      "id": "kv-cache",
+      "title": "KV cache",
+      "firstPrinciples": "During autoregressive generation, the model stores attention state for tokens it has already processed. Reusing that state avoids recomputing the whole prefix for every new output token.",
+      "explanation": "The simulator represents KV capacity in token units. A request reserves prompt_tokens plus max_output_tokens. Real systems use bytes, model dimensions, data types, pages, and dynamic allocation.",
+      "relatedTerms": [
+        "key-value cache",
+        "attention state",
+        "GPU memory",
+        "PagedAttention"
+      ],
+      "confusableTerms": [
+        "model weights",
+        "request queue"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    },
+    {
+      "id": "request-model",
+      "title": "Request representation and lifecycle",
+      "firstPrinciples": "A request has an arrival time, a prompt size, and an output-size limit. It waits, becomes active when admitted, generates output, then releases its reservation.",
+      "explanation": "The CSV workload is the simulator's input. Each row becomes a Request, Runtime state tracks progress, and RequestResult records admission and completion timings.",
+      "relatedTerms": [
+        "arrival_ms",
+        "prompt_tokens",
+        "max_output_tokens",
+        "prefill",
+        "decode"
+      ],
+      "confusableTerms": [],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    },
+    {
+      "id": "scheduling-policies",
+      "title": "Admission and scheduling policies",
+      "firstPrinciples": "When capacity is limited, a policy chooses which waiting request may enter the active batch. Different choices change latency, utilization, fairness, and starvation.",
+      "explanation": "The current policies are strict FCFS, smallest-reservation-first (currently named shortest in the CLI), and KV-aware best-fit with an aging threshold. Strict FCFS can suffer head-of-line blocking when the oldest request does not fit but a later smaller request does.",
+      "relatedTerms": [
+        "FCFS",
+        "head-of-line blocking",
+        "best fit",
+        "starvation",
+        "backfilling",
+        "first-fit"
+      ],
+      "confusableTerms": [],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    },
+    {
+      "id": "simulation-loop",
+      "title": "Tick-based simulation loop",
+      "firstPrinciples": "The simulator advances a numerical clock in batching steps. At each step it admits requests, processes prompt chunks or output tokens, completes requests, releases memory, and measures state.",
+      "explanation": "The current implementation is a tick-based simulator, not a full hardware or event-driven serving engine. All active requests receive progress in a step, which is intentionally simple but currently lacks a shared token-processing budget.",
+      "relatedTerms": [
+        "simulation clock",
+        "prefill",
+        "decode",
+        "active batch",
+        "state transition"
+      ],
+      "confusableTerms": [],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    },
+    {
+      "id": "serving-metrics",
+      "title": "LLM serving metrics",
+      "firstPrinciples": "A fast system must be evaluated across multiple dimensions. Time to first token measures initial responsiveness; total latency measures completion; throughput measures completed work; queueing measures scheduler delay.",
+      "explanation": "The simulator reports completed requests, rejections, RPS, average queue time, TTFT, p95 TTFT, average latency, p95 latency, KV utilization, and peak reservation. Future work should add TPOT, p99, fairness, SLO success rate, and machine-readable experiment output.",
+      "relatedTerms": [
+        "TTFT",
+        "TPOT",
+        "p95",
+        "p99",
+        "throughput",
+        "SLO",
+        "fairness"
+      ],
+      "confusableTerms": [],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    },
+    {
+      "id": "project-roadmap",
+      "title": "Project roadmap and honest scope",
+      "firstPrinciples": "A credible systems project needs a clear boundary, reproducible experiments, and a progression from a simple model to more realistic behavior.",
+      "explanation": "The current project is a strong learning prototype, not yet a complete inference engine. The highest-value increments are: add first-fit, generate seeded workloads, add TPOT/p99/fairness and CSV results, introduce a global per-step token budget with decode priority and chunked prefill, then study dynamic paged KV allocation and preemption.",
+      "relatedTerms": [
+        "token budget",
+        "chunked prefill",
+        "paged allocation",
+        "preemption",
+        "workload generator",
+        "reproducibility"
+      ],
+      "confusableTerms": [],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ]
+    }
+  ],
+  "gaps": [],
+  "questions": [
+    {
+      "id": "llm-serving-check-1",
+      "revision": 1,
+      "prompt": "What does this project primarily simulate?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "llm-serving"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "How an LLM generates language internally",
+          "isCorrect": false
+        },
+        {
+          "id": "b",
+          "text": "How an LLM server admits and schedules concurrent requests",
+          "isCorrect": true
+        },
+        {
+          "id": "c",
+          "text": "How to train a transformer from scratch",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "How to build a web UI",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "The project models the serving system around the model: queues, admission, memory, execution steps, and metrics.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    },
+    {
+      "id": "kv-cache-check-1",
+      "revision": 1,
+      "prompt": "In the simulator, how is a request's conservative KV reservation calculated?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "kv-cache"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "arrival_ms + prompt_tokens",
+          "isCorrect": false
+        },
+        {
+          "id": "b",
+          "text": "prompt_tokens + max_output_tokens",
+          "isCorrect": true
+        },
+        {
+          "id": "c",
+          "text": "max_batch_size + step_ms",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "only max_output_tokens",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "The current model reserves the prompt and the maximum possible output to avoid simulated over-admission during decode.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    },
+    {
+      "id": "request-model-check-1",
+      "revision": 1,
+      "prompt": "What happens when an active request finishes generating its maximum output?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "request-model"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Its KV reservation is released and it leaves the active batch",
+          "isCorrect": true
+        },
+        {
+          "id": "b",
+          "text": "It is moved back to the front of the queue",
+          "isCorrect": false
+        },
+        {
+          "id": "c",
+          "text": "Its arrival time is reset",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "The whole simulation stops",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "Completed requests release capacity so waiting requests can be admitted.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    },
+    {
+      "id": "scheduling-policies-check-1",
+      "revision": 1,
+      "prompt": "With 20 KV tokens free and waiting requests requiring 40 and 20 tokens, what can a first-fit policy do that strict FCFS cannot?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "scheduling-policies"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Admit the 40-token request anyway",
+          "isCorrect": false
+        },
+        {
+          "id": "b",
+          "text": "Admit the later 20-token request instead of stopping at the blocked first request",
+          "isCorrect": true
+        },
+        {
+          "id": "c",
+          "text": "Increase the GPU capacity",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "Reduce the prompt length",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "First-fit scans for the first request that fits, so it can backfill around the blocked request. Strict FCFS stops at the oldest request.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    },
+    {
+      "id": "simulation-loop-check-1",
+      "revision": 1,
+      "prompt": "Which order best describes one simulator iteration?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "simulation-loop"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Complete requests, then read the workload, then allocate memory",
+          "isCorrect": false
+        },
+        {
+          "id": "b",
+          "text": "Read arrivals, admit fitting requests, process prefill/decode, complete requests, release capacity",
+          "isCorrect": true
+        },
+        {
+          "id": "c",
+          "text": "Generate all outputs before any request is admitted",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "Sort metrics before running the scheduler",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "The loop updates arrivals and admission first, advances active work, then frees completed reservations for later iterations.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    },
+    {
+      "id": "serving-metrics-check-1",
+      "revision": 1,
+      "prompt": "What does TTFT measure?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "serving-metrics"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Time until the first output token is available",
+          "isCorrect": true
+        },
+        {
+          "id": "b",
+          "text": "Total time until the request finishes",
+          "isCorrect": false
+        },
+        {
+          "id": "c",
+          "text": "The number of KV tokens reserved",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "The number of requests rejected",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "TTFT is the delay from request arrival until the first generated token.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    },
+    {
+      "id": "project-roadmap-check-1",
+      "revision": 1,
+      "prompt": "Which improvement most directly makes the current execution model more like a real LLM scheduler?",
+      "difficulty": "hard",
+      "conceptIDs": [
+        "project-roadmap"
+      ],
+      "gapTags": [
+        "C++",
+        "LLM serving",
+        "ML infrastructure",
+        "scheduling",
+        "KV cache",
+        "systems",
+        "simulation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Add a web dashboard first",
+          "isCorrect": false
+        },
+        {
+          "id": "b",
+          "text": "Add a shared per-step token budget and schedule decode/prefill work within it",
+          "isCorrect": true
+        },
+        {
+          "id": "c",
+          "text": "Rename the binary",
+          "isCorrect": false
+        },
+        {
+          "id": "d",
+          "text": "Add more decorative output colors",
+          "isCorrect": false
+        }
+      ],
+      "explanation": "A shared token budget models the fact that the engine has limited work per iteration and must balance decode responsiveness against prefill work.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": []
+    }
+  ],
+  "tags": [
+    "C++",
+    "LLM serving",
+    "ML infrastructure",
+    "scheduling",
+    "KV cache",
+    "systems",
+    "simulation"
+  ],
+  "markdownPath": "notes/kv-cache-scheduler-simulator.md"
+}

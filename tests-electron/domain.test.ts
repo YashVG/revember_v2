@@ -144,6 +144,169 @@ describe("progress validation", () => {
     });
   });
 
+  test("validates and preserves immutable schedule-decision evidence", () => {
+    const progress = normalizeProgress(progressWithEvents([{
+      ...validReviewEvent(),
+      scheduleDecision: {
+        ...validScheduleDecision(),
+        extension: { triggerPolicy: "amount-v0" }
+      }
+    }]));
+
+    expect(progress.reviewEvents[0].scheduleDecision).toMatchObject({
+      id: "schedule-event",
+      sourceReviewEventID: "event",
+      decidedAt: "2026-08-01T00:00:00.000Z",
+      reason: "first-review",
+      extension: { triggerPolicy: "amount-v0" },
+      result: {
+        schedulerVersion: "simple-v1",
+        dueAt: "2026-08-03T00:00:00.000Z",
+        reviews: 1
+      }
+    });
+  });
+
+  test.each([
+    ["a non-derived ID", { id: "schedule-wrong" }, /id must be derived/i],
+    ["a mismatched source event", { sourceReviewEventID: "other" }, /must match its review event/i],
+    ["a decision time before its outcome", { decidedAt: "2026-07-31T23:59:59.000Z" }, /cannot predate/i],
+    ["an invalid reason", { reason: "timer" }, /reason is invalid/i],
+    ["a previous decision without a previous event", { previousScheduleDecisionID: "schedule-old" }, /requires previousReviewEventID/i]
+  ])("rejects schedule decisions with %s", (_name, replacement, message) => {
+    expect(() => normalizeProgress(progressWithEvents([{
+      ...validReviewEvent(),
+      scheduleDecision: { ...validScheduleDecision(), ...replacement }
+    }]))).toThrow(message);
+  });
+
+  test("rejects a schedule decision whose result does not match its parent outcome", () => {
+    expect(() => normalizeProgress(progressWithEvents([{
+      ...validReviewEvent(),
+      scheduleDecision: {
+        ...validScheduleDecision(),
+        result: { ...validScheduleDecision().result, questionRevision: 2 }
+      }
+    }]))).toThrow(/result questionRevision must match/i);
+  });
+
+  test("rejects a schedule decision result that does not match scheduler replay", () => {
+    expect(() => normalizeProgress(progressWithEvents([{
+      ...validReviewEvent(),
+      scheduleDecision: {
+        ...validScheduleDecision(),
+        result: { ...validScheduleDecision().result, intervalDays: 99 }
+      }
+    }]))).toThrow(/result does not match scheduler replay/i);
+  });
+
+  test("rejects a decision recorded after the next outcome in the same revision", () => {
+    const secondReviewedAt = "2026-08-03T00:00:00.000Z";
+    const firstState = scheduleReview(undefined, "good", validReviewEvent().reviewedAt as string);
+    const secondState = scheduleReview(firstState, "good", secondReviewedAt);
+    expect(() => normalizeProgress(progressWithEvents([
+      {
+        ...validReviewEvent(),
+        scheduleDecision: {
+          ...validScheduleDecision(),
+          decidedAt: "2026-08-03T00:00:01.000Z"
+        }
+      },
+      {
+        ...validReviewEvent(),
+        id: "event-2",
+        reviewedAt: secondReviewedAt,
+        scheduleDecision: {
+          schemaVersion: 1,
+          id: "schedule-event-2",
+          sourceReviewEventID: "event-2",
+          previousReviewEventID: "event",
+          previousScheduleDecisionID: "schedule-event",
+          decidedAt: secondReviewedAt,
+          reason: "review",
+          result: secondState
+        }
+      }
+    ]))).toThrow(/cannot postdate the next review outcome/i);
+  });
+
+  test("rejects a decision recorded after the next revision's outcome", () => {
+    const nextReviewedAt = "2026-08-02T00:00:00.000Z";
+    const revisedState = scheduleReview(undefined, "good", nextReviewedAt);
+    revisedState.questionRevision = 2;
+    expect(() => normalizeProgress(progressWithEvents([
+      {
+        ...validReviewEvent(),
+        scheduleDecision: {
+          ...validScheduleDecision(),
+          decidedAt: "2026-08-02T00:00:01.000Z"
+        }
+      },
+      {
+        ...validReviewEvent(),
+        id: "event-revision-2",
+        questionRevision: 2,
+        reviewedAt: nextReviewedAt,
+        scheduleDecision: {
+          schemaVersion: 1,
+          id: "schedule-event-revision-2",
+          sourceReviewEventID: "event-revision-2",
+          decidedAt: nextReviewedAt,
+          reason: "revision-reset",
+          result: revisedState
+        }
+      }
+    ]))).toThrow(/cannot postdate the next review outcome/i);
+  });
+
+  test("rejects a newer question revision that predates an older revision", () => {
+    const revisedReviewedAt = "2026-08-01T00:00:00.000Z";
+    const originalReviewedAt = "2026-08-02T00:00:00.000Z";
+    const revisedState = scheduleReview(undefined, "good", revisedReviewedAt);
+    revisedState.questionRevision = 2;
+    const originalState = scheduleReview(undefined, "good", originalReviewedAt);
+    expect(() => normalizeProgress(progressWithEvents([
+      {
+        ...validReviewEvent(),
+        id: "event-revision-2",
+        questionRevision: 2,
+        reviewedAt: revisedReviewedAt,
+        scheduleDecision: {
+          schemaVersion: 1,
+          id: "schedule-event-revision-2",
+          sourceReviewEventID: "event-revision-2",
+          decidedAt: revisedReviewedAt,
+          reason: "revision-reset",
+          result: revisedState
+        }
+      },
+      {
+        ...validReviewEvent(),
+        reviewedAt: originalReviewedAt,
+        scheduleDecision: {
+          ...validScheduleDecision(),
+          decidedAt: originalReviewedAt,
+          result: originalState
+        }
+      }
+    ]))).toThrow(/question revisions must not move backward/i);
+  });
+
+  test("rejects a current card that omits its newest schedule-decision link", () => {
+    const decision = validScheduleDecision();
+    expect(() => normalizeProgress({
+      schemaVersion: 2,
+      topics: {
+        bits: {
+          attemptsByQuestionID: {},
+          weakConceptIDs: {},
+          reviewCardsByQuestionID: { q1: decision.result }
+        }
+      },
+      reviewEvents: [{ ...validReviewEvent(), scheduleDecision: decision }]
+    })).toThrow(/invalid scheduleDecisionID/i);
+  });
+
   test.each([
     ["numeric ID", { id: 17 }, /id must be a non-empty string/],
     ["invalid rating", { rating: "perfect" }, /rating is invalid/],
@@ -260,6 +423,28 @@ function validReviewEvent(): Record<string, unknown> {
     misconceptionIDs: [],
     sourceRefs: [],
     reviewedAt: "2026-08-01T00:00:00.000Z"
+  };
+}
+
+function validScheduleDecision() {
+  return {
+    schemaVersion: 1,
+    id: "schedule-event",
+    sourceReviewEventID: "event",
+    decidedAt: "2026-08-01T00:00:00.000Z",
+    reason: "first-review",
+    result: {
+      schedulerVersion: "simple-v1",
+      questionRevision: 1,
+      dueAt: "2026-08-03T00:00:00.000Z",
+      intervalDays: 2,
+      stability: 2,
+      difficulty: 4.75,
+      lastRating: "good",
+      lapses: 0,
+      reviews: 1,
+      lastReviewedAt: "2026-08-01T00:00:00.000Z"
+    }
   };
 }
 

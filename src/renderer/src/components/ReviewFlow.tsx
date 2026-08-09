@@ -74,13 +74,14 @@ export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }:
     selectedChoiceID,
     rating,
     responseTimeMs,
+    answeredAt,
     revealed,
     setRevealed,
     error,
     setError,
     choose,
     reset
-  } = useQuestionAttempt(item?.question);
+  } = useQuestionAttempt(item?.question, item?.topic.id);
 
   if (!item) {
     return (
@@ -95,7 +96,7 @@ export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }:
   }
 
   const save = async () => {
-    if (!choice || !rating || responseTimeMs === undefined || saveInFlight.current) return;
+    if (!choice || !rating || responseTimeMs === undefined || !answeredAt || saveInFlight.current) return;
 
     const submissionKey = reviewSubmissionKey(
       item.topic.id,
@@ -104,7 +105,12 @@ export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }:
       rating,
       responseTimeMs
     );
-    const submission = getOrCreateReviewSubmission(submissions.current, submissionKey);
+    const submission = getOrCreateReviewSubmission(
+      submissions.current,
+      submissionKey,
+      undefined,
+      () => answeredAt
+    );
     saveInFlight.current = true;
     setSaving(true);
     try {
@@ -193,7 +199,7 @@ export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }:
           </span>
           <button
             className="primary"
-            disabled={!choice || !rating || responseTimeMs === undefined || saving}
+            disabled={!choice || !rating || responseTimeMs === undefined || !answeredAt || saving}
             aria-busy={saving}
             onClick={save}
           >

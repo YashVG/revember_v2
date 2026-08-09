@@ -82,9 +82,11 @@ ProgressRecord
   reviewEvents[]                append-only evidence ledger
 ```
 
-Each `ReviewEvent` has a UUID, topic and question IDs, question revision, selected and correct answer snapshots, prompt/kind/transfer snapshots, correctness, rating, optional response time and rating source, concept IDs, gap tags, misconception IDs, source references, and review time. This keeps old evidence interpretable after authored content changes. Reusing the UUID is idempotent only for an identical payload; a mismatched reuse is rejected. The app first builds a candidate progress record, saves it atomically, and only then publishes it in memory.
+Each `ReviewEvent` has a UUID, topic and question IDs, question revision, selected and correct answer snapshots, prompt/kind/transfer snapshots, correctness, rating, optional response time and rating source, concept IDs, gap tags, misconception IDs, source references, and review time. New events also contain a nested `scheduleDecision`. It records the applied scheduler version, main-process decision time, chosen interval and due time, full result snapshot, and immediate prior-event/decision links. The schedule remains anchored to the answer time. Existing events remain unbackfilled. This keeps old evidence interpretable without claiming provenance that was never recorded.
 
-The renderer starts an invisible active-time clock when each question appears, pauses it while the window is unfocused, and stops it on the first answer. The main process validates the inferred rating before persistence:
+The current card projection stores the newest `scheduleDecisionID`. The main process writes the outcome, decision, compatibility aggregates, and card projection in one atomic progress update. Reusing a review UUID is idempotent only for an identical payload and returns the same decision; a mismatched reuse is rejected.
+
+The renderer starts an invisible active-time clock when each question appears, pauses it while the window is unfocused, and stops it on the first answer. It captures `reviewedAt` at that first answer rather than when the learner later clicks Save. The main process validates the inferred rating before persistence:
 
 | Result | Active response time | Stored rating | UI label |
 | --- | ---: | --- | --- |
@@ -95,7 +97,7 @@ The renderer starts an invisible active-time clock when each question appears, p
 
 Recorded response time is capped at 60 seconds. The learner does not perform a second rating action; the answered state shows the inferred label and timing as a transparent status.
 
-Each `ReviewCardState` contains `questionRevision`, `schedulerVersion`, `dueAt`, `intervalDays`, `stability`, `difficulty`, `lastRating`, `lapses`, `reviews`, and `lastReviewedAt`. The current scheduler is intentionally transparent:
+Each `ReviewCardState` contains `questionRevision`, `schedulerVersion`, optional `scheduleDecisionID`, `dueAt`, `intervalDays`, `stability`, `difficulty`, `lastRating`, `lapses`, `reviews`, and `lastReviewedAt`. The current scheduler is intentionally transparent:
 
 | Rating | First interval | Later interval |
 | --- | ---: | ---: |
@@ -107,6 +109,8 @@ Each `ReviewCardState` contains `questionRevision`, `schedulerVersion`, `dueAt`,
 An incorrect choice is always persisted and scheduled as `Missed`, regardless of response speed. Free-recall probes hide answer cues until the learner explicitly reveals them for scoring.
 
 The scheduler lives behind the shared TypeScript domain boundary; event and card-state schemas retain stability, difficulty, and `schedulerVersion`. `reviewCardsByQuestionID` is a cache, not the canonical learning record: every newly inserted event replays that card revision's immutable history in review-time order before replacing the cache. Opening a file never silently reinterprets existing due dates. A future FSRS adapter can replay the same history under its own version without changing topic IDs, event history, the due queue, or the renderer contract.
+
+The proposed evidence, replay, shadow-evaluation, and promotion boundaries for any learned scheduler are documented in [Adaptive Learning Pipeline Scaffold](adaptive-learning-pipeline-scaffold.md). That document is exploratory; `simple-v1` remains the only implemented scheduler.
 
 The review and review-completion flows show the exact persisted `dueAt` and interval returned by the scheduler after a review is saved; they do not infer a generic interval from the rating label. The MCP learner brief also exposes each card's `schedulerVersion` and the distinct current scheduler versions in the progress record.
 
