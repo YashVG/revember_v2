@@ -160,6 +160,14 @@ export interface AppSettings {
   notificationsEnabled: boolean;
 }
 
+export type McpClient = "codex" | "claude";
+
+export interface McpConnectionResult {
+  client: McpClient;
+  action: "connect" | "disconnect";
+  configPath: string;
+}
+
 export interface StoredExamPlan {
   id: string;
   examName: string;
@@ -351,6 +359,7 @@ export interface RevemberAPI {
   chooseKnowledgeRoot(): Promise<AppSnapshot>;
   resetKnowledgeRoot(): Promise<AppSnapshot>;
   openKnowledgeRoot(): Promise<void>;
+  configureMcpClient(client: McpClient, action: "connect" | "disconnect"): Promise<McpConnectionResult>;
   commitReview(input: CommitReviewInput): Promise<CommitReviewResult>;
   captureCheckpoint(input: CaptureCheckpointInput): Promise<CaptureCheckpointResult>;
   createCard(input: CreateCardInput): Promise<CardMutationResult>;

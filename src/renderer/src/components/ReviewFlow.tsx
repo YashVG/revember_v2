@@ -57,12 +57,13 @@ function ChoiceList({ question, selectedChoiceID, onChoose }: ChoiceListProps) {
 
 type ReviewSessionProps = {
   items: DueReviewItem[];
+  sessionLabel: string;
+  returnLabel: string;
   onSnapshot: (snapshot: AppSnapshot) => void;
   onFinish: () => void;
-  onOpenCheckpoint: () => void;
 };
 
-export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }: ReviewSessionProps) {
+export function ReviewSession({ items, sessionLabel, returnLabel, onSnapshot, onFinish }: ReviewSessionProps) {
   const [index, setIndex] = useState(0);
   const [schedules, setSchedules] = useState<ReviewCardState[]>([]);
   const [saving, setSaving] = useState(false);
@@ -88,8 +89,8 @@ export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }:
         empty={!items.length}
         completed={schedules.length}
         schedules={schedules}
+        returnLabel={returnLabel}
         onFinish={onFinish}
-        onOpenCheckpoint={onOpenCheckpoint}
       />
     );
   }
@@ -142,9 +143,9 @@ export function ReviewSession({ items, onSnapshot, onFinish, onOpenCheckpoint }:
     <div className="review-shell">
       <header className="review-top">
         <button disabled={saving} onClick={onFinish}>
-          <X /> Exit Review
+          <X /> Return to {returnLabel}
         </button>
-        <span><Timer /> {index + 1} of {items.length}</span>
+        <span><Timer /> {sessionLabel} · {index + 1} of {items.length}</span>
       </header>
 
       <section className="surface review-card">
@@ -210,11 +211,11 @@ type ReviewCompletionProps = {
   empty: boolean;
   completed: number;
   schedules: ReviewCardState[];
+  returnLabel: string;
   onFinish: () => void;
-  onOpenCheckpoint: () => void;
 };
 
-function ReviewCompletion({ empty, completed, schedules, onFinish, onOpenCheckpoint }: ReviewCompletionProps) {
+function ReviewCompletion({ empty, completed, schedules, returnLabel, onFinish }: ReviewCompletionProps) {
   const earliest = [...schedules].sort((left, right) => left.dueAt.localeCompare(right.dueAt))[0];
 
   return (
@@ -235,8 +236,7 @@ function ReviewCompletion({ empty, completed, schedules, onFinish, onOpenCheckpo
           </div>
         )}
         <div className="completion-actions">
-          <button className="primary" onClick={onFinish}>Return to study focus</button>
-          {!empty && <button type="button" className="completion-secondary" onClick={onOpenCheckpoint}>Reflect on this session</button>}
+          <button className="primary" onClick={onFinish}>Return to {returnLabel}</button>
         </div>
       </section>
     </div>

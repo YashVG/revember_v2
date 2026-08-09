@@ -1,32 +1,30 @@
 # Contributing to Revember
 
-## Local Setup
+Revember is a local-first macOS application. Keep product changes narrow, preserve the typed local-data contracts, and validate the user-visible flow you change.
 
-Use the [Run on macOS](README.md#run-on-macos) commands for app-only development. Before opening a pull request, run the full gate:
+## Setup and checks
 
-```bash
+Use the [run instructions](README.md#run-on-macos) for app-only work. Before opening a pull request, run:
+
+~~~bash
 npm run verify
 npm run test:e2e
 npm run test:package
 git diff --check
-```
+~~~
 
-Use Node.js 22 LTS (`nvm use`) or Node.js 24+. Do not use Node.js 23; it is outside the root package's supported engine range.
+Use Node.js 22 LTS (nvm use) or Node.js 24+. Do not use Node.js 23.
 
-`npm run verify` clean-installs both lockfiles before checking the app and MCP server. After that bootstrap, `npm run verify:app` is the faster app-only rerun.
+## Working agreements
 
-The supported build, package, and release surface is currently macOS. Do not claim Windows or Linux support without adding and validating those targets.
+- Keep learning data local. Do not add remote calls, telemetry, or cloud persistence without an explicit design review.
+- Treat Ollama as optional and loopback-only. Generated text must stay editable and never save automatically.
+- Keep Electron context isolation and renderer sandboxing enabled. Filesystem work belongs in the main process behind the typed preload API.
+- Preserve topic, concept, question, source, relationship, and misconception IDs. Let the MCP server manage revisions when it authors knowledge.
+- Keep the topic and progress JSON formats compatible with the MCP server and existing local data.
+- Do not commit personal captures, generated .backups/, local sessions/, or build artifacts.
+- Add focused tests for scheduling, validation, persistence, and changed interaction flows.
 
-## Working Agreements
+## Pull requests
 
-- Keep the app local-first: do not add remote network calls, telemetry, or cloud persistence without explicit design review. The optional Ollama integration is loopback-only and must remain usable as a best-effort enhancement.
-- Keep draft-note persistence separate from local organization. Autosave must not call a model; Finish Lecture is the explicit organization boundary.
-- Keep Electron context isolation and renderer sandboxing enabled. Filesystem access belongs in the main process behind the narrow preload API.
-- Preserve stable topic, concept, question, source, relationship, and misconception IDs. Increment revisions through the MCP tools when modifying authored knowledge.
-- Keep the topic and progress JSON formats compatible with the MCP server and existing Revember data.
-- Put reusable authored material in `RevemberKnowledge/notes/` and `RevemberKnowledge/topics/`; do not commit generated `.backups/` or personal `sessions/` data.
-- Add focused domain tests for scheduling, validation, persistence, and queues. Add an Electron end-to-end check for user-visible workflow changes and a package-smoke assertion for packaged boundaries.
-
-## Pull Requests
-
-Describe the user-visible change, any Electron security-boundary or data-contract implications, and the validation commands you ran. Keep pull requests narrowly scoped when possible.
+State the user-visible result, data or security-boundary changes, and the validation commands you ran. Keep each pull request focused.

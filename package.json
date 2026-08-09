@@ -22,8 +22,9 @@
     "test:package": "npm run package && node tests-electron/package-smoke.mjs",
     "test:watch": "vitest",
     "check": "npm run verify:app",
-    "package": "npm run build && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir && bash script/adhoc_sign_electron.sh",
-    "dist": "npm run build && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
+    "prepare:mcp-runtime": "npm --prefix mcp-server ci && npm --prefix mcp-server run build && npm --prefix mcp-server prune --omit=dev",
+    "package": "npm run build && npm run prepare:mcp-runtime && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir && bash script/adhoc_sign_electron.sh",
+    "dist": "npm run build && npm run prepare:mcp-runtime && bash script/generate_electron_icon.sh && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
   },
   "dependencies": {
     "lucide-react": "^1.24.0",
@@ -44,7 +45,7 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "fast-uri": "3.1.4",
+    "fast-uri": "3.1.5",
     "tar": "7.5.22"
   },
   "build": {
@@ -62,6 +63,39 @@
       {
         "from": "RevemberKnowledge",
         "to": "RevemberKnowledge",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "mcp-server/dist",
+        "to": "mcp-server/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "mcp-server/node_modules",
+        "to": "mcp-server/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "mcp-server/package.json",
+        "to": "mcp-server/package.json"
+      },
+      {
+        "from": "mcp-server/run-mcp.sh",
+        "to": "mcp-server/run-mcp.sh"
+      },
+      {
+        "from": "mcp-server/packaged-entry.mjs",
+        "to": "mcp-server/packaged-entry.mjs"
+      },
+      {
+        "from": "topic-authoring",
+        "to": "topic-authoring",
         "filter": [
           "**/*"
         ]

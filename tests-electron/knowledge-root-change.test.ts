@@ -4,7 +4,7 @@ import { isKnowledgeRootChangeAllowed, runGuardedKnowledgeRootChange } from "../
 describe("renderer knowledge-root changes", () => {
   test("allows root switching only from an idle Home view", () => {
     expect(isKnowledgeRootChangeAllowed("home", false)).toBe(true);
-    // Active review or checkpoint/editor overlays are root-scoped even when Home is underneath.
+    // Active review or an editor is root-scoped even when Home is underneath.
     expect(isKnowledgeRootChangeAllowed("home", true)).toBe(false);
     expect(isKnowledgeRootChangeAllowed("notes", false)).toBe(false);
     expect(isKnowledgeRootChangeAllowed("topic", false)).toBe(false);

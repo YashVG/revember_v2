@@ -131,9 +131,9 @@ The Electron main process watches the knowledge root and `topics/`, coalesces ed
 The same review model is exposed outside the main window:
 
 - the tray shows due state and starts a three-minute review;
-- application-menu shortcuts open a due-card session or checkpoint capture;
+- application-menu shortcuts open a due-card session;
 - `revember://topic/<id>` and `revember://review?minutes=3` deep links route through the running app;
-- Capture Learning Checkpoint writes a schema-v1 session artifact from the renderer through the main-process persistence boundary;
+- learning-session artifacts remain available through the local MCP authoring workflow, not the renderer;
 - notifications are opt-in and schedule the next review while Revember is running.
 
 These surfaces route through the same app state and scheduler. They do not maintain independent review data.

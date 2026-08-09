@@ -2,6 +2,12 @@
 
 Local stdio MCP server for the Revember v2 knowledge base.
 
+## Use with the packaged app
+
+The macOS app bundles this server and its runtime. In Revember, open **Settings → AI study partner**, then choose **Connect Codex** or **Connect Claude**. The app registers the connection to the learning folder currently open in Revember, so no Node installation, repository checkout, or manual absolute-path configuration is needed. The connection follows later folder changes; restart the selected client after connecting or switching folders.
+
+Use the repository instructions below only when developing or testing the server itself.
+
 The server keeps the existing Revember app workflow intact:
 
 - Topic JSON stays in `RevemberKnowledge/topics/*.json`.

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
   app,
@@ -22,11 +23,14 @@ import type {
   CreateCardInput,
   CreateTopicInput,
   EditCardInput,
+  McpClient,
+  McpConnectionResult,
   RetireCardInput,
   SaveCaptureInput,
   UpsertExamPlanInput
 } from "../shared/types";
 import { RevemberState } from "./app-state";
+import { configureMcpClient } from "./mcp-client-config";
 import {
   isSafeExternalURL,
   isTrustedRendererURL,
@@ -72,6 +76,7 @@ app.whenReady().then(() => {
   state = new RevemberState({
     settingsPath: path.join(app.getPath("userData"), "settings.json"),
     bundledKnowledgeRoot,
+    personalKnowledgeRoot: path.join(app.getPath("documents"), "RevemberKnowledge"),
     legacyProgressPath: process.platform === "darwin"
       ? path.join(app.getPath("appData"), "RevemberV2", "progress.json")
       : path.join(app.getPath("userData"), "progress.json")
@@ -174,6 +179,18 @@ function registerIPC(): void {
     const error = await shell.openPath(state.snapshot.settings.knowledgeRootPath);
     if (error) throw new Error(error);
   });
+  handleState(ipcChannels.configureMcpClient, (client: McpClient, action: "connect" | "disconnect"): McpConnectionResult => {
+    const mcpDirectory = app.isPackaged
+      ? path.join(process.resourcesPath, "mcp-server")
+      : path.join(app.getAppPath(), "mcp-server");
+    const runnerPath = path.join(mcpDirectory, "run-mcp.sh");
+    if (action === "connect" && (!existsSync(runnerPath) || !existsSync(path.join(mcpDirectory, "dist", "index.js")))) {
+      throw new Error("Revember's bundled MCP server is unavailable. Reinstall the app and try again.");
+    }
+    return configureMcpClient(client, action, {
+      runnerPath
+    });
+  });
   handleState(ipcChannels.commitReview, (input: CommitReviewInput) => state.commitReview(input));
   handleState(ipcChannels.captureCheckpoint, (input: CaptureCheckpointInput) => state.captureCheckpoint(input));
   handleState(ipcChannels.createCard, (input: CreateCardInput) => state.createCard(input));
@@ -253,7 +270,6 @@ function createMenu(): void {
     {
       label: "File", submenu: [
         routeCommand("Start 3-Minute Review", "review:3", "CmdOrCtrl+Shift+R"),
-        routeCommand("Capture Learning Checkpoint…", "checkpoint", "CmdOrCtrl+Shift+K"),
         { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => state.reload() },
         { type: "separator" },
         { role: "close" }
@@ -296,7 +312,6 @@ function updateTray(snapshot: AppSnapshot): void {
     { type: "separator" },
     { label: "Open Revember", click: showMainWindow },
     routeCommand("Start 3-Minute Review", "review:3"),
-    routeCommand("Capture Learning Checkpoint…", "checkpoint"),
     { type: "separator" },
     { label: "Quit Revember", click: () => app.quit() }
   ]));
