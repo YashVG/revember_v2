@@ -13,6 +13,7 @@ import {
   type IpcMainInvokeEvent
 } from "electron";
 import { dueReviewItems, nextDueAt } from "../shared/domain";
+import { ipcChannels } from "../shared/ipc";
 import type {
   AppSnapshot,
   ArchiveExamPlanInput,
@@ -76,7 +77,7 @@ app.whenReady().then(() => {
       : path.join(app.getPath("userData"), "progress.json")
   });
   state.on("snapshot", (snapshot: AppSnapshot) => {
-    mainWindow?.webContents.send("revember:snapshot", snapshot);
+    mainWindow?.webContents.send(ipcChannels.snapshot, snapshot);
     updateTray(snapshot);
     scheduleNotification(snapshot);
   });
@@ -155,10 +156,10 @@ function createWindow(): void {
 }
 
 function registerIPC(): void {
-  handleTrusted("revember:get-snapshot", () => state.snapshot);
-  handleTrusted("revember:reload", () => state.reload());
-  handleTrusted("revember:create-topic", (_event, input: CreateTopicInput) => state.createTopic(input));
-  handleTrusted("revember:choose-knowledge-root", async () => {
+  handleState(ipcChannels.getSnapshot, () => state.snapshot);
+  handleState(ipcChannels.reload, () => state.reload());
+  handleState(ipcChannels.createTopic, (input: CreateTopicInput) => state.createTopic(input));
+  handleState(ipcChannels.chooseKnowledgeRoot, async () => {
     const options: Electron.OpenDialogOptions = {
       title: "Choose Revember Knowledge Folder",
       properties: ["openDirectory", "createDirectory"]
@@ -168,27 +169,34 @@ function registerIPC(): void {
       : await dialog.showOpenDialog(options);
     return result.canceled || !result.filePaths[0] ? state.snapshot : state.setKnowledgeRoot(result.filePaths[0]);
   });
-  handleTrusted("revember:reset-knowledge-root", () => state.resetKnowledgeRoot());
-  handleTrusted("revember:open-knowledge-root", async () => {
+  handleState(ipcChannels.resetKnowledgeRoot, () => state.resetKnowledgeRoot());
+  handleState(ipcChannels.openKnowledgeRoot, async () => {
     const error = await shell.openPath(state.snapshot.settings.knowledgeRootPath);
     if (error) throw new Error(error);
   });
-  handleTrusted("revember:commit-review", (_event, input: CommitReviewInput) => state.commitReview(input));
-  handleTrusted("revember:capture-checkpoint", (_event, input: CaptureCheckpointInput) => state.captureCheckpoint(input));
-  handleTrusted("revember:create-card", (_event, input: CreateCardInput) => state.createCard(input));
-  handleTrusted("revember:edit-card", (_event, input: EditCardInput) => state.editCard(input));
-  handleTrusted("revember:retire-card", (_event, input: RetireCardInput) => state.retireCard(input));
-  handleTrusted("revember:generate-distractors", (_event, input: unknown) => state.generateDistractors(input));
-  handleTrusted("revember:upsert-exam-plan", (_event, input: UpsertExamPlanInput) => state.upsertExamPlan(input));
-  handleTrusted("revember:archive-exam-plan", (_event, input: ArchiveExamPlanInput) => state.archiveExamPlan(input));
-  handleTrusted("revember:list-capture-summaries", () => state.listCaptureSummaries());
-  handleTrusted("revember:get-capture", (_event, id: string) => state.getCapture(id));
-  handleTrusted("revember:save-capture", (_event, input: SaveCaptureInput) => state.saveCapture(input));
-  handleTrusted("revember:finish-capture", (_event, id: string, expectedRevision: number) => state.finishCapture(id, expectedRevision));
-  handleTrusted("revember:archive-capture", (_event, id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
-  handleTrusted("revember:get-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.getCaptureSegmentation(captureID, captureRevision));
-  handleTrusted("revember:retry-capture-segmentation", (_event, captureID: string, captureRevision: number) => state.retryCaptureSegmentation(captureID, captureRevision));
-  handleTrusted("revember:set-notifications", (_event, enabled: boolean) => state.setNotificationsEnabled(enabled));
+  handleState(ipcChannels.commitReview, (input: CommitReviewInput) => state.commitReview(input));
+  handleState(ipcChannels.captureCheckpoint, (input: CaptureCheckpointInput) => state.captureCheckpoint(input));
+  handleState(ipcChannels.createCard, (input: CreateCardInput) => state.createCard(input));
+  handleState(ipcChannels.editCard, (input: EditCardInput) => state.editCard(input));
+  handleState(ipcChannels.retireCard, (input: RetireCardInput) => state.retireCard(input));
+  handleState(ipcChannels.generateDistractors, (input: unknown) => state.generateDistractors(input));
+  handleState(ipcChannels.upsertExamPlan, (input: UpsertExamPlanInput) => state.upsertExamPlan(input));
+  handleState(ipcChannels.archiveExamPlan, (input: ArchiveExamPlanInput) => state.archiveExamPlan(input));
+  handleState(ipcChannels.listCaptureSummaries, () => state.listCaptureSummaries());
+  handleState(ipcChannels.getCapture, (id: string) => state.getCapture(id));
+  handleState(ipcChannels.saveCapture, (input: SaveCaptureInput) => state.saveCapture(input));
+  handleState(ipcChannels.finishCapture, (id: string, expectedRevision: number) => state.finishCapture(id, expectedRevision));
+  handleState(ipcChannels.archiveCapture, (id: string, expectedRevision: number) => state.archiveCapture(id, expectedRevision));
+  handleState(ipcChannels.getCaptureSegmentation, (captureID: string, captureRevision: number) => state.getCaptureSegmentation(captureID, captureRevision));
+  handleState(ipcChannels.retryCaptureSegmentation, (captureID: string, captureRevision: number) => state.retryCaptureSegmentation(captureID, captureRevision));
+  handleState(ipcChannels.setNotifications, (enabled: boolean) => state.setNotificationsEnabled(enabled));
+}
+
+function handleState<TArguments extends unknown[], TResult>(
+  channel: string,
+  handler: (...args: TArguments) => TResult | Promise<TResult>
+): void {
+  handleTrusted(channel, (_event, ...args: TArguments) => handler(...args));
 }
 
 function handleTrusted<TArguments extends unknown[], TResult>(
@@ -334,7 +342,7 @@ function sendRoute(route: string): void {
   pendingRoute = route;
   if (!app.isReady()) return;
   showMainWindow();
-  if (mainWindow && !mainWindow.webContents.isLoading()) mainWindow.webContents.send("revember:navigate", route);
+  if (mainWindow && !mainWindow.webContents.isLoading()) mainWindow.webContents.send(ipcChannels.navigate, route);
 }
 
 function showMainWindow(): void {

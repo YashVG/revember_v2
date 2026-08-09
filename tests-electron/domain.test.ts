@@ -7,9 +7,11 @@ import {
   nextDueAt,
   normalizeProgress,
   normalizeTopic,
-  scheduleReview
+  reviewItemBuckets,
+  scheduleReview,
+  toCaptureSummary
 } from "../shared/domain";
-import type { AppSnapshot, KnowledgeTopic, ReviewEvent } from "../shared/types";
+import type { AppSnapshot, KnowledgeTopic, LearnerCapture, ReviewEvent } from "../shared/types";
 
 const topic = normalizeTopic({
   schemaVersion: 2,
@@ -71,6 +73,37 @@ describe("review queue", () => {
       }
     };
     expect(dueReviewItems(snapshot, new Date("2026-07-01T00:00:00.000Z")).map((item) => item.topicID)).toEqual(["scheduled", "revised", "bits"]);
+    const buckets = reviewItemBuckets(snapshot, new Date("2026-07-01T00:00:00.000Z"));
+    expect(buckets.due.map((item) => item.topicID)).toEqual(["scheduled"]);
+    expect(buckets.revised.map((item) => item.topicID)).toEqual(["revised"]);
+    expect(buckets.fresh.map((item) => item.topicID)).toEqual(["bits"]);
+    expect(buckets.scheduled).toEqual([]);
+  });
+});
+
+test("projects capture metadata without learner text", () => {
+  const capture: LearnerCapture = {
+    schemaVersion: 1,
+    id: "capture-1",
+    revision: 2,
+    topicID: "bits",
+    title: "Memory hierarchy",
+    rawText: "Private learner text",
+    origin: "user",
+    status: "ready",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-02T00:00:00.000Z"
+  };
+
+  expect(toCaptureSummary(capture)).toEqual({
+    id: "capture-1",
+    revision: 2,
+    topicID: "bits",
+    title: "Memory hierarchy",
+    origin: "user",
+    status: "ready",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-02T00:00:00.000Z"
   });
 });
 

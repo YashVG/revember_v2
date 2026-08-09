@@ -8,7 +8,8 @@ import { InlineError } from "./review-ui";
 import { Modal } from "./modal";
 import type { BeforeLeaveGuard } from "../navigationGuard";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
-import { resolveRevisionConflict, toErrorMessage } from "../utils";
+import { useAsyncAction } from "../hooks/useAsyncAction";
+import { resolveRevisionConflict } from "../utils";
 
 export type CardForm = {
   sentence: string;
@@ -299,10 +300,13 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
 }) {
   const [initial] = useState<CardForm>(() => initialForm(question, seedSentence));
   const [form, setForm] = useState<CardForm>(initial);
-  const [error, setError] = useState<string>();
-  const [distractorError, setDistractorError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-  const [generatingDistractors, setGeneratingDistractors] = useState(false);
+  const { pending: saving, error, setError, run: saveCard } = useAsyncAction();
+  const {
+    pending: generatingDistractors,
+    error: distractorError,
+    setError: setDistractorError,
+    run: generateDistractorsForCard
+  } = useAsyncAction();
   const [generatedDistractors, setGeneratedDistractors] = useState(false);
   const pendingStoredPrompt = storedPromptForCard(question, form.sentence, form.answer);
   const pendingExistingEdit = question
@@ -336,28 +340,21 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
       setDistractorError("Add the sentence and answer first so the local model has enough context.");
       return;
     }
-    try {
-      setGeneratingDistractors(true);
-      setDistractorError(undefined);
-      const generated = await window.revember.generateDistractors({
+    const generated = await generateDistractorsForCard(() => window.revember.generateDistractors({
         topicID: topic.id,
         sentence: form.sentence.trim(),
         answer: form.answer.trim()
-      });
-      const next = question
-        ? replaceGeneratedDistractors(form.distractors, generated, form.answer)
-        : fillGeneratedDistractors(form.distractors, generated, form.answer);
-      if (!next.some((item, index) => normalizeChoiceText(item.text) !== normalizeChoiceText(form.distractors[index]?.text ?? ""))) {
-        setDistractorError("The local model did not return usable new distractors. Try again or edit the options yourself.");
-        return;
-      }
-      update("distractors", next);
-      setGeneratedDistractors(true);
-    } catch (cause) {
-      setDistractorError(toErrorMessage(cause));
-    } finally {
-      setGeneratingDistractors(false);
+      }));
+    if (!generated) return;
+    const next = question
+      ? replaceGeneratedDistractors(form.distractors, generated, form.answer)
+      : fillGeneratedDistractors(form.distractors, generated, form.answer);
+    if (!next.some((item, index) => normalizeChoiceText(item.text) !== normalizeChoiceText(form.distractors[index]?.text ?? ""))) {
+      setDistractorError("The local model did not return usable new distractors. Try again or edit the options yourself.");
+      return;
     }
+    update("distractors", next);
+    setGeneratedDistractors(true);
   };
 
   const save = async () => {
@@ -385,24 +382,21 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
       choices,
       explanation: form.explanation.trim()
     };
-    try {
-      setSaving(true); setError(undefined);
-      const result = question
-        ? await window.revember.editCard({
+    const result = await saveCard(
+      () => question
+        ? window.revember.editCard({
             topicID: topic.id,
             expectedTopicRevision: topic.revision,
             questionID: question.id,
             expectedQuestionRevision: question.revision,
             card: existingEdit!
           })
-        : await window.revember.createCard({ topicID: topic.id, expectedTopicRevision: topic.revision, card: { id: cardID, ...newCard } satisfies QuestionDraft });
-      onSnapshot(result.snapshot);
-      setSaving(false);
-      onSaved(result.question);
-    } catch (cause) {
-      setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message);
-      setSaving(false);
-    }
+        : window.revember.createCard({ topicID: topic.id, expectedTopicRevision: topic.revision, card: { id: cardID, ...newCard } satisfies QuestionDraft }),
+      (cause) => resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message
+    );
+    if (!result) return;
+    onSnapshot(result.snapshot);
+    onSaved(result.question);
   };
 
   return (
@@ -462,24 +456,20 @@ function CardEditor({ topic, question, seedSentence, onSnapshot, onClose, onSave
 }
 
 function ArchiveCardDialog({ topic, question, onSnapshot, onClose }: { topic: KnowledgeTopic; question: Question; onSnapshot: (snapshot: AppSnapshot) => void; onClose: () => void }) {
-  const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
+  const { pending: saving, error, run } = useAsyncAction();
   const archive = async () => {
-    try {
-      setSaving(true);
-      const result = await window.revember.retireCard({
+    const result = await run(
+      () => window.revember.retireCard({
         topicID: topic.id,
         expectedTopicRevision: topic.revision,
         questionID: question.id,
         expectedQuestionRevision: question.revision
-      });
-      onSnapshot(result.snapshot);
-      onClose();
-    } catch (cause) {
-      setError(resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message);
-    } finally {
-      setSaving(false);
-    }
+      }),
+      (cause) => resolveRevisionConflict(cause, CARD_CONFLICT_MESSAGE).message
+    );
+    if (!result) return;
+    onSnapshot(result.snapshot);
+    onClose();
   };
 
   return (

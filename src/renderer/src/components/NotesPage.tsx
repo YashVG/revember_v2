@@ -7,8 +7,10 @@ import { InlineError } from "./review-ui";
 import { useDialogFocus } from "./useDialogFocus";
 import type { BeforeLeaveGuard } from "../navigationGuard";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
+import { useAsyncAction } from "../hooks/useAsyncAction";
 import { resolveRevisionConflict, toErrorMessage } from "../utils";
 import { NoteSourceReader } from "./NoteSourceReader";
+import { toCaptureSummary } from "../../../../shared/domain";
 
 export { materializeReadingSections } from "./NoteSourceReader";
 
@@ -22,19 +24,6 @@ type NoteForm = {
 
 const CAPTURE_CONFLICT_MESSAGE =
   "This note changed somewhere else. Reload it before retrying; every local edit is still in this form.";
-
-function summaryOf(capture: LearnerCapture): CaptureSummary {
-  return {
-    id: capture.id,
-    revision: capture.revision,
-    topicID: capture.topicID,
-    title: capture.title,
-    origin: capture.origin,
-    status: capture.status,
-    createdAt: capture.createdAt,
-    updatedAt: capture.updatedAt
-  };
-}
 
 type NotesPageProps = {
   snapshot: AppSnapshot;
@@ -105,7 +94,7 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, initialC
   }, [selectedID]);
 
   const replaceSummary = useCallback((capture: LearnerCapture) => {
-    setSummaries((current) => [...current.filter((item) => item.id !== capture.id), summaryOf(capture)]
+    setSummaries((current) => [...current.filter((item) => item.id !== capture.id), toCaptureSummary(capture)]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)));
     setSelectedID(capture.status === "archived" ? undefined : capture.id);
     setSelectedCapture(capture.status === "archived" ? undefined : capture);
@@ -275,7 +264,7 @@ export function NotesPage({ snapshot, initialTopicID, initialCaptureID, initialC
                 capture={selectedCapture}
                 snapshot={snapshot}
                 onEdit={() => setEditor(selectedCapture)}
-                onArchive={() => setArchiveTarget(summaryOf(selectedCapture))}
+                onArchive={() => setArchiveTarget(toCaptureSummary(selectedCapture))}
                 onFinish={() => void finishCapture(selectedCapture)}
                 finishing={finishingID === selectedCapture.id}
                 onCreateQuestionForTopic={onCreateQuestionForTopic}
@@ -563,20 +552,16 @@ function NoteEditor({ snapshot, capture, initialTopicID, onClose, onSaved, onReg
 }
 
 function ArchiveNoteDialog({ note, onArchived, onClose }: { note: CaptureSummary; onArchived: (capture: LearnerCapture) => void; onClose: () => void }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
+  const { pending: saving, error, run } = useAsyncAction();
 
   const archive = async () => {
-    try {
-      setSaving(true);
-      const saved = await window.revember.archiveCapture(note.id, note.revision);
-      onArchived(saved);
-      onClose();
-    } catch (cause) {
-      setError(resolveRevisionConflict(cause, CAPTURE_CONFLICT_MESSAGE).message);
-    } finally {
-      setSaving(false);
-    }
+    const saved = await run(
+      () => window.revember.archiveCapture(note.id, note.revision),
+      (cause) => resolveRevisionConflict(cause, CAPTURE_CONFLICT_MESSAGE).message
+    );
+    if (!saved) return;
+    onArchived(saved);
+    onClose();
   };
 
   return (

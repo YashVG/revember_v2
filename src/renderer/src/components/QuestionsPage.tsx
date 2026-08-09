@@ -2,7 +2,12 @@ import { CalendarClock, CircleHelp, Clock3, Plus, Play, RefreshCw, Sparkles } fr
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AppSnapshot, DueReviewItem, KnowledgeTopic, Question, ReviewCardState } from "../../../../shared/types";
-import { activeQuestions } from "../../../../shared/domain";
+import {
+  activeQuestions,
+  compareReviewItemsByDueAt,
+  compareReviewItemsByID,
+  reviewItemBuckets
+} from "../../../../shared/domain";
 import { Modal } from "./modal";
 import { Eyebrow, Tag } from "./ui";
 
@@ -21,6 +26,13 @@ export type QuestionReviewQueues = {
 
 export type QuestionReviewState = "new" | "revised" | "due" | "scheduled";
 
+const reviewStateLabels: Record<QuestionReviewState, "Due now" | "Needs refresh" | "New" | "Scheduled"> = {
+  due: "Due now",
+  revised: "Needs refresh",
+  new: "New",
+  scheduled: "Scheduled"
+};
+
 export function questionReviewState(
   question: Question,
   schedule: ReviewCardState | undefined,
@@ -32,23 +44,13 @@ export function questionReviewState(
 }
 
 export function buildQuestionReviewQueues(snapshot: Pick<AppSnapshot, "topics" | "progress">, now = new Date()): QuestionReviewQueues {
-  const queues: QuestionReviewQueues = { due: [], fresh: [], revised: [], scheduled: [] };
-  for (const topic of snapshot.topics) {
-    for (const question of activeQuestions(topic)) {
-      const schedule = snapshot.progress.topics[topic.id]?.reviewCardsByQuestionID[question.id];
-      const base = { id: `${topic.id}::${question.id}`, topicID: topic.id, questionID: question.id, topic, question };
-      const state = questionReviewState(question, schedule, now);
-      if (state === "new") queues.fresh.push({ ...base, isNew: true, isRevised: false });
-      else if (state === "revised") queues.revised.push({ ...base, isNew: false, isRevised: true });
-      else if (state === "due") queues.due.push({ ...base, dueAt: schedule!.dueAt, isNew: false, isRevised: false });
-      else queues.scheduled.push({ ...base, dueAt: schedule!.dueAt, isNew: false, isRevised: false, isScheduled: true });
-    }
-  }
-  queues.due.sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? "") || left.id.localeCompare(right.id));
-  queues.fresh.sort((left, right) => left.id.localeCompare(right.id));
-  queues.revised.sort((left, right) => left.id.localeCompare(right.id));
-  queues.scheduled.sort((left, right) => (left.dueAt ?? "").localeCompare(right.dueAt ?? "") || left.id.localeCompare(right.id));
-  return queues;
+  const { due, fresh, revised, scheduled } = reviewItemBuckets(snapshot, now);
+  return {
+    due: due.sort(compareReviewItemsByDueAt),
+    fresh: fresh.sort(compareReviewItemsByID),
+    revised: revised.sort(compareReviewItemsByID),
+    scheduled: scheduled.sort(compareReviewItemsByDueAt)
+  };
 }
 
 export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuestion, onOpenTopic }: {
@@ -105,13 +107,13 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
         <div className="questions-list">
           {questions.map(({ topic, question, schedule }) => {
             const state = questionReviewState(question, schedule, now);
-            const status = questionReviewStateLabel(state);
+            const status = reviewStateLabels[state];
             return (
-              <article className={`surface question-library-card ${questionReviewStateClass(state)}`} key={`${topic.id}:${question.id}`}>
+              <article className={`surface question-library-card ${state}`} key={`${topic.id}:${question.id}`}>
                 <div className="question-library-copy">
                   <div className="question-library-meta">
                     <Tag>{topic.title}</Tag>
-                    <span className={`question-library-status ${questionReviewStateClass(state)}`}>{status}</span>
+                    <span className={`question-library-status ${state}`}>{status}</span>
                   </div>
                   <h2>{question.prompt}</h2>
                   <div className="question-library-concepts">
@@ -143,18 +145,6 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
       />}
     </div>
   );
-}
-
-function questionReviewStateLabel(state: QuestionReviewState): "Due now" | "Needs refresh" | "New" | "Scheduled" {
-  if (state === "due") return "Due now";
-  if (state === "revised") return "Needs refresh";
-  return state === "scheduled" ? "Scheduled" : "New";
-}
-
-function questionReviewStateClass(state: QuestionReviewState): "due" | "new" | "revised" | "scheduled" {
-  if (state === "due") return "due";
-  if (state === "revised") return "revised";
-  return state === "scheduled" ? "scheduled" : "new";
 }
 
 function QuestionTopicPicker({ topics, onClose, onSelect }: {

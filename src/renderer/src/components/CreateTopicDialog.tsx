@@ -4,7 +4,7 @@ import { BookOpen, Plus } from "lucide-react";
 import type { CreateTopicInput, CreateTopicResult } from "../../../../shared/types";
 import { Modal } from "./modal";
 import { InlineError } from "./review-ui";
-import { toErrorMessage } from "../utils";
+import { useAsyncAction } from "../hooks/useAsyncAction";
 
 export function CreateTopicDialog({ onCreated, onClose }: {
   onCreated: (result: CreateTopicResult) => void;
@@ -12,23 +12,16 @@ export function CreateTopicDialog({ onCreated, onClose }: {
 }) {
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
+  const { pending: saving, error, run } = useAsyncAction();
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!title.trim() || saving) return;
-    setSaving(true);
-    setError(undefined);
-    try {
+    const result = await run(async () => {
       const input: CreateTopicInput = { title, summary };
-      const result = await window.revember.createTopic(input);
-      onCreated(result);
-    } catch (cause) {
-      setError(toErrorMessage(cause));
-    } finally {
-      setSaving(false);
-    }
+      return window.revember.createTopic(input);
+    });
+    if (result) onCreated(result);
   };
 
   return (

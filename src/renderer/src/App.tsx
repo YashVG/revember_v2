@@ -96,6 +96,27 @@ export function App() {
     setReviewItems(items.slice(0, limit));
   }, []);
 
+  const openNotes = useCallback((topicID?: string, create = false) => {
+    setNotesTopicID(topicID);
+    setNotesCaptureID(undefined);
+    setNotesCreateRequested(create);
+    setNotesVisitKey((current) => current + 1);
+    setGlobalView("notes");
+  }, []);
+
+  const openTopic = useCallback((topicID: string, view: TopicView = "overview") => {
+    setGlobalView("topic");
+    setSelectedTopicID(topicID);
+    setTopicView(view);
+  }, []);
+
+  const startQuestionAuthoring = useCallback((topicID: string, sentence?: string) => {
+    setSelectedTopicID(topicID);
+    setTopicView("questions");
+    setCardSeed({ topicID, ...(sentence ? { sentence } : {}), token: crypto.randomUUID() });
+    setGlobalView("topic");
+  }, []);
+
   const startReview = useCallback((minutes = 3) => {
     if (!snapshot) return;
     const capacity = Math.max(1, Math.floor(minutes * 60 / 45));
@@ -145,12 +166,10 @@ export function App() {
       if (globalView === "topic" && selectedTopicID === topicID) return;
       void leaveCurrent(() => {
         setReviewItems(null);
-        setGlobalView("topic");
-        setSelectedTopicID(topicID);
-        setTopicView("overview");
+        openTopic(topicID);
       });
     }
-  }), [globalView, leaveCurrent, selectedTopicID, startReview]);
+  }), [globalView, leaveCurrent, openTopic, selectedTopicID, startReview]);
 
   if (!snapshot) {
     return snapshotError
@@ -196,24 +215,12 @@ export function App() {
             onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
             onSelect={(id) => {
               if (globalView === "topic" && selectedTopic?.id === id) return;
-              void leaveCurrent(() => {
-                setGlobalView("topic");
-                setSelectedTopicID(id);
-                setTopicView("overview");
-              });
+              void leaveCurrent(() => openTopic(id));
             }}
             onOpenHome={() => {
               if (globalView !== "home") void leaveCurrent(() => setGlobalView("home"));
             }}
-            onOpenNotes={() => {
-              void leaveCurrent(() => {
-                setNotesTopicID(undefined);
-                setNotesCaptureID(undefined);
-                setNotesCreateRequested(false);
-                setNotesVisitKey((current) => current + 1);
-                setGlobalView("notes");
-              });
-            }}
+            onOpenNotes={() => void leaveCurrent(() => openNotes())}
             onOpenQuestions={() => {
               if (globalView !== "questions") void leaveCurrent(() => setGlobalView("questions"));
             }}
@@ -234,20 +241,8 @@ export function App() {
               key={snapshot.settings.knowledgeRootPath}
               snapshot={snapshot}
               onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
-              onOpenNotes={(topicID) => void leaveCurrent(() => {
-                setNotesTopicID(topicID);
-                setNotesCaptureID(undefined);
-                setNotesCreateRequested(false);
-                setNotesVisitKey((current) => current + 1);
-                setGlobalView("notes");
-              })}
-              onCreateNote={() => void leaveCurrent(() => {
-                setNotesTopicID(undefined);
-                setNotesCaptureID(undefined);
-                setNotesCreateRequested(true);
-                setNotesVisitKey((current) => current + 1);
-                setGlobalView("notes");
-              })}
+              onOpenNotes={(topicID) => void leaveCurrent(() => openNotes(topicID))}
+              onCreateNote={() => void leaveCurrent(() => openNotes(undefined, true))}
               onRegisterBeforeLeave={registerHomeBeforeLeave}
             /> : globalView === "notes" ? <NotesPage
               key={`${snapshot.settings.knowledgeRootPath}:${notesVisitKey}`}
@@ -255,28 +250,16 @@ export function App() {
               initialTopicID={notesTopicID}
               initialCaptureID={notesCaptureID}
               initialCreate={notesCreateRequested}
-              onCreateQuestionForTopic={(topicID, sentence) => void leaveCurrent(() => {
-                setSelectedTopicID(topicID);
-                setTopicView("questions");
-                setCardSeed({ topicID, ...(sentence ? { sentence } : {}), token: crypto.randomUUID() });
-                setGlobalView("topic");
-              })}
+              onCreateQuestionForTopic={(topicID, sentence) => void leaveCurrent(() => startQuestionAuthoring(topicID, sentence))}
               onRegisterBeforeLeave={registerNotesBeforeLeave}
             /> : globalView === "questions" ? <QuestionsPage
               snapshot={snapshot}
               onReview={(topic, question) => void leaveCurrent(() => startQuestionReview(topic, question))}
               onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
-              onCreateQuestion={(topic) => void leaveCurrent(() => {
-                setSelectedTopicID(topic.id);
-                setTopicView("questions");
-                setCardSeed({ topicID: topic.id, token: crypto.randomUUID() });
-                setGlobalView("topic");
-              })}
+              onCreateQuestion={(topic) => void leaveCurrent(() => startQuestionAuthoring(topic.id))}
               onOpenTopic={(topic) => void leaveCurrent(() => {
-                setSelectedTopicID(topic.id);
-                setTopicView("questions");
+                openTopic(topic.id, "questions");
                 setCardSeed(undefined);
-                setGlobalView("topic");
               })}
             /> : selectedTopic ? (
               <TopicDetail
@@ -284,17 +267,8 @@ export function App() {
                 snapshot={snapshot}
                 view={topicView}
                 onOpenQuestions={() => void leaveCurrent(() => setTopicView("questions"))}
-                onOpenNotes={() => void leaveCurrent(() => {
-                  setNotesTopicID(selectedTopic.id);
-                  setNotesCaptureID(undefined);
-                  setNotesCreateRequested(false);
-                  setNotesVisitKey((current) => current + 1);
-                  setGlobalView("notes");
-                })}
-                onCreateQuestion={() => void leaveCurrent(() => {
-                  setCardSeed({ topicID: selectedTopic.id, token: crypto.randomUUID() });
-                  setTopicView("questions");
-                })}
+                onOpenNotes={() => void leaveCurrent(() => openNotes(selectedTopic.id))}
+                onCreateQuestion={() => void leaveCurrent(() => startQuestionAuthoring(selectedTopic.id))}
                 onBackToOverview={() => void leaveCurrent(() => setTopicView("overview"))}
                 onSnapshot={setSnapshot}
                 onStartReview={(items) => void leaveCurrent(() => openReview(items, items.length))}
@@ -360,6 +334,12 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
     setTopicsOpen((current) => !current);
   };
 
+  const navigation = [
+    { key: "home", label: "Home", icon: <House />, onClick: onOpenHome },
+    { key: "notes", label: "Notes", icon: <SquarePen />, onClick: onOpenNotes },
+    { key: "questions", label: "Questions", icon: <CircleHelp />, onClick: onOpenQuestions }
+  ] as const;
+
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`} aria-label="Primary navigation">
       <div className="sidebar-brand">
@@ -375,9 +355,11 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
           {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
         </button>
       </div>
-      <button className={`plan-nav ${globalView === "home" ? "selected" : ""}`} aria-label="Home" aria-current={globalView === "home" ? "page" : undefined} onClick={onOpenHome}><House /><span>Home</span></button>
-      <button className={`plan-nav ${globalView === "notes" ? "selected" : ""}`} aria-label="Notes" aria-current={globalView === "notes" ? "page" : undefined} onClick={onOpenNotes}><SquarePen /><span>Notes</span></button>
-      <button className={`plan-nav ${globalView === "questions" ? "selected" : ""}`} aria-label="Questions" aria-current={globalView === "questions" ? "page" : undefined} onClick={onOpenQuestions}><CircleHelp /><span>Questions</span></button>
+      {navigation.map(({ key, label, icon, onClick }) => (
+        <button key={key} className={`plan-nav ${globalView === key ? "selected" : ""}`} aria-label={label} aria-current={globalView === key ? "page" : undefined} onClick={onClick}>
+          {icon}<span>{label}</span>
+        </button>
+      ))}
       <button
         className="plan-nav topics-nav"
         aria-label={collapsed ? "Expand sidebar topics" : "Topics"}
@@ -424,7 +406,7 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
   onRegisterCardsBeforeLeave: (handler: BeforeLeaveGuard | undefined) => void;
   cardSeed?: { sentence?: string; token: string };
   onCardSeedConsumed: () => void;
-}) {
+  }) {
   const reviewItems = dueReviewItems(snapshot).filter((item) => item.topicID === topic.id);
 
   if (view === "questions") {
@@ -433,6 +415,12 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
       <CardWorkspace key={topic.id} topic={topic} onSnapshot={onSnapshot} onReview={(question) => onReviewQuestion(topic, question)} onRegisterBeforeLeave={onRegisterCardsBeforeLeave} seedSentence={cardSeed?.sentence} seedToken={cardSeed?.token} onSeedConsumed={onCardSeedConsumed} />
     </div>;
   }
+
+  const actions = [
+    { key: "create", icon: <SquarePen />, title: "Create question", description: "Turn a concept into a retrieval check.", onClick: onCreateQuestion },
+    { key: "manage", icon: <BookOpen />, title: "Manage questions", description: "Browse, edit, or add review cards.", onClick: onOpenQuestions },
+    { key: "notes", icon: <FileText />, title: "View notes", description: "Open the notes connected to this topic.", onClick: onOpenNotes }
+  ] as const;
 
   return (
     <div className="topic-detail topic-overview">
@@ -450,21 +438,13 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
             <button className="primary topic-review-button" type="button" disabled={!reviewItems.length} onClick={() => onStartReview(reviewItems)}><Play fill="currentColor" /> {reviewItems.length ? `Review ${reviewItems.length}` : "Nothing ready"}</button>
           </section>
           <div className="topic-action-grid" aria-label="Topic actions">
-            <button className="topic-action-card" type="button" onClick={onCreateQuestion}>
-              <span className="topic-action-icon"><SquarePen /></span>
-              <span className="topic-action-copy"><strong>Create question</strong><small>Turn a concept into a retrieval check.</small></span>
-              <ArrowRight />
-            </button>
-            <button className="topic-action-card" type="button" onClick={onOpenQuestions}>
-              <span className="topic-action-icon"><BookOpen /></span>
-              <span className="topic-action-copy"><strong>Manage questions</strong><small>Browse, edit, or add review cards.</small></span>
-              <ArrowRight />
-            </button>
-            <button className="topic-action-card" type="button" onClick={onOpenNotes}>
-              <span className="topic-action-icon"><FileText /></span>
-              <span className="topic-action-copy"><strong>View notes</strong><small>Open the notes connected to this topic.</small></span>
-              <ArrowRight />
-            </button>
+            {actions.map(({ key, icon, title, description, onClick }) => (
+              <button key={key} className="topic-action-card" type="button" onClick={onClick}>
+                <span className="topic-action-icon">{icon}</span>
+                <span className="topic-action-copy"><strong>{title}</strong><small>{description}</small></span>
+                <ArrowRight />
+              </button>
+            ))}
           </div>
         </div>
       </header>

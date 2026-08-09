@@ -16,6 +16,7 @@ import type {
   LearnerCapture,
   SaveCaptureInput
 } from "../shared/types";
+import { toCaptureSummary } from "../shared/domain";
 import {
   nonEmptyExactString,
   nonNegativeInteger,
@@ -67,7 +68,7 @@ export class CaptureStore {
         continue;
       }
       try {
-        summaries.push(toSummary(this.readCapture(match[1], true)));
+        summaries.push(toCaptureSummary(this.readCapture(match[1], true)));
       } catch {
         // readCapture quarantines invalid records. One bad private capture must
         // not prevent healthy captures or the rest of app state from loading.
@@ -90,18 +91,13 @@ export class CaptureStore {
       if (input.expectedRevision !== 0) {
         throw new CaptureRevisionConflictError(input.expectedRevision, 0);
       }
-      const capture: LearnerCapture = {
-        schemaVersion: 1,
-        id: this.newCaptureID(),
-        revision: 1,
+      const capture = this.createNewCapture({
         topicID: input.topicID,
         title: input.title,
         rawText: input.rawText,
         origin: "user",
-        status: input.status,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      };
+        status: input.status
+      }, timestamp);
       this.write(capture);
       return structuredClone(capture);
     }
@@ -140,18 +136,13 @@ export class CaptureStore {
     validateTopicID?.(topicID);
     const timestamp = dateTimestamp(now, "Capture creation timestamp");
     this.assertSafeDirectory(true);
-    const capture: LearnerCapture = {
-      schemaVersion: 1,
-      id: this.newCaptureID(),
-      revision: 1,
+    const capture = this.createNewCapture({
       topicID,
       title,
       rawText,
       origin: "ollama",
-      status: "ready",
-      createdAt: timestamp,
-      updatedAt: timestamp
-    };
+      status: "ready"
+    }, timestamp);
     this.write(capture);
     return structuredClone(capture);
   }
@@ -210,6 +201,20 @@ export class CaptureStore {
     }
   }
 
+  private createNewCapture(
+    input: Pick<LearnerCapture, "topicID" | "title" | "rawText" | "origin" | "status">,
+    timestamp: string
+  ): LearnerCapture {
+    return {
+      schemaVersion: 1,
+      id: this.newCaptureID(),
+      revision: 1,
+      ...input,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+  }
+
   private filePath(id: string): string {
     const safe = strictIdentifier(id, "capture id");
     const candidate = path.join(this.directoryPath, `${safe}.json`);
@@ -265,19 +270,6 @@ function parseSaveInput(value: unknown): SaveCaptureInput {
     title: nonEmptyExactString(raw.title, "title"),
     rawText: stringValue(raw.rawText, "rawText"),
     status: oneOf(raw.status, editableStatuses, "status") as SaveCaptureInput["status"]
-  };
-}
-
-function toSummary(capture: LearnerCapture): CaptureSummary {
-  return {
-    id: capture.id,
-    revision: capture.revision,
-    topicID: capture.topicID,
-    title: capture.title,
-    origin: capture.origin,
-    status: capture.status,
-    createdAt: capture.createdAt,
-    updatedAt: capture.updatedAt
   };
 }
 

@@ -1,8 +1,10 @@
 import type {
   AnswerChoice,
   AppSnapshot,
+  CaptureSummary,
   DueReviewItem,
   KnowledgeTopic,
+  LearnerCapture,
   ProgressRecord,
   Question,
   QuestionKind,
@@ -31,6 +33,11 @@ export function emptyTopicProgress(): TopicProgress {
     weakConceptIDs: {},
     reviewCardsByQuestionID: {}
   };
+}
+
+export function toCaptureSummary(capture: LearnerCapture): CaptureSummary {
+  const { id, revision, topicID, title, origin, status, createdAt, updatedAt } = capture;
+  return { id, revision, topicID, title, origin, status, createdAt, updatedAt };
 }
 
 export function scheduleReview(
@@ -444,22 +451,41 @@ function isSafeJsonValue(value: unknown, ancestors: Set<object>): boolean {
   return safe;
 }
 
-export function dueReviewItems(snapshot: Pick<AppSnapshot, "topics" | "progress">, at = new Date()): DueReviewItem[] {
-  const scheduled: DueReviewItem[] = [];
-  const revised: DueReviewItem[] = [];
-  const fresh: DueReviewItem[] = [];
+export type ReviewItemBuckets = {
+  due: DueReviewItem[];
+  fresh: DueReviewItem[];
+  revised: DueReviewItem[];
+  scheduled: DueReviewItem[];
+};
+
+export function reviewItemBuckets(snapshot: Pick<AppSnapshot, "topics" | "progress">, at = new Date()): ReviewItemBuckets {
+  const buckets: ReviewItemBuckets = { due: [], fresh: [], revised: [], scheduled: [] };
   for (const topic of snapshot.topics) {
     for (const question of activeQuestions(topic)) {
       const state = snapshot.progress.topics[topic.id]?.reviewCardsByQuestionID?.[question.id];
       const base = { id: `${topic.id}::${question.id}`, topicID: topic.id, questionID: question.id, topic, question };
-      if (!state) fresh.push({ ...base, isNew: true, isRevised: false });
-      else if (state.questionRevision !== question.revision) revised.push({ ...base, isNew: false, isRevised: true });
-      else if (new Date(state.dueAt) <= at) scheduled.push({ ...base, dueAt: state.dueAt, isNew: false, isRevised: false });
+      if (!state) buckets.fresh.push({ ...base, isNew: true, isRevised: false });
+      else if (state.questionRevision !== question.revision) buckets.revised.push({ ...base, isNew: false, isRevised: true });
+      else if (new Date(state.dueAt) <= at) buckets.due.push({ ...base, dueAt: state.dueAt, isNew: false, isRevised: false });
+      else buckets.scheduled.push({ ...base, dueAt: state.dueAt, isNew: false, isRevised: false, isScheduled: true });
     }
   }
-  scheduled.sort((a, b) => (a.dueAt ?? "").localeCompare(b.dueAt ?? "") || a.id.localeCompare(b.id));
-  revised.sort((a, b) => a.id.localeCompare(b.id));
-  return [...scheduled, ...revised, ...fresh];
+  return buckets;
+}
+
+export function dueReviewItems(snapshot: Pick<AppSnapshot, "topics" | "progress">, at = new Date()): DueReviewItem[] {
+  const { due, revised, fresh } = reviewItemBuckets(snapshot, at);
+  due.sort(compareReviewItemsByDueAt);
+  revised.sort(compareReviewItemsByID);
+  return [...due, ...revised, ...fresh];
+}
+
+export function compareReviewItemsByDueAt(left: DueReviewItem, right: DueReviewItem): number {
+  return (left.dueAt ?? "").localeCompare(right.dueAt ?? "") || left.id.localeCompare(right.id);
+}
+
+export function compareReviewItemsByID(left: DueReviewItem, right: DueReviewItem): number {
+  return left.id.localeCompare(right.id);
 }
 
 export function nextDueAt(snapshot: Pick<AppSnapshot, "topics" | "progress">): string | undefined {
