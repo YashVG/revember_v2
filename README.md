@@ -30,6 +30,8 @@ npm run dev
 
 On first launch, Revember automatically creates an editable `RevemberKnowledge` folder in your Documents directory from the starter vault included in this repository. You can begin reviewing immediately—no folder setup or terminal commands are required after the app starts. Use Settings only if you later want to switch to another learning folder.
 
+If you use Codex or Claude Desktop, open **Settings → AI study partner** and choose **Connect Codex** or **Connect Claude**. Revember registers its bundled local MCP server; it follows the learning folder currently open in the app. Restart the selected client once, then it can read and safely author your notes and questions without a separate Node installation.
+
 Run npm run bootstrap when you also need the optional MCP workspace.
 
 ## Verify

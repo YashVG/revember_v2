@@ -375,6 +375,7 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
   onClose: () => void;
 }) {
   const [error, setError] = useState<string>();
+  const [mcpMessage, setMcpMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
   const invoke = async (operation: () => Promise<AppSnapshot | void>) => {
     if (busy) return;
@@ -414,6 +415,22 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
       setBusy(false);
     }
   };
+  const configureMcp = async (client: "codex" | "claude", action: "connect" | "disconnect") => {
+    if (busy) return;
+    try {
+      setBusy(true);
+      setError(undefined);
+      const result = await window.revember.configureMcpClient(client, action);
+      const clientName = result.client === "codex" ? "Codex" : "Claude";
+      setMcpMessage(action === "connect"
+        ? `${clientName} is connected to this learning folder. Restart ${clientName} to use Revember.`
+        : `${clientName}'s Revember connection was removed.`);
+    } catch (cause) {
+      setError(toErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
   return <Modal title="Revember Settings" icon={<Settings />} onClose={onClose}>
     <div className="settings-section">
       <Eyebrow>Your learning folder</Eyebrow>
@@ -425,6 +442,19 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
         <button disabled={busy} onClick={() => void invoke(window.revember.openKnowledgeRoot)}><ExternalLink /> Open Folder</button>
         <button disabled={busy || !knowledgeRootChangeAllowed} onClick={() => void changeKnowledgeRoot(window.revember.resetKnowledgeRoot)}><RotateCcw /> Use starter folder</button>
       </div>
+    </div>
+    <div className="settings-section">
+      <Eyebrow>AI study partner</Eyebrow>
+      <p>Connect Codex or Claude to your local learning folder. The connection follows the folder open in Revember, and each write still uses the client’s normal approval flow.</p>
+      <div className="settings-actions">
+        <button disabled={busy} onClick={() => void configureMcp("codex", "connect")}>Connect Codex</button>
+        <button disabled={busy} onClick={() => void configureMcp("claude", "connect")}>Connect Claude</button>
+      </div>
+      <div className="settings-actions">
+        <button className="text-button" disabled={busy} onClick={() => void configureMcp("codex", "disconnect")}>Disconnect Codex</button>
+        <button className="text-button" disabled={busy} onClick={() => void configureMcp("claude", "disconnect")}>Disconnect Claude</button>
+      </div>
+      {mcpMessage && <p className="settings-guidance">{mcpMessage}</p>}
     </div>
     <div className="settings-section"><Eyebrow>Progress</Eyebrow><p>Progress stays readable and local at:</p><code>{snapshot.settings.progressPath}</code></div>
     <div className="settings-section notification-row"><div><Eyebrow>Review Reminders</Eyebrow><p>Notify you while Revember is running when a scheduled check becomes due.</p></div><button className={`toggle ${snapshot.settings.notificationsEnabled ? "on" : ""}`} type="button" role="switch" aria-label="Review reminders" aria-checked={snapshot.settings.notificationsEnabled} disabled={busy} onClick={() => void invoke(() => window.revember.setNotificationsEnabled(!snapshot.settings.notificationsEnabled))}><span /></button></div>

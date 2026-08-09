@@ -5,6 +5,7 @@ export const ipcChannels = {
   chooseKnowledgeRoot: "revember:choose-knowledge-root",
   resetKnowledgeRoot: "revember:reset-knowledge-root",
   openKnowledgeRoot: "revember:open-knowledge-root",
+  configureMcpClient: "revember:configure-mcp-client",
   commitReview: "revember:commit-review",
   captureCheckpoint: "revember:capture-checkpoint",
   createCard: "revember:create-card",

@@ -32,6 +32,13 @@ try {
   await window.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), false);
 
+  await window.getByTitle("Settings", { exact: true }).click();
+  const settings = window.getByRole("dialog", { name: "Revember Settings", exact: true });
+  await settings.getByText("AI study partner", { exact: true }).waitFor();
+  assert.equal(await settings.getByRole("button", { name: "Connect Codex", exact: true }).isVisible(), true);
+  assert.equal(await settings.getByRole("button", { name: "Connect Claude", exact: true }).isVisible(), true);
+  await settings.getByRole("button", { name: "Close Revember Settings", exact: true }).click();
+
   await window.getByRole("button", { name: "Questions", exact: true }).click();
   await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
   const queueStart = window.locator(".questions-review-start");
