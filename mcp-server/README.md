@@ -2,6 +2,12 @@
 
 Local stdio MCP server for the Revember v2 knowledge base.
 
+## Use the installed app
+
+The macOS app bundles this server and its runtime. Open **Settings → AI study partner**, then select **Connect Codex** or **Connect Claude**. Restart the selected client once.
+
+The client launches the MCP process on demand. The process reads Revember's current app settings, so it follows the selected Knowledge Vault without a hard-coded repository path. Use the source instructions below only when developing the MCP server itself.
+
 The server keeps the existing Revember app workflow intact:
 
 - Topic JSON stays in `RevemberKnowledge/topics/*.json`.
@@ -10,7 +16,7 @@ The server keeps the existing Revember app workflow intact:
 - App progress stays local in `~/Library/Application Support/RevemberV2/progress.json`.
 - There is no backend, login system, database, or remote service.
 
-## Install
+## Source development
 
 ```bash
 cd mcp-server

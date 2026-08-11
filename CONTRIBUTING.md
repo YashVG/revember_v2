@@ -2,7 +2,7 @@
 
 ## Local Setup
 
-Use the [Run on macOS](README.md#run-on-macos) commands for app-only development. Before opening a pull request, run the full gate:
+Use the [Install on macOS](README.md#install-on-macos) section for the end-user flow. For development, run `npm run bootstrap` and `npm run dev`. Before opening a pull request, run the full gate:
 
 ```bash
 npm run verify
@@ -13,7 +13,7 @@ git diff --check
 
 Use Node.js 22 LTS (`nvm use`) or Node.js 24+. Do not use Node.js 23; it is outside the root package's supported engine range.
 
-`npm run verify` clean-installs both lockfiles before checking the app and MCP server. After that bootstrap, `npm run verify:app` is the faster app-only rerun.
+`npm run bootstrap` clean-installs both lockfiles and builds the source MCP server. `npm run verify` repeats that setup before checking the app and MCP server. After bootstrap, `npm run verify:app` is the faster app-only rerun.
 
 The supported build, package, and release surface is currently macOS. Do not claim Windows or Linux support without adding and validating those targets.
 

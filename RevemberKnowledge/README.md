@@ -1,6 +1,6 @@
 # RevemberKnowledge
 
-This folder is the seed local knowledge store included with Revember v2. It is safe to use for a local demo. For personal learning, copy it to a writable private folder and choose that folder in the app's Settings.
+This folder is the starter Knowledge Vault included with Revember v2. On first launch, the app copies it to `~/Documents/RevemberKnowledge` and uses that editable personal copy. Use Settings only to switch to another Vault later.
 
 For learning-session updates, use:
 

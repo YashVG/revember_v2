@@ -16,6 +16,7 @@ const launch = () => electron.launch({
   args: [root],
   env: {
     ...process.env,
+    HOME: temporaryRoot,
     TZ: "UTC",
     REVEMBER_KNOWLEDGE_ROOT: knowledgeRoot,
     REVEMBER_PROGRESS_PATH: progressPath,
@@ -32,22 +33,36 @@ try {
   assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), true);
   await window.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), false);
+  await window.getByTitle("Settings", { exact: true }).click();
+  const settings = window.getByRole("dialog", { name: "Revember Settings", exact: true });
+  await settings.getByText("AI study partner", { exact: true }).waitFor();
+  assert.equal(await settings.getByRole("button", { name: "Connect Codex", exact: true }).isVisible(), true);
+  assert.equal(await settings.getByRole("button", { name: "Connect Claude", exact: true }).isVisible(), true);
+  await settings.getByRole("button", { name: "Connect Codex", exact: true }).click();
+  await settings.getByText(/Codex is connected/).waitFor();
+  const codexConfigPath = path.join(temporaryRoot, ".codex", "config.toml");
+  assert.match(await readFile(codexConfigPath, "utf8"), /\[mcp_servers\.revember\]/);
+  await settings.getByRole("button", { name: "Disconnect Codex", exact: true }).click();
+  await settings.getByText(/Codex's Revember connection was removed/).waitFor();
+  assert.doesNotMatch(await readFile(codexConfigPath, "utf8"), /mcp_servers\.revember/);
+  await settings.getByRole("button", { name: "Close Revember Settings", exact: true }).click();
+  await settings.waitFor({ state: "detached" });
   await window.getByRole("button", { name: "Questions", exact: true }).click();
-  await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
-  await window.getByRole("button", { name: /Review due now/ }).waitFor();
+  await window.getByRole("heading", { name: "Review", exact: true }).waitFor();
+  await window.getByRole("button", { name: "Start review", exact: true }).waitFor();
   await window.getByRole("button", { name: "Home", exact: true }).click();
   await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
   await window.screenshot({ path: path.join(root, "work", "homepage-study-focus-e2e.png"), fullPage: true });
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
-  await window.locator(".sidebar").getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByText("Topic overview", { exact: true }).waitFor();
   assert.equal(await window.getByRole("button", { name: "Create AI note", exact: true }).count(), 0);
   await window.getByRole("button", { name: /^View notes\b/ }).click();
   await window.getByRole("complementary", { name: "Notes list", exact: true }).getByText("Bluetooth Low Energy", { exact: true }).waitFor();
-  await window.locator(".sidebar").getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.getByRole("button", { name: "Home", exact: true }).click();
+  await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
+  await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByRole("button", { name: /^Manage questions\b/ }).click();
   await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
@@ -75,8 +90,7 @@ try {
   await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
   await window.screenshot({ path: path.join(root, "work", "homepage-e2e.png"), fullPage: true });
 
-  await window.locator(".sidebar").getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByRole("button", { name: /^Manage questions\b/ }).click();
   await window.getByRole("heading", { name: "Questions", exact: true }).waitFor();
@@ -114,8 +128,7 @@ try {
   app = await launch();
   window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
   await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   const reloaded = await window.evaluate(() => window.revember.getSnapshot());
   assert.equal(reloaded.progress.reviewEvents.length, 2);
@@ -183,9 +196,6 @@ try {
   app = await launch();
   window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.getByRole("button", { name: "Topics", exact: true }).click();
-  await window.getByRole("button", { name: /Bluetooth Low Energy/ }).click();
-  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
   await window.getByRole("button", { name: "Notes", exact: true }).click();
   await window.getByRole("navigation", { name: "Notes topics", exact: true }).waitFor();
   await window.getByRole("navigation", { name: "Notes topics" }).getByRole("button", { name: /^Bluetooth Low Energy\b/ }).click();

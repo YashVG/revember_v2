@@ -126,13 +126,10 @@ describe("note-segmentation trust boundary", () => {
       );
     }
 
-    for (const channel of [
-      "revember:get-capture-segmentation",
-      "revember:retry-capture-segmentation"
-    ]) {
+    for (const method of ["getCaptureSegmentation", "retryCaptureSegmentation"]) {
       const handlerLines = mainSource
         .split("\n")
-        .filter((line) => line.includes(`handleTrusted("${channel}"`));
+        .filter((line) => line.includes(`handleState(ipcChannels.${method}`));
       expect(handlerLines).toHaveLength(1);
       expect(handlerLines[0]).toContain("captureID: string, captureRevision: number");
       expect(handlerLines[0]).toContain("captureID, captureRevision");
@@ -140,6 +137,7 @@ describe("note-segmentation trust boundary", () => {
         /\b(rawText|rootPath|knowledgeRootPath|filePath)\b/
       );
     }
+    expect(mainSource).toContain("handleTrusted(channel, (_event, ...args: TArguments) => handler(...args));");
   });
 
   it("reloads authoritative capture text in main state and ignores extra caller arguments", async () => {
