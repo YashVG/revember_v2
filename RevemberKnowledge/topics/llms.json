@@ -1,0 +1,574 @@
+{
+  "id": "llms",
+  "title": "LLMs",
+  "summary": "Foundations of large language models: next-token generation, learned parameters, numerical representations, self-attention, and attention heads.",
+  "schemaVersion": 2,
+  "revision": 18,
+  "sources": [
+    {
+      "id": "llm-session-2026-08-11",
+      "kind": "captured-learning-session",
+      "title": "LLM fundamentals learning session",
+      "locator": "sessions/llms-2026-08-11.json",
+      "capturedAt": "2026-08-11T18:08:23.813Z"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "parameters-enable-next-token-prediction",
+      "sourceConceptID": "parameters-and-training",
+      "targetConceptID": "next-token-prediction",
+      "kind": "enables",
+      "rationale": "Learned parameters shape the probability distribution used for next-token prediction.",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "vectors-enable-self-attention",
+      "sourceConceptID": "token-vector-representation",
+      "targetConceptID": "self-attention-context",
+      "kind": "enables",
+      "rationale": "Attention operates on the numerical token representations produced inside the network.",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "self-attention-enables-multi-head",
+      "sourceConceptID": "self-attention-context",
+      "targetConceptID": "multi-head-attention",
+      "kind": "enables",
+      "rationale": "Multiple heads are parallel instances of the selective context mechanism.",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "next-token-prediction",
+      "title": "Next-Token Prediction",
+      "firstPrinciples": "During generation, an autoregressive language model uses the tokens already in context to assign probabilities to possible next tokens, chooses one, and repeats.",
+      "explanation": "An LLM does not normally generate an entire answer in one step. It predicts one next token at a time. A token may be a whole word, part of a word, punctuation, or whitespace, so token and word are not synonyms.",
+      "relatedTerms": [
+        "token",
+        "autoregressive generation",
+        "context"
+      ],
+      "confusableTerms": [
+        "exact-answer database",
+        "web search",
+        "whole-answer generation"
+      ],
+      "gapTags": [
+        "foundation",
+        "generation",
+        "tokenization"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "parameters-and-training",
+      "title": "Parameters and Training",
+      "firstPrinciples": "Training learns numerical parameters that make useful token predictions more likely.",
+      "explanation": "During pretraining the model predicts a target token, measures its error, and slightly adjusts its parameters; gradient descent is a common name for this repeated adjustment. During ordinary inference, the parameters are usually fixed and the conversation does not normally retrain the model.",
+      "relatedTerms": [
+        "weights",
+        "gradient descent",
+        "pretraining",
+        "inference"
+      ],
+      "confusableTerms": [
+        "training data",
+        "conversation context",
+        "database records"
+      ],
+      "gapTags": [
+        "foundation",
+        "training",
+        "inference"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "token-vector-representation",
+      "title": "Token and Vector Representation",
+      "firstPrinciples": "Neural networks operate on numbers, so token IDs are mapped to learned numeric vectors before contextual transformations.",
+      "explanation": "A simplified pipeline is tokens to vectors, then many transformations, then probabilities for the next token. A vector representation is a numerical state used by the network; it is not a complete answer stored for a word.",
+      "relatedTerms": [
+        "embedding",
+        "vector",
+        "layer",
+        "token ID"
+      ],
+      "confusableTerms": [
+        "token is always a whole word",
+        "one number per answer",
+        "token equals parameter"
+      ],
+      "gapTags": [
+        "representation",
+        "tokenization"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "self-attention-context",
+      "title": "Self-Attention and Context",
+      "firstPrinciples": "Self-attention lets each token selectively use information from other tokens in the current context.",
+      "explanation": "For each token, the model computes which other tokens are relevant and mixes information from the useful ones. A helpful mental model is a highlighter: in 'The animal did not cross the street because it was tired,' attention can connect it more strongly to animal than to street. Query, key, and value are names for roles in this lookup; the main idea is selective context use.",
+      "relatedTerms": [
+        "query",
+        "key",
+        "value",
+        "context window"
+      ],
+      "confusableTerms": [
+        "all tokens are equally important",
+        "exact dataset lookup",
+        "internet search"
+      ],
+      "gapTags": [
+        "architecture",
+        "attention",
+        "context"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "multi-head-attention",
+      "title": "Multiple Attention Heads",
+      "firstPrinciples": "Multiple attention heads let a transformer examine several kinds of token relationships in parallel.",
+      "explanation": "Each head can act like a different highlighter: one may emphasize grammar, another references such as it to animal, and another nearby or distant syntax. The heads are combined. More heads increase the number of relationship patterns examined; they do not directly enlarge the vocabulary.",
+      "relatedTerms": [
+        "attention head",
+        "transformer",
+        "grammar",
+        "coreference"
+      ],
+      "confusableTerms": [
+        "larger vocabulary",
+        "one head attends to everything",
+        "each head is a separate model"
+      ],
+      "gapTags": [
+        "architecture",
+        "attention",
+        "attention-math"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "attention-heads-confusion",
+      "title": "Attention heads versus vocabulary",
+      "tag": "attention-architecture",
+      "description": "The learner initially treated multiple heads as a way to enlarge the vocabulary. Revisit heads as parallel relationship detectors or highlighters.",
+      "conceptIDs": [
+        "self-attention-context",
+        "multi-head-attention"
+      ],
+      "misconceptionIDs": [
+        "attention-heads-increase-vocabulary"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "attention-math",
+      "title": "Attention mechanism math",
+      "tag": "attention-math",
+      "description": "The learner understood the highlighter analogy better than the dot-product and softmax details. Keep the conceptual model stable before introducing equations.",
+      "conceptIDs": [
+        "self-attention-context",
+        "multi-head-attention"
+      ],
+      "misconceptionIDs": [
+        "attention-equations-are-required-for-the-core-idea"
+      ],
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "llm-next-token",
+      "revision": 1,
+      "prompt": "What does an autoregressive LLM do during ordinary text generation?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "next-token-prediction"
+      ],
+      "gapTags": [
+        "foundation",
+        "generation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Predicts a next token, adds it to the context, and repeats",
+          "isCorrect": true,
+          "rationale": "Generation is iterative next-token prediction."
+        },
+        {
+          "id": "b",
+          "text": "Retrieves an exact answer record from a database",
+          "isCorrect": false,
+          "misconceptionID": "llm-is-an-answer-database"
+        },
+        {
+          "id": "c",
+          "text": "Searches the internet for every next token",
+          "isCorrect": false,
+          "misconceptionID": "llm-is-live-web-search"
+        },
+        {
+          "id": "d",
+          "text": "Follows a fixed decision tree written by programmers",
+          "isCorrect": false,
+          "misconceptionID": "llm-is-a-fixed-rule-tree"
+        }
+      ],
+      "explanation": "The model repeatedly predicts the next token using the text already in context. It does not normally produce the whole response in one step.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-token-not-word",
+      "revision": 1,
+      "prompt": "Which statement is most accurate about a token?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "next-token-prediction",
+        "token-vector-representation"
+      ],
+      "gapTags": [
+        "tokenization",
+        "representation"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "A token can be a whole word, part of a word, punctuation, or whitespace",
+          "isCorrect": true,
+          "rationale": "Tokens are model-specific pieces of text, not always complete words."
+        },
+        {
+          "id": "b",
+          "text": "Every token is exactly one complete English word",
+          "isCorrect": false,
+          "misconceptionID": "token-always-equals-word"
+        },
+        {
+          "id": "c",
+          "text": "A token is a stored copy of the answer the model will give",
+          "isCorrect": false,
+          "misconceptionID": "token-is-an-answer"
+        },
+        {
+          "id": "d",
+          "text": "A token is the same thing as a learned parameter",
+          "isCorrect": false,
+          "misconceptionID": "token-equals-parameter"
+        }
+      ],
+      "explanation": "A token is a text-processing unit. Depending on the tokenizer, it may represent only part of a word or a punctuation or space pattern.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-training-error-adjustment",
+      "revision": 1,
+      "prompt": "During training, the model predicts the wrong next token. What is adjusted?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "parameters-and-training"
+      ],
+      "gapTags": [
+        "training",
+        "parameters"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "The numerical parameters are adjusted slightly to reduce future error",
+          "isCorrect": true,
+          "rationale": "Repeated parameter updates are the core of gradient-based training."
+        },
+        {
+          "id": "b",
+          "text": "The incorrect token is deleted from the training data",
+          "isCorrect": false,
+          "misconceptionID": "training-deletes-bad-tokens"
+        },
+        {
+          "id": "c",
+          "text": "The model searches the internet for the correct answer",
+          "isCorrect": false,
+          "misconceptionID": "training-is-live-search"
+        },
+        {
+          "id": "d",
+          "text": "Nothing changes because the model only follows fixed rules",
+          "isCorrect": false,
+          "misconceptionID": "model-has-no-learned-parameters"
+        }
+      ],
+      "explanation": "A simplified training loop is predict, measure error, adjust parameters, and repeat. Gradient descent is a common name for the adjustment method.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-inference-parameters-fixed",
+      "revision": 1,
+      "prompt": "What usually happens to a model's parameters during an ordinary conversation?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "parameters-and-training"
+      ],
+      "gapTags": [
+        "inference",
+        "training"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "They remain fixed while the model uses them to generate tokens",
+          "isCorrect": true,
+          "rationale": "Normal inference uses trained parameters; it does not normally retrain on each message."
+        },
+        {
+          "id": "b",
+          "text": "They are permanently rewritten after every user message",
+          "isCorrect": false,
+          "misconceptionID": "conversation-is-automatic-training"
+        },
+        {
+          "id": "c",
+          "text": "They are replaced by a searchable copy of the prompt",
+          "isCorrect": false,
+          "misconceptionID": "context-replaces-parameters"
+        },
+        {
+          "id": "d",
+          "text": "They are not involved after pretraining",
+          "isCorrect": false,
+          "misconceptionID": "inference-does-not-use-parameters"
+        }
+      ],
+      "explanation": "Training changes parameters. Ordinary inference generally holds them fixed and uses the current prompt as context.",
+      "kind": "multipleChoice",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-why-vectors",
+      "revision": 1,
+      "prompt": "Why does the model convert token representations into numbers or vectors?",
+      "difficulty": "intro",
+      "conceptIDs": [
+        "token-vector-representation"
+      ],
+      "gapTags": [
+        "representation",
+        "tokenization"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Neural-network calculations operate on numerical values",
+          "isCorrect": true,
+          "rationale": "Vectors let the network apply learned numerical transformations."
+        },
+        {
+          "id": "b",
+          "text": "Numbers make the original text easier for humans to read",
+          "isCorrect": false,
+          "misconceptionID": "vectors-are-for-human-reading"
+        },
+        {
+          "id": "c",
+          "text": "The model stores one number for every complete answer",
+          "isCorrect": false,
+          "misconceptionID": "one-number-per-answer"
+        },
+        {
+          "id": "d",
+          "text": "A vector is just another name for the model's training dataset",
+          "isCorrect": false,
+          "misconceptionID": "vector-is-dataset"
+        }
+      ],
+      "explanation": "A simplified internal path is tokens to vectors, through many transformations, to next-token probabilities.",
+      "kind": "multipleChoice",
+      "transferLevel": "recall",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-attention-job",
+      "revision": 1,
+      "prompt": "What is the main job of self-attention?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "self-attention-context"
+      ],
+      "gapTags": [
+        "attention",
+        "context"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Decide which surrounding tokens are relevant to the current token",
+          "isCorrect": true,
+          "rationale": "Attention selectively mixes useful context into each token representation."
+        },
+        {
+          "id": "b",
+          "text": "Store the model's entire training dataset for exact lookup",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-dataset-storage"
+        },
+        {
+          "id": "c",
+          "text": "Generate the final answer in one step",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-whole-answer-generation"
+        },
+        {
+          "id": "d",
+          "text": "Make every token equally important",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-uniform"
+        }
+      ],
+      "explanation": "Use the highlighter analogy: for each token, the model highlights useful parts of the surrounding context and borrows information from them.",
+      "kind": "multipleChoice",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-attention-reference",
+      "revision": 1,
+      "prompt": "In 'The animal did not cross the street because it was tired,' what can self-attention help the model do?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "self-attention-context"
+      ],
+      "gapTags": [
+        "attention",
+        "context",
+        "reference"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "Use sentence context to connect it more strongly with the likely referent animal",
+          "isCorrect": true,
+          "rationale": "Attention helps relate a token to useful words elsewhere in context."
+        },
+        {
+          "id": "b",
+          "text": "Assume it must refer to the nearest noun, street, without using meaning",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-nearest-token-only"
+        },
+        {
+          "id": "c",
+          "text": "Replace the sentence with a web-search result",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-web-search"
+        },
+        {
+          "id": "d",
+          "text": "Ignore all tokens except the one immediately before it",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-only-local"
+        }
+      ],
+      "explanation": "The model can use relationships across the context. This is a conceptual example, not a claim that one isolated head always resolves the reference perfectly.",
+      "kind": "multipleChoice",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    },
+    {
+      "id": "llm-multiple-heads",
+      "revision": 1,
+      "prompt": "Why are multiple attention heads useful in a transformer?",
+      "difficulty": "medium",
+      "conceptIDs": [
+        "self-attention-context",
+        "multi-head-attention"
+      ],
+      "gapTags": [
+        "attention",
+        "architecture",
+        "attention-architecture"
+      ],
+      "choices": [
+        {
+          "id": "a",
+          "text": "They allow different relational patterns to be examined in parallel",
+          "isCorrect": true,
+          "rationale": "Different heads can emphasize different context relationships before their outputs are combined."
+        },
+        {
+          "id": "b",
+          "text": "They directly make the model's vocabulary larger",
+          "isCorrect": false,
+          "misconceptionID": "attention-heads-increase-vocabulary"
+        },
+        {
+          "id": "c",
+          "text": "They remove the need for tokenization",
+          "isCorrect": false,
+          "misconceptionID": "attention-removes-tokenization"
+        },
+        {
+          "id": "d",
+          "text": "They ensure every token attends equally to every other token",
+          "isCorrect": false,
+          "misconceptionID": "attention-is-uniform"
+        }
+      ],
+      "explanation": "Think of multiple heads as multiple highlighters. One may track grammar, another references, and another nearby or distant syntax. They do not add words to the vocabulary.",
+      "kind": "multipleChoice",
+      "transferLevel": "application",
+      "sourceRefs": [
+        "llm-session-2026-08-11"
+      ]
+    }
+  ],
+  "markdownPath": "notes/llms.md"
+}
