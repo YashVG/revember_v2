@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -22,11 +23,14 @@ import type {
   CreateCardInput,
   CreateTopicInput,
   EditCardInput,
+  McpClient,
+  McpConnectionResult,
   RetireCardInput,
   SaveCaptureInput,
   UpsertExamPlanInput
 } from "../shared/types";
 import { RevemberState } from "./app-state";
+import { configureMcpClient } from "./mcp-client-config";
 import {
   isSafeExternalURL,
   isTrustedRendererURL,
@@ -173,6 +177,21 @@ function registerIPC(): void {
   handleState(ipcChannels.openKnowledgeRoot, async () => {
     const error = await shell.openPath(state.snapshot.settings.knowledgeRootPath);
     if (error) throw new Error(error);
+  });
+  handleState(ipcChannels.configureMcpClient, (client: McpClient, action: "connect" | "disconnect"): McpConnectionResult => {
+    const mcpDirectory = app.isPackaged
+      ? path.join(process.resourcesPath, "mcp-server")
+      : path.join(app.getAppPath(), "mcp-server");
+    const runnerPath = path.join(mcpDirectory, "run-mcp.sh");
+    const runtimeFiles = [
+      runnerPath,
+      path.join(mcpDirectory, "dist", "index.js"),
+      path.join(mcpDirectory, "node_modules", "@modelcontextprotocol", "sdk", "package.json")
+    ];
+    if (action === "connect" && runtimeFiles.some((filePath) => !existsSync(filePath))) {
+      throw new Error("Revember's MCP runtime is unavailable. Reinstall the app and try again.");
+    }
+    return configureMcpClient(client, action, { runnerPath });
   });
   handleState(ipcChannels.commitReview, (input: CommitReviewInput) => state.commitReview(input));
   handleState(ipcChannels.captureCheckpoint, (input: CaptureCheckpointInput) => state.captureCheckpoint(input));

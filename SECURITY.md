@@ -6,7 +6,7 @@ The supported release surface is currently macOS. The renderer stays sandboxed a
 
 ## Dependency Audit Status
 
-As of 1 August 2026:
+As of 11 August 2026:
 
 - the root production dependency audit reports no known vulnerabilities;
 - the MCP production dependency audit also reports no known vulnerabilities.

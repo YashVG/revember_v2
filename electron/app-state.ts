@@ -65,6 +65,7 @@ import { writeJsonAtomically } from "./persistence";
 interface StatePaths {
   settingsPath: string;
   bundledKnowledgeRoot: string;
+  personalKnowledgeRoot?: string;
   legacyProgressPath: string;
 }
 
@@ -443,16 +444,23 @@ export class RevemberState extends EventEmitter {
   }
 
   private defaultKnowledgeRoot(): string {
-    const documentsRoot = path.join(homedir(), "Documents", "RevemberKnowledge");
-    if (!existsSync(documentsRoot) && existsSync(this.paths.bundledKnowledgeRoot)) {
-      mkdirSync(path.dirname(documentsRoot), { recursive: true });
-      cpSync(this.paths.bundledKnowledgeRoot, documentsRoot, { recursive: true });
+    const personalRoot = this.paths.personalKnowledgeRoot ?? path.join(homedir(), "Documents", "RevemberKnowledge");
+    if (existsSync(personalRoot)) return personalRoot;
+    if (!existsSync(this.paths.bundledKnowledgeRoot)) {
+      throw new Error("Revember could not find its included starter knowledge vault.");
     }
-    return existsSync(documentsRoot) ? documentsRoot : this.paths.bundledKnowledgeRoot;
+    try {
+      mkdirSync(path.dirname(personalRoot), { recursive: true });
+      cpSync(this.paths.bundledKnowledgeRoot, personalRoot, { recursive: true });
+      return personalRoot;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Revember could not set up your starter knowledge vault at ${personalRoot}: ${detail}`);
+    }
   }
 
   private legacyKnowledgeRoot(): string | undefined {
-    if (process.platform !== "darwin") return undefined;
+    if (process.platform !== "darwin" || process.env.REVEMBER_USER_DATA_PATH) return undefined;
     try {
       const value = execFileSync("/usr/bin/defaults", ["read", "com.yashvg.Revember", "knowledgeRootPath"], {
         encoding: "utf8",

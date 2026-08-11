@@ -9,6 +9,7 @@ usage() {
 }
 
 ensure_dependencies() {
+  node -e 'const major = Number(process.versions.node.split(".")[0]); if (major !== 22 && major < 24) { console.error(`Revember requires Node.js 22 LTS or Node.js 24+. Current: ${process.version}`); process.exit(1); }'
   if [[ ! -x "$ROOT_DIR/node_modules/.bin/electron-vite" || ! -f "$ROOT_DIR/node_modules/electron/path.txt" ]]; then
     npm ci
   fi
@@ -25,17 +26,29 @@ case "$MODE" in
     ensure_dependencies
     npm run package
     APP_BUNDLE="$("$ROOT_DIR/script/resolve_packaged_app.sh")"
-    INSTALL_DIR="/Applications"
-    if [[ ! -w "$INSTALL_DIR" ]]; then
-      INSTALL_DIR="$HOME/Applications"
-      mkdir -p "$INSTALL_DIR"
+    INSTALL_DIR="${REVEMBER_INSTALL_DIR:-/Applications}"
+    if [[ -z "$INSTALL_DIR" || "$INSTALL_DIR" == "/" || "$INSTALL_DIR" == "$HOME" ]]; then
+      echo "Refusing unsafe Revember install directory: $INSTALL_DIR" >&2
+      exit 1
     fi
-    pkill -x Revember >/dev/null 2>&1 || true
+    if [[ -z "${REVEMBER_INSTALL_DIR:-}" && ! -w "$INSTALL_DIR" ]]; then
+      INSTALL_DIR="$HOME/Applications"
+    fi
+    mkdir -p "$INSTALL_DIR"
+    if [[ ! -w "$INSTALL_DIR" ]]; then
+      echo "Revember cannot write to install directory: $INSTALL_DIR" >&2
+      exit 1
+    fi
+    if [[ "${REVEMBER_SKIP_APP_STOP:-0}" != "1" ]]; then
+      pkill -x Revember >/dev/null 2>&1 || true
+    fi
     rm -rf "$INSTALL_DIR/Revember.app"
     cp -R "$APP_BUNDLE" "$INSTALL_DIR/Revember.app"
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_DIR/Revember.app" >/dev/null 2>&1 || true
     echo "Installed $INSTALL_DIR/Revember.app"
-    /usr/bin/open "$INSTALL_DIR/Revember.app"
+    if [[ "${REVEMBER_SKIP_LAUNCH:-0}" != "1" ]]; then
+      /usr/bin/open "$INSTALL_DIR/Revember.app"
+    fi
     ;;
   --debug|debug)
     ensure_dependencies

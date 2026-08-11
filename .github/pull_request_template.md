@@ -6,7 +6,8 @@ Describe the user-visible change and the learning or data-contract problem it ad
 
 - [ ] `npm run check`
 - [ ] `npm run test:e2e`
-- [ ] `npm --prefix mcp-server run check` (when MCP code changed)
+- [ ] `npm run test:package` (when packaging, Vault setup, or MCP runtime changed)
+- [ ] `npm --prefix mcp-server run check` (when MCP behavior changed)
 - [ ] `git diff --check`
 
 ## Data and Privacy

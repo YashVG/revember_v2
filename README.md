@@ -7,7 +7,7 @@
 <p align="center">
   <a href="#how-it-works">How it works</a> ·
   <a href="#local-ai-optional">Local AI</a> ·
-  <a href="#run-on-macos">Run locally</a> ·
+  <a href="#install-on-macos">Install</a> ·
   <a href="#project-map">Project map</a>
 </p>
 
@@ -17,7 +17,7 @@ Revember is a macOS desktop app for learners who want a local learning loop: cap
 
 It is built with Electron, React, and TypeScript. An optional local [Ollama](https://ollama.com/) connection can suggest distractors while keeping the learner in control of every saved change.
 
-> **Status:** portfolio-ready local demo. The app and its optional MCP server pass the repository verification checks, and the macOS package passes an unpacked-app smoke test. Public distribution is still pre-release: the local build is ad-hoc signed, not Apple-signed or notarized.
+> **Status:** portfolio-ready local demo for macOS. The source install builds the app, starter Knowledge Vault, and local MCP runtime together. Public distribution is still pre-release: local builds are ad-hoc signed, not Apple-signed or notarized.
 
 ## How it works
 
@@ -37,7 +37,7 @@ Notes → readable source sections → authored questions → spaced review → 
 - Question authoring from a finished note, a topic, or the Questions page.
 - A focused queue for due, needs-refresh, new, and scheduled questions.
 - Local backups, checkpoints, deep links, tray state, and opt-in reminders.
-- An optional stdio MCP server for revision-checked local knowledge authoring.
+- A bundled stdio MCP server for revision-checked local knowledge authoring from Codex or Claude Desktop.
 
 ## Local AI (optional)
 
@@ -53,28 +53,31 @@ To enable the configured local model:
 ollama pull llama3
 ```
 
-## Run on macOS
+## Install on macOS
 
 Requires Node.js 22 LTS (the CI and `.nvmrc` default) or Node.js 24+, plus npm. Node.js 23 is not supported by the test toolchain.
 
 ```bash
 git clone https://github.com/YashVG/revember_v2.git
 cd revember_v2
-npm ci
-./script/set_project_knowledge_path.sh
-npm run dev
+npm run install:app
 ```
 
-The quick start uses the seeded topics in `RevemberKnowledge/`. To use private material, copy that directory first and select the copy in Settings:
+The command installs dependencies, builds the app and MCP runtime, installs `Revember.app` in `/Applications` or `~/Applications`, and opens it. On first launch, Revember copies the starter Vault to `~/Documents/RevemberKnowledge`, so the bundled source files stay unchanged.
 
-```bash
-cp -R RevemberKnowledge "$HOME/Documents/RevemberKnowledge"
-```
+To connect an MCP client:
 
-For the optional MCP workspace as well:
+1. Open **Settings → AI study partner** in Revember.
+2. Select **Connect Codex** or **Connect Claude**.
+3. Restart that client once.
+
+The MCP process starts on demand and reads the Vault currently selected in Revember. The installed app supplies its runtime, so the MCP client does not need a separate Node.js command or repository path.
+
+For source development instead of a local app install:
 
 ```bash
 npm run bootstrap
+npm run dev
 ```
 
 ## Local data
@@ -99,14 +102,15 @@ export REVEMBER_PROGRESS_PATH="$HOME/Library/Application Support/RevemberV2/prog
 
 | Command | Purpose |
 | --- | --- |
+| `npm run install:app` | Build, install, and open the local macOS app with its Vault and MCP runtime |
 | `npm run dev` | Run the desktop app in development |
 | `npm run verify:app` | TypeScript, unit tests, and production build |
-| `npm run verify` | Clean-install and verify the app and optional MCP workspace |
+| `npm run verify` | Clean-install and verify the app and MCP workspace |
 | `npm run test:e2e` | Electron topic, review, persistence, and checkpoint flow |
 | `npm run test:package` | Unpacked macOS app and packaged-app smoke checks |
 | `git diff --check` | Whitespace and conflict-marker hygiene |
 
-Create an unpacked macOS app under `release/` with `npm run package`. `npm run dist` creates DMG and ZIP artifacts; public distribution still needs Apple signing and notarization credentials.
+Create an unpacked macOS app under `release/` with `npm run package`. `npm run dist` creates DMG and ZIP artifacts. Public distribution still needs Apple Developer ID signing and notarization credentials.
 
 The current readiness checks are:
 
@@ -124,7 +128,7 @@ The full Electron end-to-end flow remains a separate check because it exercises 
 | `shared/` | Data contracts, validation, scheduling, and queue logic |
 | `tests-electron/` | Unit, integration, Electron, and package-smoke coverage |
 | `RevemberKnowledge/` | Seed learning material and authoring guidance |
-| `mcp-server/` | Optional local stdio MCP server |
+| `mcp-server/` | Bundled local stdio MCP server and packaged-app launcher |
 | `docs/architecture/` | Architecture decisions and local-intelligence research |
 
 ## Documentation
