@@ -1,6 +1,5 @@
-import { CalendarClock, CircleHelp, Clock3, Plus, Play, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowUpRight, CalendarDays, ChevronRight, CircleHelp, FileText, Play, Plus } from "lucide-react";
 import { useState } from "react";
-import type { ReactNode } from "react";
 import type { AppSnapshot, DueReviewItem, KnowledgeTopic, Question, ReviewCardState } from "../../../../shared/types";
 import {
   activeQuestions,
@@ -61,6 +60,7 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
   onOpenTopic: (topic: KnowledgeTopic) => void;
 }) {
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const now = new Date();
   const queues = buildQuestionReviewQueues(snapshot, now);
   const questions = snapshot.topics.flatMap((topic) => activeQuestions(topic).map((question): QuestionEntry => ({
@@ -68,17 +68,20 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
     question,
     schedule: snapshot.progress.topics[topic.id]?.reviewCardsByQuestionID[question.id]
   })));
-  const queueTotal = queues.due.length + queues.fresh.length + queues.revised.length + queues.scheduled.length;
+  const stateOrder: Record<QuestionReviewState, number> = { due: 0, revised: 1, scheduled: 2, new: 3 };
+  const orderedQuestions = [...questions].sort((left, right) => {
+    const stateDifference = stateOrder[questionReviewState(left.question, left.schedule, now)] - stateOrder[questionReviewState(right.question, right.schedule, now)];
+    return stateDifference || left.question.prompt.localeCompare(right.question.prompt);
+  });
 
   return (
     <div className="questions-page">
       <header className="questions-heading">
         <div>
-          <Eyebrow>Question bank</Eyebrow>
-          <h1>Questions</h1>
-        <p>Choose what to review, or manage any question directly below.</p>
+          <Eyebrow>{showAll ? "Question bank" : "Questions"}</Eyebrow>
+          <h1>{showAll ? "Questions" : "Review"}</h1>
         </div>
-        <div className="questions-heading-actions">
+        {showAll && <div className="questions-heading-actions">
           <span className="questions-total">{questions.length} {questions.length === 1 ? "question" : "questions"}</span>
           <button
             type="button"
@@ -88,46 +91,74 @@ export function QuestionsPage({ snapshot, onReview, onStartReview, onCreateQuest
           >
             <Plus /> Add question
           </button>
-        </div>
+        </div>}
       </header>
-      <section className="surface questions-review-queue" aria-labelledby="questions-review-queue-heading">
-        <div className="questions-review-queue-copy">
-          <Eyebrow>Review questions</Eyebrow>
-          <h2 id="questions-review-queue-heading">Choose what to review</h2>
-          <span className="questions-queue-total">{queueTotal} total</span>
-        </div>
-        <div className="questions-review-actions">
-          <QueueAction label="Due now" count={queues.due.length} description="Needs review" icon={<Clock3 />} onStart={() => onStartReview(queues.due)} />
-          <QueueAction label="Needs refresh" count={queues.revised.length} description="Updated since review" icon={<RefreshCw />} revised onStart={() => onStartReview(queues.revised)} />
-          <QueueAction label="New" count={queues.fresh.length} description="Not seen yet" icon={<Sparkles />} onStart={() => onStartReview(queues.fresh)} />
-          <QueueAction label="Scheduled" count={queues.scheduled.length} description="Coming up" icon={<CalendarClock />} scheduled onStart={() => onStartReview(queues.scheduled)} />
-        </div>
-      </section>
-      {questions.length > 0 ? (
-        <div className="questions-list">
-          {questions.map(({ topic, question, schedule }) => {
-            const state = questionReviewState(question, schedule, now);
-            const status = reviewStateLabels[state];
-            return (
-              <article className={`surface question-library-card ${state}`} key={`${topic.id}:${question.id}`}>
-                <div className="question-library-copy">
-                  <div className="question-library-meta">
-                    <Tag>{topic.title}</Tag>
-                    <span className={`question-library-status ${state}`}>{status}</span>
-                  </div>
-                  <h2>{question.prompt}</h2>
-                  <div className="question-library-concepts">
-                    {question.conceptIDs.map((id) => <Tag key={id}>{topic.concepts.find((concept) => concept.id === id)?.title ?? id}</Tag>)}
-                  </div>
+      {questions.length > 0 && showAll ? (
+        <section className="question-table-shell" aria-label="Question bank table">
+          <div className="question-table-summary">
+            <span>{questions.length} questions</span>
+            <i aria-hidden="true">•</i>
+            <span>{queues.due.length} due now</span>
+            <i aria-hidden="true">•</i>
+            <span>{queues.scheduled.length} scheduled</span>
+          </div>
+          <div className="question-table-scroll">
+            <div className="question-table question-table-header" role="row">
+              <span>Topic</span>
+              <span>Status</span>
+              <span>Question</span>
+              <span>Concept</span>
+              <span>Action</span>
+            </div>
+            {orderedQuestions.map(({ topic, question, schedule }) => {
+              const state = questionReviewState(question, schedule, now);
+              const concept = question.conceptIDs.map((id) => topic.concepts.find((item) => item.id === id)?.title ?? id)[0] ?? topic.title;
+              return (
+                <div className="question-table question-table-row" role="row" key={`${topic.id}:${question.id}`}>
+                  <button type="button" className="question-table-topic" onClick={() => onOpenTopic(topic)}>{topic.title}</button>
+                  <span className={`question-table-status ${state}`}>{reviewStateLabels[state]}</span>
+                  <span className="question-table-prompt">{question.prompt}</span>
+                  <span className="question-table-concept"><Tag>{concept}</Tag></span>
+                  <button type="button" className="question-table-review" onClick={() => onReview(topic, question)}>Review</button>
                 </div>
-                <div className="question-library-actions">
-                  <button type="button" className="question-library-action" onClick={() => onReview(topic, question)}><Play /> Review</button>
-                  <button type="button" className="question-library-manage" onClick={() => onOpenTopic(topic)}>Manage topic</button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          <footer className="question-table-footer">1–{questions.length} of {questions.length} questions</footer>
+        </section>
+      ) : questions.length > 0 ? (
+        <>
+          <section className="review-today-card surface" aria-labelledby="review-today-heading">
+            <div className="review-today-heading">
+              <div className="review-today-title">
+                <h2 id="review-today-heading">Today review</h2>
+                <span className="review-count due">{queues.due.length} due</span>
+              </div>
+              <button type="button" className="primary review-start-button" disabled={queues.due.length === 0} onClick={() => onStartReview(queues.due)}><Play /> Start review</button>
+            </div>
+            {queues.due.length > 0 ? <>
+              <div className="review-preview-header"><span>Question</span><span>Topic</span><span>Concept</span></div>
+              <div className="review-preview-list">
+                {queues.due.slice(0, 5).map((item) => {
+                  const concept = item.question.conceptIDs.map((id) => item.topic.concepts.find((entry) => entry.id === id)?.title ?? id)[0] ?? item.topic.title;
+                  return <button type="button" className="review-preview-row" key={item.id} onClick={() => onReview(item.topic, item.question)}>
+                    <span>{item.question.prompt}</span><span>{item.topic.title}</span><span><Tag>{concept}</Tag></span>
+                  </button>;
+                })}
+              </div>
+              {queues.due.length > 5 && <button type="button" className="review-more-link" onClick={() => onStartReview(queues.due)}>+ {queues.due.length - 5} more due today</button>}
+            </> : <p className="review-empty-copy">Nothing due today.</p>}
+          </section>
+          <div className="review-secondary-actions">
+            <button type="button" className="review-secondary-action" disabled={queues.scheduled.length === 0} onClick={() => onStartReview(queues.scheduled)}>
+              <CalendarDays /><span>Scheduled</span><strong>{queues.scheduled.length}</strong><ChevronRight className="review-secondary-chevron" />
+            </button>
+            <button type="button" className="review-secondary-action" disabled={queues.fresh.length === 0} onClick={() => onStartReview(queues.fresh)}>
+              <FileText /><span>New</span><strong>{queues.fresh.length}</strong><ChevronRight className="review-secondary-chevron" />
+            </button>
+          </div>
+          <button type="button" className="review-view-all" onClick={() => setShowAll(true)}><ArrowUpRight /> <span>View all questions</span></button>
+        </>
       ) : (
         <section className="surface questions-empty">
           <CircleHelp />
@@ -172,29 +203,5 @@ function QuestionTopicPicker({ topics, onClose, onSelect }: {
         </div>
       </div>
     </Modal>
-  );
-}
-
-function QueueAction({ label, count, description, icon, scheduled = false, revised = false, onStart }: {
-  label: "Due now" | "Needs refresh" | "New" | "Scheduled";
-  count: number;
-  description: string;
-  icon: ReactNode;
-  scheduled?: boolean;
-  revised?: boolean;
-  onStart: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`question-queue-action ${scheduled ? "scheduled" : ""} ${revised ? "revised" : ""}`}
-      disabled={count === 0}
-      aria-label={`Review ${label.toLowerCase()} (${count})`}
-      onClick={onStart}
-    >
-      <span className="question-queue-icon">{icon}</span>
-      <span className="question-queue-copy"><strong>{count}</strong><span>{label}</span><small>{description}</small></span>
-      <Play />
-    </button>
   );
 }

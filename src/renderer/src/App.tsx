@@ -6,7 +6,6 @@ import {
   Check,
   CircleAlert,
   CircleHelp,
-  ChevronDown,
   Cog,
   ExternalLink,
   FileText,
@@ -15,7 +14,6 @@ import {
   Play,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
   RefreshCw,
   RotateCcw,
   Settings,
@@ -27,10 +25,7 @@ import type {
   KnowledgeTopic,
   Question
 } from "../../../shared/types";
-import {
-  activeQuestions,
-  dueReviewItems
-} from "../../../shared/domain";
+import { dueReviewItems } from "../../../shared/domain";
 import { CardWorkspace } from "./components/CardWorkspace";
 import { NotesPage } from "./components/NotesPage";
 import { HomePage } from "./components/HomePage";
@@ -209,14 +204,8 @@ export function App() {
       ) : (
         <div className={`workspace ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
           <Sidebar
-            snapshot={snapshot}
-            selectedTopicID={globalView === "topic" ? selectedTopic?.id : undefined}
             collapsed={sidebarCollapsed}
             onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-            onSelect={(id) => {
-              if (globalView === "topic" && selectedTopic?.id === id) return;
-              void leaveCurrent(() => openTopic(id));
-            }}
             onOpenHome={() => {
               if (globalView !== "home") void leaveCurrent(() => setGlobalView("home"));
             }}
@@ -224,7 +213,6 @@ export function App() {
             onOpenQuestions={() => {
               if (globalView !== "questions") void leaveCurrent(() => setGlobalView("questions"));
             }}
-            onCreateTopic={() => setCreateTopicOpen(true)}
             globalView={globalView}
           />
           <main className="main-stage">
@@ -244,6 +232,8 @@ export function App() {
               onOpenNotes={(topicID) => void leaveCurrent(() => openNotes(topicID))}
               onCreateNote={() => void leaveCurrent(() => openNotes(undefined, true))}
               onRegisterBeforeLeave={registerHomeBeforeLeave}
+              onOpenTopic={(topicID) => void leaveCurrent(() => openTopic(topicID))}
+              onCreateTopic={() => setCreateTopicOpen(true)}
             /> : globalView === "notes" ? <NotesPage
               key={`${snapshot.settings.knowledgeRootPath}:${notesVisitKey}`}
               snapshot={snapshot}
@@ -307,33 +297,14 @@ export function App() {
   );
 }
 
-function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSelect, onOpenHome, onOpenNotes, onOpenQuestions, onCreateTopic, globalView }: {
-  snapshot: AppSnapshot;
-  selectedTopicID?: string;
+function Sidebar({ collapsed, onToggleCollapsed, onOpenHome, onOpenNotes, onOpenQuestions, globalView }: {
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onSelect: (id: string) => void;
   onOpenHome: () => void;
   onOpenNotes: () => void;
   onOpenQuestions: () => void;
-  onCreateTopic: () => void;
   globalView: GlobalView;
 }) {
-  const [topicsOpen, setTopicsOpen] = useState(false);
-
-  useEffect(() => {
-    if (globalView !== "topic") setTopicsOpen(false);
-  }, [globalView]);
-
-  const toggleTopics = () => {
-    if (collapsed) {
-      onToggleCollapsed();
-      setTopicsOpen(true);
-      return;
-    }
-    setTopicsOpen((current) => !current);
-  };
-
   const navigation = [
     { key: "home", label: "Home", icon: <House />, onClick: onOpenHome },
     { key: "notes", label: "Notes", icon: <SquarePen />, onClick: onOpenNotes },
@@ -360,34 +331,6 @@ function Sidebar({ snapshot, selectedTopicID, collapsed, onToggleCollapsed, onSe
           {icon}<span>{label}</span>
         </button>
       ))}
-      <button
-        className="plan-nav topics-nav"
-        aria-label={collapsed ? "Expand sidebar topics" : "Topics"}
-        aria-expanded={!collapsed && topicsOpen}
-        aria-controls="sidebar-topic-list"
-        onClick={toggleTopics}
-      >
-        <BookOpen /><span>Topics</span><ChevronDown className={topicsOpen ? "rotated" : ""} />
-      </button>
-      {topicsOpen && <div className="topic-list" id="sidebar-topic-list">
-        {snapshot.topics.map((topic) => <button
-          key={topic.id}
-          className={`topic-item ${selectedTopicID === topic.id ? "selected" : ""}`}
-          aria-current={selectedTopicID === topic.id ? "page" : undefined}
-          onClick={() => {
-            onSelect(topic.id);
-          }}
-        >
-          <i />
-          <div><strong>{topic.title}</strong><small>{activeQuestions(topic).length} questions</small></div>
-        </button>)}
-        <button type="button" className="new-topic-button" onClick={() => {
-          setTopicsOpen(false);
-          onCreateTopic();
-        }}>
-          <Plus /><span>New topic</span>
-        </button>
-      </div>}
     </aside>
   );
 }

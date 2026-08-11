@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, FileText, LoaderCircle, Play, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, FileText, LoaderCircle, Play, Plus, Sparkles } from "lucide-react";
 import type { AppSnapshot, DueReviewItem, LearnerCapture } from "../../../../shared/types";
-import { dueReviewItems } from "../../../../shared/domain";
+import { activeQuestions, dueReviewItems } from "../../../../shared/domain";
 import { Eyebrow } from "./ui";
 import { toErrorMessage } from "../utils";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
@@ -17,9 +17,11 @@ type HomePageProps = {
   onCreateNote: () => void;
   onStartReview: (items: DueReviewItem[]) => void;
   onRegisterBeforeLeave: (handler: (() => Promise<boolean>) | undefined) => void;
+  onOpenTopic: (topicID: string) => void;
+  onCreateTopic: () => void;
 };
 
-export function HomePage({ snapshot, onOpenNotes, onCreateNote, onStartReview, onRegisterBeforeLeave }: HomePageProps) {
+export function HomePage({ snapshot, onOpenNotes, onCreateNote, onStartReview, onRegisterBeforeLeave, onOpenTopic, onCreateTopic }: HomePageProps) {
   const [topicID, setTopicID] = useState(snapshot.topics[0]?.id ?? "");
   const [noteText, setNoteText] = useState("");
   const [savedCapture, setSavedCapture] = useState<LearnerCapture>();
@@ -129,69 +131,89 @@ export function HomePage({ snapshot, onOpenNotes, onCreateNote, onStartReview, o
 
   return (
     <div className={`home-page home-study-page ${due.length ? "has-review" : "has-capture"}`}>
-      <StudyFocus
-        due={due}
-        onStartReview={onStartReview}
-        onCreateNote={onCreateNote}
-      />
+      <div className="home-study-layout">
+        <div className="home-study-main">
+          <StudyFocus
+            due={due}
+            onStartReview={onStartReview}
+            onCreateNote={onCreateNote}
+          />
 
-      {!due.length && (
-        <div className="home-capture-followup">
-          <section className="home-capture-intro" aria-labelledby="home-capture-heading">
-            <Eyebrow>Nothing due</Eyebrow>
-            <h2 id="home-capture-heading">Capture what you learned</h2>
-            <p>Write a note now. When you are ready, turn its strongest ideas into questions.</p>
-          </section>
+          {!due.length && (
+            <div className="home-capture-followup">
+              <section className="home-capture-intro" aria-labelledby="home-capture-heading">
+                <Eyebrow>Nothing due</Eyebrow>
+                <h2 id="home-capture-heading">Capture what you learned</h2>
+                <p>Write a note now. When you are ready, turn its strongest ideas into questions.</p>
+              </section>
 
-          <section className="lecture-note" aria-labelledby="lecture-note-heading">
-            <div className="lecture-note-toolbar">
-              <div className="lecture-note-title"><FileText /><Eyebrow>Lecture note</Eyebrow></div>
-              <label className="lecture-topic">
-                <span className="sr-only">Note topic</span>
-                <select value={topicID} onChange={(event) => setTopicID(event.target.value)}>
-                  {snapshot.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
-                </select>
-              </label>
-              {saveState !== "ready" && (
-                <span className={`lecture-save-state ${saveState}`} role="status" aria-live="polite">
-                  {saveState === "saving" && <LoaderCircle className="spin" />}
-                  {noteStatus}
-                </span>
-              )}
-              <button
-                className="primary home-finish-button"
-                type="button"
-                disabled={!noteText.trim() || saveState === "saving" || finishing || currentReady}
-                onClick={() => void finishLecture()}
-              >
-                {finishing ? <LoaderCircle className="spin" /> : <Sparkles />}
-                {finishing ? "Finishing…" : currentReady ? "Lecture finished" : "Finish lecture"}
-              </button>
-              <button className="home-link" type="button" onClick={() => onOpenNotes(topicID)}>
-                Open notes <ArrowUpRight />
-              </button>
+              <section className="lecture-note" aria-labelledby="lecture-note-heading">
+                <div className="lecture-note-toolbar">
+                  <div className="lecture-note-title"><FileText /><Eyebrow>Lecture note</Eyebrow></div>
+                  <label className="lecture-topic">
+                    <span className="sr-only">Note topic</span>
+                    <select value={topicID} onChange={(event) => setTopicID(event.target.value)}>
+                      {snapshot.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
+                    </select>
+                  </label>
+                  {saveState !== "ready" && (
+                    <span className={`lecture-save-state ${saveState}`} role="status" aria-live="polite">
+                      {saveState === "saving" && <LoaderCircle className="spin" />}
+                      {noteStatus}
+                    </span>
+                  )}
+                  <button
+                    className="primary home-finish-button"
+                    type="button"
+                    disabled={!noteText.trim() || saveState === "saving" || finishing || currentReady}
+                    onClick={() => void finishLecture()}
+                  >
+                    {finishing ? <LoaderCircle className="spin" /> : <Sparkles />}
+                    {finishing ? "Finishing…" : currentReady ? "Lecture finished" : "Finish lecture"}
+                  </button>
+                  <button className="home-link" type="button" onClick={() => onOpenNotes(topicID)}>
+                    Open notes <ArrowUpRight />
+                  </button>
+                </div>
+                <textarea
+                  id="lecture-note-heading"
+                  aria-label="Lecture note"
+                  value={noteText}
+                  onChange={(event) => {
+                    setNoteText(event.target.value);
+                    if (saveState === "saved") setSaveState("ready");
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+                      event.preventDefault();
+                      void saveNote().catch(() => undefined);
+                    }
+                  }}
+                  placeholder="Start typing…"
+                  spellCheck
+                />
+                {saveError && <p className="lecture-save-error">{saveError}</p>}
+              </section>
             </div>
-            <textarea
-              id="lecture-note-heading"
-              aria-label="Lecture note"
-              value={noteText}
-              onChange={(event) => {
-                setNoteText(event.target.value);
-                if (saveState === "saved") setSaveState("ready");
-              }}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-                  event.preventDefault();
-                  void saveNote().catch(() => undefined);
-                }
-              }}
-              placeholder="Start typing…"
-              spellCheck
-            />
-            {saveError && <p className="lecture-save-error">{saveError}</p>}
-          </section>
+          )}
         </div>
-      )}
+
+        <aside className="home-topics" aria-labelledby="home-topics-title">
+          <div className="home-topics-heading">
+            <h2 id="home-topics-title">Topics</h2>
+            <button className="home-topic-add" type="button" onClick={onCreateTopic}><Plus aria-hidden="true" />New topic</button>
+          </div>
+          <div className="home-topic-list" tabIndex={0}>
+            {snapshot.topics.map((topic) => {
+              const questionCount = activeQuestions(topic).length;
+              return <button className="home-topic-row" key={topic.id} type="button" onClick={() => onOpenTopic(topic.id)}>
+                <span className="home-topic-copy"><strong>{topic.title}</strong><small>{questionCount} {questionCount === 1 ? "question" : "questions"}</small></span>
+                <ArrowRight aria-hidden="true" />
+              </button>;
+            })}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -251,13 +273,6 @@ function StudyFocus({
           </div>
         )}
       </article>
-
-      <section className="study-focus-continue" aria-labelledby="study-focus-continue-title">
-        <h2 id="study-focus-continue-title">Keep learning</h2>
-        <div>
-          <button type="button" onClick={onCreateNote}><FileText />Write a note</button>
-        </div>
-      </section>
 
     </section>
   );
