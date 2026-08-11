@@ -42,7 +42,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm ci
+      - run: npm run bootstrap
       - run: npm run build
       - run: node tests-electron/e2e.mjs
       - run: git diff --check
