@@ -7,6 +7,8 @@ import {
   ChevronDown,
   CircleAlert,
   CircleHelp,
+  CloudDownload,
+  CloudUpload,
   Cog,
   ExternalLink,
   FileText,
@@ -24,6 +26,7 @@ import {
 import type {
   AppSnapshot,
   AuthState,
+  CloudSyncState,
   DueReviewItem,
   KnowledgeTopic,
   Question
@@ -470,7 +473,12 @@ function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledg
 }) {
   const [error, setError] = useState<string>();
   const [mcpMessage, setMcpMessage] = useState<string>();
+  const [cloudState, setCloudState] = useState<CloudSyncState>();
+  const [cloudMessage, setCloudMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void window.revember.getCloudSyncState().then(setCloudState).catch((cause) => setError(toErrorMessage(cause)));
+  }, []);
   const invoke = async (operation: () => Promise<AppSnapshot | void>) => {
     if (busy) return;
     try {
@@ -526,11 +534,46 @@ function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledg
       setBusy(false);
     }
   };
+  const syncCloudVault = async (action: "upload" | "download") => {
+    if (busy) return;
+    if (action === "download" && !window.confirm("Download the cloud vault and replace this device's current vault? Revember will create a local backup first.")) return;
+    try {
+      setBusy(true);
+      setError(undefined);
+      setCloudMessage(undefined);
+      if (action === "upload") {
+        const result = await window.revember.uploadCloudVault();
+        setCloudState(result);
+        setCloudMessage(`Uploaded revision ${result.revision}.`);
+      } else {
+        const result = await window.revember.downloadCloudVault();
+        setCloudState(result.sync);
+        onSnapshot(result.snapshot);
+        setCloudMessage(`Downloaded revision ${result.sync.revision}. A local backup was created first.`);
+      }
+    } catch (cause) {
+      setError(toErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
   return <Modal title="Revember Settings" icon={<Settings />} onClose={onClose}>
     <div className="settings-section">
       <Eyebrow>Account</Eyebrow>
-      <p>Signed in as <strong>{authState.user?.email}</strong>. When cloud vault sync is enabled, it will remain private to this account.</p>
+      <p>Signed in as <strong>{authState.user?.email}</strong>. Your cloud vault is private to this account.</p>
       <div className="settings-actions"><button className="text-button" disabled={busy} onClick={() => void onSignOut()}>Sign out</button></div>
+    </div>
+    <div className="settings-section">
+      <Eyebrow>Cloud Vault</Eyebrow>
+      <p>{cloudState?.hasRemoteVault
+        ? `Cloud revision ${cloudState.revision} saved ${cloudState.updatedAt ? new Date(cloudState.updatedAt).toLocaleString() : ""}.`
+        : "No cloud copy yet. Upload this device's vault to make it available after you sign in elsewhere."}</p>
+      <div className="settings-actions">
+        <button className="primary" disabled={busy} onClick={() => void syncCloudVault("upload")}><CloudUpload /> Upload vault</button>
+        <button disabled={busy || !cloudState?.hasRemoteVault} onClick={() => void syncCloudVault("download")}><CloudDownload /> Download cloud vault</button>
+      </div>
+      <p className="settings-guidance">Downloading replaces this device's current vault only after making a local backup.</p>
+      {cloudMessage && <p className="settings-guidance">{cloudMessage}</p>}
     </div>
     <div className="settings-section">
       <Eyebrow>Knowledge Store</Eyebrow>

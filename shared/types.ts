@@ -172,6 +172,26 @@ export interface AuthActionResult {
   requiresEmailConfirmation: boolean;
 }
 
+/** Portable, text-only representation of the learner-owned vault. */
+export interface CloudVaultArchive {
+  schemaVersion: 1;
+  exportedAt: string;
+  files: Record<string, string>;
+  progress: ProgressRecord;
+  planner: PlannerRecord;
+}
+
+export interface CloudSyncState {
+  configured: boolean;
+  hasRemoteVault: boolean;
+  revision?: number;
+  updatedAt?: string;
+}
+
+export interface CloudSyncResult extends CloudSyncState {
+  syncedAt: string;
+}
+
 export type McpClient = "codex" | "claude";
 
 export interface McpConnectionResult {
@@ -369,6 +389,9 @@ export interface RevemberAPI {
   signUp(email: string, password: string): Promise<AuthActionResult>;
   signIn(email: string, password: string): Promise<AuthActionResult>;
   signOut(): Promise<AuthState>;
+  getCloudSyncState(): Promise<CloudSyncState>;
+  uploadCloudVault(): Promise<CloudSyncResult>;
+  downloadCloudVault(): Promise<{ sync: CloudSyncResult; snapshot: AppSnapshot }>;
   getSnapshot(): Promise<AppSnapshot>;
   reload(): Promise<AppSnapshot>;
   createTopic(input: CreateTopicInput): Promise<CreateTopicResult>;

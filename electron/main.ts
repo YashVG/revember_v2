@@ -24,6 +24,8 @@ import type {
   CommitReviewInput,
   CreateCardInput,
   CreateTopicInput,
+  CloudSyncResult,
+  CloudSyncState,
   EditCardInput,
   McpClient,
   McpConnectionResult,
@@ -188,6 +190,12 @@ function registerIPC(): void {
   handleState(ipcChannels.signUp, (email: string, password: string): Promise<AuthActionResult> => cloudAuth.signUp(email, password));
   handleState(ipcChannels.signIn, (email: string, password: string): Promise<AuthActionResult> => cloudAuth.signIn(email, password));
   handleState(ipcChannels.signOut, (): Promise<AuthState> => cloudAuth.signOut());
+  handleState(ipcChannels.getCloudSyncState, (): Promise<CloudSyncState> => cloudAuth.getCloudSyncState());
+  handleState(ipcChannels.uploadCloudVault, (): Promise<CloudSyncResult> => cloudAuth.uploadVault(state.exportCloudVault()));
+  handleState(ipcChannels.downloadCloudVault, async () => {
+    const remote = await cloudAuth.downloadVault();
+    return { sync: remote.sync, snapshot: state.importCloudVault(remote.archive) };
+  });
   handleState(ipcChannels.getSnapshot, () => state.snapshot);
   handleState(ipcChannels.reload, () => state.reload());
   handleState(ipcChannels.createTopic, (input: CreateTopicInput) => state.createTopic(input));

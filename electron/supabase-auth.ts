@@ -2,13 +2,19 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-import type { AuthActionResult, AuthState } from "../shared/types";
+import type { AuthActionResult, AuthState, CloudSyncResult, CloudSyncState, CloudVaultArchive } from "../shared/types";
 import { writeJsonAtomically } from "./persistence";
 
 interface SupabaseAuthOptions {
   sessionPath: string;
   url?: string;
   publishableKey?: string;
+}
+
+interface RemoteVaultRow {
+  revision: number;
+  updated_at: string;
+  vault: CloudVaultArchive;
 }
 
 /**
@@ -106,6 +112,73 @@ export class SupabaseAuth extends EventEmitter {
     return this.state;
   }
 
+  async getCloudSyncState(): Promise<CloudSyncState> {
+    const { client, user } = this.requireSignedInClient();
+    const { data, error } = await client
+      .from("vault_snapshots")
+      .select("revision, updated_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return {
+      configured: true,
+      hasRemoteVault: Boolean(data),
+      ...(data ? { revision: Number(data.revision), updatedAt: data.updated_at } : {})
+    };
+  }
+
+  async uploadVault(archive: CloudVaultArchive): Promise<CloudSyncResult> {
+    const { client, user } = this.requireSignedInClient();
+    const { data: current, error: readError } = await client
+      .from("vault_snapshots")
+      .select("revision, updated_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    const nextRevision = current ? Number(current.revision) + 1 : 1;
+    const row = {
+      user_id: user.id,
+      schema_version: 1,
+      revision: nextRevision,
+      vault: archive,
+      updated_at: new Date().toISOString()
+    };
+    const write = current
+      ? client.from("vault_snapshots").update(row).eq("user_id", user.id).eq("revision", Number(current.revision)).select("revision, updated_at").maybeSingle()
+      : client.from("vault_snapshots").insert(row).select("revision, updated_at").single();
+    const { data, error } = await write;
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Your cloud vault changed on another device. Refresh it before uploading again.");
+    return {
+      configured: true,
+      hasRemoteVault: true,
+      revision: Number(data.revision),
+      updatedAt: data.updated_at,
+      syncedAt: data.updated_at
+    };
+  }
+
+  async downloadVault(): Promise<{ archive: CloudVaultArchive; sync: CloudSyncResult }> {
+    const { client, user } = this.requireSignedInClient();
+    const { data, error } = await client
+      .from("vault_snapshots")
+      .select("revision, updated_at, vault")
+      .eq("user_id", user.id)
+      .single();
+    if (error) throw new Error(error.code === "PGRST116" ? "No cloud vault exists for this account yet." : error.message);
+    const row = data as RemoteVaultRow;
+    return {
+      archive: row.vault,
+      sync: {
+        configured: true,
+        hasRemoteVault: true,
+        revision: Number(row.revision),
+        updatedAt: row.updated_at,
+        syncedAt: row.updated_at
+      }
+    };
+  }
+
   async completeEmailCallback(rawURL: string): Promise<AuthState> {
     const client = this.requireClient();
     const parsed = new URL(rawURL);
@@ -123,6 +196,12 @@ export class SupabaseAuth extends EventEmitter {
   private requireClient(): SupabaseClient {
     if (!this.client) throw new Error(this.configurationError ?? "Cloud sign-in is unavailable.");
     return this.client;
+  }
+
+  private requireSignedInClient(): { client: SupabaseClient; user: NonNullable<AuthState["user"]> } {
+    const client = this.requireClient();
+    if (!this.user) throw new Error("Sign in before syncing your vault.");
+    return { client, user: this.user };
   }
 
   private setUser(id: string, email: string | undefined): void {

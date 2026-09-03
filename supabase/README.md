@@ -20,6 +20,9 @@ session token or a Supabase secret key.
    npm run dev
    ```
 
-Never use a `service_role` or secret key in Revember. The next sync slice will
-write the local topic, note, capture, planner, and review-progress data to the
-authenticated user's `vault_snapshots` row.
+Never use a `service_role` or secret key in Revember. Signed-in users can use
+**Settings → Cloud Vault** to upload their topics, notes, captures, sessions,
+planner, and review progress to their own `vault_snapshots` row. Downloading a
+cloud vault first copies the device's current vault into
+`.revember-cloud-backups/`, then replaces the syncable local files. Backup
+folders and large binary attachments are deliberately not uploaded.

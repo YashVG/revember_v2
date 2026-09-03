@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, watch, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { FSWatcher } from "node:fs";
@@ -13,6 +13,7 @@ import type {
   CaptureCheckpointInput,
   CaptureCheckpointResult,
   CaptureSummary,
+  CloudVaultArchive,
   CommitReviewInput,
   CommitReviewResult,
   CreateCardInput,
@@ -44,7 +45,7 @@ import {
 } from "../shared/review-timing";
 import { planExamReviews } from "../shared/planner";
 import { createTopicCard, editTopicCard, retireTopicCard } from "./topic-authoring";
-import { emptyPlanner, PlannerStore } from "./planner-store";
+import { emptyPlanner, normalizePlanner, PlannerStore } from "./planner-store";
 import { CaptureRevisionConflictError, CaptureStore } from "./capture-store";
 import {
   NoteSegmentationCoordinator,
@@ -60,7 +61,7 @@ import {
   record,
   strictIdentifier
 } from "./input-validation";
-import { writeJsonAtomically } from "./persistence";
+import { assertPathContained, writeJsonAtomically, writeTextAtomically } from "./persistence";
 
 interface StatePaths {
   settingsPath: string;
@@ -70,6 +71,8 @@ interface StatePaths {
 }
 
 const reviewRatings = new Set<CommitReviewInput["rating"]>(["missed", "hard", "good", "easy"]);
+const cloudVaultDirectories = ["topics", "notes", "captures", "capture-enrichments", "capture-segmentations", "sessions"] as const;
+const cloudVaultMaxBytes = 7_500_000;
 
 export class RevemberState extends EventEmitter {
   private topics: KnowledgeTopic[] = [];
@@ -109,6 +112,51 @@ export class RevemberState extends EventEmitter {
 
   reload(): AppSnapshot {
     this.refreshFromDiskAndWatch();
+    this.broadcast();
+    return this.snapshot;
+  }
+
+  exportCloudVault(): CloudVaultArchive {
+    const archive: CloudVaultArchive = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      files: readCloudVaultFiles(this.settings.knowledgeRootPath),
+      progress: structuredClone(this.progress),
+      planner: structuredClone(this.planner)
+    };
+    if (Buffer.byteLength(JSON.stringify(archive), "utf8") > cloudVaultMaxBytes) {
+      throw new Error("This vault is too large for a single cloud snapshot. Large attachments are not syncable yet.");
+    }
+    return archive;
+  }
+
+  importCloudVault(rawArchive: unknown): AppSnapshot {
+    const archive = normalizeCloudVaultArchive(rawArchive);
+    const root = this.settings.knowledgeRootPath;
+    const backupRoot = path.join(root, ".revember-cloud-backups", `${Date.now()}-${randomUUID()}`);
+    mkdirSync(backupRoot, { recursive: true });
+    for (const directory of cloudVaultDirectories) {
+      const source = path.join(root, directory);
+      if (existsSync(source)) cpSync(source, path.join(backupRoot, directory), { recursive: true });
+    }
+    if (existsSync(this.settings.progressPath)) copyFileSync(this.settings.progressPath, path.join(backupRoot, "progress.json"));
+    const plannerPath = new PlannerStore(this.settings.progressPath).filePath;
+    if (existsSync(plannerPath)) copyFileSync(plannerPath, path.join(backupRoot, "planner.json"));
+
+    for (const directory of cloudVaultDirectories) {
+      rmSync(path.join(root, directory), { recursive: true, force: true });
+    }
+    for (const [relativePath, contents] of Object.entries(archive.files)) {
+      const destination = path.resolve(root, relativePath);
+      assertPathContained(root, destination, "Cloud vault contains an unsafe file path.");
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeTextAtomically(destination, contents);
+    }
+    this.writeProgress(archive.progress);
+    writeJsonAtomically(plannerPath, archive.planner);
+    this.refreshFromDiskAndWatch();
+    this.errorMessage = undefined;
+    this.backgroundWarning = undefined;
     this.broadcast();
     return this.snapshot;
   }
@@ -610,6 +658,60 @@ export class RevemberState extends EventEmitter {
   private broadcast(): void {
     this.emit("snapshot", this.snapshot);
   }
+}
+
+function readCloudVaultFiles(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  const visit = (directory: string) => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(candidate);
+        continue;
+      }
+      if (!entry.isFile() || lstatSync(candidate).isSymbolicLink()) continue;
+      const relativePath = path.relative(root, candidate).split(path.sep).join("/");
+      if (!isCloudVaultPath(relativePath)) continue;
+      files[relativePath] = readFileSync(candidate, "utf8");
+    }
+  };
+  for (const directory of cloudVaultDirectories) visit(path.join(root, directory));
+  return Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function normalizeCloudVaultArchive(value: unknown): CloudVaultArchive {
+  const raw = record(value, "Cloud vault");
+  if (raw.schemaVersion !== 1) throw new Error("This cloud vault uses an unsupported schema.");
+  if (typeof raw.exportedAt !== "string" || Number.isNaN(new Date(raw.exportedAt).getTime())) {
+    throw new Error("Cloud vault export timestamp is invalid.");
+  }
+  const rawFiles = record(raw.files, "Cloud vault files");
+  const files: Record<string, string> = {};
+  for (const [relativePath, contents] of Object.entries(rawFiles)) {
+    if (!isCloudVaultPath(relativePath) || typeof contents !== "string") {
+      throw new Error("Cloud vault contains an invalid file.");
+    }
+    files[relativePath] = contents;
+  }
+  const archive: CloudVaultArchive = {
+    schemaVersion: 1,
+    exportedAt: raw.exportedAt,
+    files,
+    progress: normalizeProgress(raw.progress),
+    planner: normalizePlanner(raw.planner)
+  };
+  if (Buffer.byteLength(JSON.stringify(archive), "utf8") > cloudVaultMaxBytes) {
+    throw new Error("Cloud vault exceeds this app's safe snapshot size.");
+  }
+  return archive;
+}
+
+function isCloudVaultPath(relativePath: string): boolean {
+  const segments = relativePath.split("/");
+  if (segments.length < 2 || !cloudVaultDirectories.includes(segments[0] as typeof cloudVaultDirectories[number])) return false;
+  if (segments.some((segment) => !segment || segment === "." || segment === ".." || segment.includes("\\"))) return false;
+  return relativePath.endsWith(".json") || relativePath.endsWith(".md");
 }
 
 function normalizeGenerateDistractorsInput(rawInput: unknown): GenerateDistractorsInput {
