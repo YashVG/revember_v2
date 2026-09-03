@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,13 @@ const knowledgeRoot = path.join(temporaryRoot, "RevemberKnowledge");
 const progressPath = path.join(temporaryRoot, "progress.json");
 const userDataPath = path.join(temporaryRoot, "user-data");
 await cp(path.join(root, "RevemberKnowledge"), knowledgeRoot, { recursive: true });
+// A full Electron journey needs a deliberately supplied, already-authenticated
+// test session. This never copies a session unless the caller opts in, and the
+// copy lives only under the disposable E2E user-data directory.
+if (process.env.REVEMBER_E2E_SESSION_PATH) {
+  await mkdir(userDataPath, { recursive: true });
+  await cp(process.env.REVEMBER_E2E_SESSION_PATH, path.join(userDataPath, "supabase-session.json"));
+}
 
 const launch = () => electron.launch({
   args: [root],
@@ -29,6 +36,25 @@ let app = await launch();
 try {
   let window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  if (!process.env.REVEMBER_E2E_SESSION_PATH) {
+    await window.getByRole("heading", { name: "Welcome back", exact: true }).waitFor();
+    assert.equal(await window.getByLabel("Email", { exact: true }).isVisible(), true);
+    assert.equal(await window.getByLabel("Password", { exact: true }).isVisible(), true);
+    assert.equal(await window.getByRole("button", { name: "Sign in", exact: true }).isVisible(), true);
+    assert.equal(await window.getByRole("button", { name: "Home", exact: true }).count(), 0);
+    await window.getByRole("button", { name: "Need an account? Create one", exact: true }).click();
+    await window.getByRole("heading", { name: "Create your account", exact: true }).waitFor();
+    console.log("Electron auth-gate E2E passed.");
+  } else {
+  const accountTrigger = window.getByRole("button", { name: "Account menu", exact: true });
+  await accountTrigger.waitFor();
+  const authenticatedEmail = await window.evaluate(() => window.revember.getAuthState().then((state) => state.user?.email));
+  assert.ok(authenticatedEmail, "the supplied E2E session must restore a signed-in user");
+  await accountTrigger.click();
+  const accountMenu = window.getByRole("menu", { name: "Account menu", exact: true });
+  await accountMenu.getByText(authenticatedEmail, { exact: true }).waitFor();
+  assert.equal(await accountMenu.getByRole("menuitem", { name: "Sign out", exact: true }).isVisible(), true);
+  await accountTrigger.click();
   await window.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), true);
   await window.getByRole("button", { name: "Expand sidebar", exact: true }).click();
@@ -137,7 +163,10 @@ try {
   await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
 
   await window.getByTitle("Settings").click();
-  await window.getByRole("heading", { name: "Revember Settings" }).waitFor();
+  const cloudSettings = window.getByRole("dialog", { name: "Revember Settings", exact: true });
+  await cloudSettings.getByText("Cloud Vault", { exact: true }).waitFor();
+  await cloudSettings.getByText(/Cloud revision \d+ saved/).waitFor();
+  assert.equal(await cloudSettings.getByRole("button", { name: "Download cloud vault", exact: true }).isEnabled(), true);
   assert.equal(await window.getByText(progressPath).isVisible(), true);
   await window.screenshot({ path: path.join(temporaryRoot, "revember-electron.png"), fullPage: true });
   await window.locator(".settings-dialog header .icon-button").click();
@@ -228,7 +257,15 @@ try {
   await discardDialog.accept();
   await cancelEditorPromise;
   await reopenedNoteEditor.waitFor({ state: "detached" });
+
+  const downloaded = await window.evaluate(() => window.revember.downloadCloudVault());
+  assert.ok(downloaded.sync.revision >= 1, "the authenticated account must return a cloud snapshot");
+  assert.ok(downloaded.snapshot.topics.length > 0, "the downloaded cloud snapshot must load as a vault");
+  const backups = await readdir(path.join(knowledgeRoot, ".revember-cloud-backups"));
+  assert.ok(backups.length >= 1, "cloud download must preserve the isolated local vault first");
+  await stat(path.join(knowledgeRoot, ".revember-cloud-backups", backups.at(-1), "captures", captureFile.fileName));
   console.log("Electron E2E passed.");
+  }
 } finally {
   try {
     await app.close();

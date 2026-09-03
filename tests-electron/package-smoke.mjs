@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -21,6 +21,11 @@ const { StdioClientTransport } = mcpRequire("@modelcontextprotocol/sdk/client/st
 
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), "revember-package-smoke-"));
 const knowledgeRoot = path.join(temporaryRoot, "Documents", "RevemberKnowledge");
+const userDataPath = path.join(temporaryRoot, "user-data");
+if (process.env.REVEMBER_E2E_SESSION_PATH) {
+  await mkdir(userDataPath, { recursive: true });
+  await cp(process.env.REVEMBER_E2E_SESSION_PATH, path.join(userDataPath, "supabase-session.json"));
+}
 let packagedApp;
 let mcpClient;
 
@@ -31,7 +36,7 @@ try {
       ...process.env,
       HOME: temporaryRoot,
       REVEMBER_PROGRESS_PATH: path.join(temporaryRoot, "progress.json"),
-      REVEMBER_USER_DATA_PATH: path.join(temporaryRoot, "user-data")
+      REVEMBER_USER_DATA_PATH: userDataPath
     }
   });
   const metadata = await packagedApp.evaluate(({ app }) => ({
@@ -43,10 +48,15 @@ try {
   await access(path.join(knowledgeRoot, "topics", "ble.json"), constants.R_OK);
   await access(path.join(knowledgeRoot, "notes", "ble.md"), constants.R_OK);
   const window = await packagedApp.firstWindow();
-  await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
-  await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
-  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-  assert.equal(await window.getByText("Topic overview").isVisible(), true);
+  if (process.env.REVEMBER_E2E_SESSION_PATH) {
+    await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
+    await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+    await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+    assert.equal(await window.getByText("Topic overview").isVisible(), true);
+  } else {
+    await window.getByRole("heading", { name: "Welcome back", exact: true }).waitFor();
+    assert.equal(await window.getByRole("button", { name: "Home", exact: true }).count(), 0);
+  }
 
   await access(mcpRunner, constants.X_OK);
   mcpClient = new Client({ name: "revember-packaged-mcp-smoke", version: "0.1.0" });
