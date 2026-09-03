@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronDown,
   CircleAlert,
   CircleHelp,
   Cog,
@@ -11,6 +12,7 @@ import {
   FileText,
   Folder,
   House,
+  LogOut,
   Play,
   PanelLeftClose,
   PanelLeftOpen,
@@ -51,6 +53,7 @@ export function App() {
   const [selectedTopicID, setSelectedTopicID] = useState<string>();
   const [topicView, setTopicView] = useState<TopicView>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
   const [createTopicOpen, setCreateTopicOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<DueReviewItem[] | null>(null);
@@ -199,6 +202,11 @@ export function App() {
     setSelectedTopicID(next.topics[0]?.id);
     setGlobalView("home");
   };
+  const signOut = async () => {
+    setProfileOpen(false);
+    setSettingsOpen(false);
+    setAuthState(await window.revember.signOut());
+  };
 
   return (
     <div className="app-shell">
@@ -230,6 +238,12 @@ export function App() {
           <main className="main-stage">
             <div className="toolbar-actions">
               <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}><Cog size={16} /></button>
+              <ProfileMenu
+                email={authState.user.email}
+                open={profileOpen}
+                onToggle={() => setProfileOpen((current) => !current)}
+                onSignOut={() => void signOut()}
+              />
             </div>
             {globalView === "home" && snapshot.topics.length === 0 ? (
               <EmptyKnowledge
@@ -293,8 +307,7 @@ export function App() {
         authState={authState}
         onSnapshot={setSnapshot}
         onSignOut={async () => {
-          setAuthState(await window.revember.signOut());
-          setSettingsOpen(false);
+          await signOut();
         }}
         onKnowledgeRootChanged={applyKnowledgeRootSnapshot}
         onBeforeKnowledgeRootChange={canLeaveCurrent}
@@ -312,6 +325,39 @@ export function App() {
       />}
     </div>
   );
+}
+
+function ProfileMenu({ email, open, onToggle, onSignOut }: {
+  email: string;
+  open: boolean;
+  onToggle: () => void;
+  onSignOut: () => void;
+}) {
+  const initials = email.split("@")[0]?.slice(0, 2).toUpperCase() || "U";
+  return <div className="profile-menu">
+    <button
+      className="profile-trigger"
+      type="button"
+      aria-label="Account menu"
+      aria-expanded={open}
+      aria-haspopup="menu"
+      title={email}
+      onClick={onToggle}
+    >
+      <span className="profile-avatar" aria-hidden="true">{initials}</span>
+      <span className="profile-email">{email}</span>
+      <ChevronDown aria-hidden="true" />
+    </button>
+    {open && <div className="profile-popover" role="menu" aria-label="Account menu">
+      <div className="profile-summary">
+        <span className="profile-avatar profile-avatar-large" aria-hidden="true">{initials}</span>
+        <div><strong>{email}</strong><span>Signed in</span></div>
+      </div>
+      <button className="profile-sign-out" type="button" role="menuitem" onClick={onSignOut}>
+        <LogOut aria-hidden="true" /> Sign out
+      </button>
+    </div>}
+  </div>;
 }
 
 function Sidebar({ collapsed, onToggleCollapsed, onOpenHome, onOpenNotes, onOpenQuestions, globalView }: {
