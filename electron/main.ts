@@ -17,6 +17,8 @@ import { dueReviewItems, nextDueAt } from "../shared/domain";
 import { ipcChannels } from "../shared/ipc";
 import type {
   AppSnapshot,
+  AuthActionResult,
+  AuthState,
   ArchiveExamPlanInput,
   CaptureCheckpointInput,
   CommitReviewInput,
@@ -30,6 +32,7 @@ import type {
   UpsertExamPlanInput
 } from "../shared/types";
 import { RevemberState } from "./app-state";
+import { SupabaseAuth } from "./supabase-auth";
 import { configureMcpClient } from "./mcp-client-config";
 import {
   isSafeExternalURL,
@@ -40,10 +43,16 @@ import {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let state: RevemberState;
+let cloudAuth: SupabaseAuth;
 let notificationTimer: NodeJS.Timeout | undefined;
 let pendingRoute: string | undefined;
+let pendingAuthCallbackURL: string | undefined;
 let rendererDocumentPolicy: RendererDocumentPolicy | undefined;
 const DEFAULT_ZOOM_FACTOR = 1.15;
+// This is a Supabase publishable key, not a secret. RLS still protects every
+// vault row; never substitute a service-role or secret key here.
+const DEFAULT_SUPABASE_URL = "https://puspkabdjwwhyvteqker.supabase.co";
+const DEFAULT_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Lr8dyUXT4DpwZoahX_BSVg_FzsaGvMl";
 
 if (process.env.REVEMBER_USER_DATA_PATH) {
   app.setPath("userData", path.resolve(process.env.REVEMBER_USER_DATA_PATH));
@@ -80,6 +89,21 @@ app.whenReady().then(() => {
       ? path.join(app.getPath("appData"), "RevemberV2", "progress.json")
       : path.join(app.getPath("userData"), "progress.json")
   });
+  cloudAuth = new SupabaseAuth({
+    sessionPath: path.join(app.getPath("userData"), "supabase-session.json"),
+    url: process.env.REVEMBER_SUPABASE_URL ?? DEFAULT_SUPABASE_URL,
+    publishableKey: process.env.REVEMBER_SUPABASE_PUBLISHABLE_KEY ?? DEFAULT_SUPABASE_PUBLISHABLE_KEY
+  });
+  cloudAuth.on("state", (authState: AuthState) => {
+    mainWindow?.webContents.send(ipcChannels.authState, authState);
+  });
+  void cloudAuth.restore().catch(() => {
+    // A stale local session must not prevent the offline vault from opening.
+  });
+  if (pendingAuthCallbackURL) {
+    completeAuthCallback(pendingAuthCallbackURL);
+    pendingAuthCallbackURL = undefined;
+  }
   state.on("snapshot", (snapshot: AppSnapshot) => {
     mainWindow?.webContents.send(ipcChannels.snapshot, snapshot);
     updateTray(snapshot);
@@ -160,6 +184,10 @@ function createWindow(): void {
 }
 
 function registerIPC(): void {
+  handleState(ipcChannels.getAuthState, (): AuthState => cloudAuth.state);
+  handleState(ipcChannels.signUp, (email: string, password: string): Promise<AuthActionResult> => cloudAuth.signUp(email, password));
+  handleState(ipcChannels.signIn, (email: string, password: string): Promise<AuthActionResult> => cloudAuth.signIn(email, password));
+  handleState(ipcChannels.signOut, (): Promise<AuthState> => cloudAuth.signOut());
   handleState(ipcChannels.getSnapshot, () => state.snapshot);
   handleState(ipcChannels.reload, () => state.reload());
   handleState(ipcChannels.createTopic, (input: CreateTopicInput) => state.createTopic(input));
@@ -350,11 +378,18 @@ function routeURL(url: string): void {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "revember:") return;
-    if (parsed.hostname === "topic") sendRoute(`topic:${parsed.pathname.replace(/^\//, "")}`);
+    if (parsed.hostname === "auth" && parsed.pathname === "/callback") {
+      if (!cloudAuth) pendingAuthCallbackURL = url;
+      else completeAuthCallback(url);
+    } else if (parsed.hostname === "topic") sendRoute(`topic:${parsed.pathname.replace(/^\//, "")}`);
     else if (parsed.hostname === "review") sendRoute(`review:${Math.max(1, Number(parsed.searchParams.get("minutes")) || 3)}`);
   } catch {
     // Invalid deep links are ignored.
   }
+}
+
+function completeAuthCallback(url: string): void {
+  void cloudAuth.completeEmailCallback(url).then(() => sendRoute("auth:confirmed")).catch(() => undefined);
 }
 
 function sendRoute(route: string): void {

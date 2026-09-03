@@ -1,4 +1,8 @@
 export const ipcChannels = {
+  getAuthState: "revember:get-auth-state",
+  signUp: "revember:sign-up",
+  signIn: "revember:sign-in",
+  signOut: "revember:sign-out",
   getSnapshot: "revember:get-snapshot",
   reload: "revember:reload",
   createTopic: "revember:create-topic",
@@ -22,6 +26,7 @@ export const ipcChannels = {
   getCaptureSegmentation: "revember:get-capture-segmentation",
   retryCaptureSegmentation: "revember:retry-capture-segmentation",
   setNotifications: "revember:set-notifications",
+  authState: "revember:auth-state",
   snapshot: "revember:snapshot",
   navigate: "revember:navigate"
 } as const;

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type {
   AppSnapshot,
+  AuthState,
   DueReviewItem,
   KnowledgeTopic,
   Question
@@ -35,6 +36,7 @@ import { Modal } from "./components/modal";
 import { ReviewSession } from "./components/ReviewFlow";
 import { InlineError } from "./components/review-ui";
 import { CreateTopicDialog } from "./components/CreateTopicDialog";
+import { AuthPage } from "./components/AuthPage";
 import { isKnowledgeRootChangeAllowed, runGuardedKnowledgeRootChange } from "./knowledgeRootChange";
 import { runBeforeLeaveGuards, type BeforeLeaveGuard } from "./navigationGuard";
 import { toErrorMessage } from "./utils";
@@ -43,6 +45,7 @@ type TopicView = "overview" | "questions";
 type GlobalView = "home" | "topic" | "notes" | "questions";
 
 export function App() {
+  const [authState, setAuthState] = useState<AuthState>();
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
   const [snapshotError, setSnapshotError] = useState<string>();
   const [selectedTopicID, setSelectedTopicID] = useState<string>();
@@ -59,6 +62,13 @@ export function App() {
   const [notesCreateRequested, setNotesCreateRequested] = useState(false);
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence?: string; token: string }>();
   const beforeLeaveGuards = useRef(new Map<string, BeforeLeaveGuard>());
+
+  useEffect(() => {
+    void window.revember.getAuthState().then(setAuthState).catch((cause) => {
+      setAuthState({ configured: false, configurationError: toErrorMessage(cause) });
+    });
+    return window.revember.onAuthState(setAuthState);
+  }, []);
 
   const registerBeforeLeave = useCallback((key: string, handler: BeforeLeaveGuard | undefined) => {
     if (handler) beforeLeaveGuards.current.set(key, handler);
@@ -166,6 +176,8 @@ export function App() {
     }
   }), [globalView, leaveCurrent, openTopic, selectedTopicID, startReview]);
 
+  if (!authState) return <LoadingScreen />;
+  if (!authState.user) return <AuthPage state={authState} onState={setAuthState} />;
   if (!snapshot) {
     return snapshotError
       ? <StartupError message={snapshotError} onRetry={() => void loadInitialSnapshot()} />
@@ -278,7 +290,12 @@ export function App() {
       {snapshot.errorMessage && <ErrorToast message={snapshot.errorMessage} />}
       {settingsOpen && <SettingsDialog
         snapshot={snapshot}
+        authState={authState}
         onSnapshot={setSnapshot}
+        onSignOut={async () => {
+          setAuthState(await window.revember.signOut());
+          setSettingsOpen(false);
+        }}
         onKnowledgeRootChanged={applyKnowledgeRootSnapshot}
         onBeforeKnowledgeRootChange={canLeaveCurrent}
         knowledgeRootChangeAllowed={knowledgeRootChangeAllowed}
@@ -395,9 +412,11 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
   );
 }
 
-function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBeforeKnowledgeRootChange, knowledgeRootChangeAllowed, onClose }: {
+function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledgeRootChanged, onBeforeKnowledgeRootChange, knowledgeRootChangeAllowed, onClose }: {
   snapshot: AppSnapshot;
+  authState: AuthState;
   onSnapshot: (snapshot: AppSnapshot) => void;
+  onSignOut: () => Promise<void>;
   onKnowledgeRootChanged: (snapshot: AppSnapshot) => void;
   onBeforeKnowledgeRootChange: () => Promise<boolean>;
   knowledgeRootChangeAllowed: boolean;
@@ -462,6 +481,11 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
     }
   };
   return <Modal title="Revember Settings" icon={<Settings />} onClose={onClose}>
+    <div className="settings-section">
+      <Eyebrow>Account</Eyebrow>
+      <p>Signed in as <strong>{authState.user?.email}</strong>. When cloud vault sync is enabled, it will remain private to this account.</p>
+      <div className="settings-actions"><button className="text-button" disabled={busy} onClick={() => void onSignOut()}>Sign out</button></div>
+    </div>
     <div className="settings-section">
       <Eyebrow>Knowledge Store</Eyebrow>
       <code>{snapshot.settings.knowledgeRootPath}</code>

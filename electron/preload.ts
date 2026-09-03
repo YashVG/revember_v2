@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type {
   AppSnapshot,
+  AuthActionResult,
+  AuthState,
   ArchiveExamPlanInput,
   CardMutationResult,
   CaptureCheckpointInput,
@@ -26,6 +28,10 @@ import type {
 } from "../shared/types";
 
 const api: RevemberAPI = {
+  getAuthState: () => invoke<AuthState>(ipcChannels.getAuthState),
+  signUp: (email: string, password: string) => invoke<AuthActionResult>(ipcChannels.signUp, email, password),
+  signIn: (email: string, password: string) => invoke<AuthActionResult>(ipcChannels.signIn, email, password),
+  signOut: () => invoke<AuthState>(ipcChannels.signOut),
   getSnapshot: () => invoke<AppSnapshot>(ipcChannels.getSnapshot),
   reload: () => invoke<AppSnapshot>(ipcChannels.reload),
   createTopic: (input: CreateTopicInput) => invoke<CreateTopicResult>(ipcChannels.createTopic, input),
@@ -49,6 +55,7 @@ const api: RevemberAPI = {
   getCaptureSegmentation: (captureID: string, captureRevision: number) => invoke<CaptureSegmentation | undefined>(ipcChannels.getCaptureSegmentation, captureID, captureRevision),
   retryCaptureSegmentation: (captureID: string, captureRevision: number) => invoke<CaptureSegmentation>(ipcChannels.retryCaptureSegmentation, captureID, captureRevision),
   setNotificationsEnabled: (enabled: boolean) => invoke<AppSnapshot>(ipcChannels.setNotifications, enabled),
+  onAuthState: (callback) => subscribe(ipcChannels.authState, callback),
   onSnapshot: (callback) => subscribe(ipcChannels.snapshot, callback),
   onNavigate: (callback) => subscribe(ipcChannels.navigate, callback)
 };
