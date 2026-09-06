@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { FSWatcher } from "node:fs";
@@ -229,10 +229,31 @@ export class RevemberState extends EventEmitter {
       questions: []
     });
     validateTopic(topic, topicID);
+    const created: Array<{ filePath: string; ino: number; dev: number }> = [];
     try {
-      writeFileSync(topicPath, JSON.stringify(topic, null, 2) + "\n", { encoding: "utf8", flag: "wx", mode: 0o600 });
-      writeFileSync(notesPath, `# ${input.title}\n\n${topic.summary}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      for (const [filePath, contents] of [
+        [topicPath, JSON.stringify(topic, null, 2) + "\n"],
+        [notesPath, `# ${input.title}\n\n${topic.summary}\n`]
+      ]) {
+        const fd = openSync(filePath, "wx", 0o600);
+        try {
+          const { ino, dev } = fstatSync(fd);
+          created.push({ filePath, ino, dev });
+          writeFileSync(fd, contents, "utf8");
+        } finally { closeSync(fd); }
+      }
     } catch (error) {
+      // Roll back only files we created, never an existing or concurrently replaced entry.
+      for (const file of created) {
+        try {
+          const current = lstatSync(file.filePath);
+          if (current.ino === file.ino && current.dev === file.dev) rmSync(file.filePath);
+        } catch (cleanupError) {
+          if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw new Error(`Topic creation failed and cleanup was incomplete. Check ${file.filePath}.`, { cause: error });
+          }
+        }
+      }
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
         throw new Error(`A topic named \"${input.title}\" already exists. Choose a different name.`);
       }

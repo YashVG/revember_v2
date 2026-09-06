@@ -12,6 +12,21 @@ afterEach(async () => {
 });
 
 describe("knowledge-root state transitions", () => {
+  it("rolls back a new topic when its companion note cannot be created, preserving the conflicting entry", async () => {
+    const fixture = await stateFixture();
+    const notes = path.join(fixture.oldRoot, "notes");
+    await fs.mkdir(notes, { recursive: true });
+    const note = path.join(notes, "incomplete-topic.md");
+    // A dangling symlink is invisible to existsSync but exclusive creation rejects it.
+    await fs.symlink(path.join(fixture.root, "missing-note"), note);
+    const state = fixture.createState();
+    try {
+      expect(() => state.createTopic({ title: "Incomplete topic", summary: "Must be all or nothing." })).toThrow(/already exists/i);
+      await expect(fs.access(path.join(fixture.oldRoot, "topics", "incomplete-topic.json"))).rejects.toThrow();
+      expect((await fs.lstat(note)).isSymbolicLink()).toBe(true);
+    } finally { state.dispose(); }
+  });
+
   it("sets up an editable personal copy of the bundled starter vault", async () => {
     const fixture = await stateFixture();
     const bundledRoot = path.join(fixture.root, "bundled-knowledge");
