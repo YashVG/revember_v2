@@ -137,7 +137,8 @@ describe("note-segmentation trust boundary", () => {
         /\b(rawText|rootPath|knowledgeRootPath|filePath)\b/
       );
     }
-    expect(mainSource).toContain("handleTrusted(channel, (_event, ...args: TArguments) => handler(...args));");
+    expect(mainSource).toContain("handleTrusted(channel, async (_event, ...args: TArguments) => {");
+    expect(mainSource).toContain("accountVaults.requireActive(cloudAuth.state.user?.id)");
   });
 
   it("reloads authoritative capture text in main state and ignores extra caller arguments", async () => {

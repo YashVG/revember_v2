@@ -4,13 +4,17 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronDown,
   CircleAlert,
   CircleHelp,
+  CloudDownload,
+  CloudUpload,
   Cog,
   ExternalLink,
   FileText,
   Folder,
   House,
+  LogOut,
   Play,
   PanelLeftClose,
   PanelLeftOpen,
@@ -21,6 +25,8 @@ import {
 } from "lucide-react";
 import type {
   AppSnapshot,
+  AuthState,
+  CloudSyncState,
   DueReviewItem,
   KnowledgeTopic,
   Question
@@ -35,6 +41,7 @@ import { Modal } from "./components/modal";
 import { ReviewSession } from "./components/ReviewFlow";
 import { InlineError } from "./components/review-ui";
 import { CreateTopicDialog } from "./components/CreateTopicDialog";
+import { AuthPage } from "./components/AuthPage";
 import { isKnowledgeRootChangeAllowed, runGuardedKnowledgeRootChange } from "./knowledgeRootChange";
 import { runBeforeLeaveGuards, type BeforeLeaveGuard } from "./navigationGuard";
 import { toErrorMessage } from "./utils";
@@ -43,11 +50,33 @@ type TopicView = "overview" | "questions";
 type GlobalView = "home" | "topic" | "notes" | "questions";
 
 export function App() {
+  const [authState, setAuthState] = useState<AuthState>();
+  useEffect(() => {
+    let observedState = false;
+    let disposed = false;
+    const unsubscribe = window.revember.onAuthState((next) => {
+      observedState = true;
+      setAuthState(next);
+    });
+    void window.revember.getAuthState().then((next) => {
+      if (!disposed && !observedState) setAuthState(next);
+    }).catch((cause) => {
+      if (!disposed && !observedState) setAuthState({ configured: false, configurationError: toErrorMessage(cause) });
+    });
+    return () => { disposed = true; unsubscribe(); };
+  }, []);
+  if (!authState) return <LoadingScreen />;
+  if (!authState.user) return <AuthPage state={authState} onState={setAuthState} />;
+  return <AuthenticatedWorkspace key={authState.user.id} authState={authState} setAuthState={setAuthState} />;
+}
+
+function AuthenticatedWorkspace({ authState, setAuthState }: { authState: AuthState; setAuthState: (state: AuthState) => void }) {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
   const [snapshotError, setSnapshotError] = useState<string>();
   const [selectedTopicID, setSelectedTopicID] = useState<string>();
   const [topicView, setTopicView] = useState<TopicView>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [checkpointOpen, setCheckpointOpen] = useState(false);
   const [createTopicOpen, setCreateTopicOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<DueReviewItem[] | null>(null);
@@ -166,6 +195,8 @@ export function App() {
     }
   }), [globalView, leaveCurrent, openTopic, selectedTopicID, startReview]);
 
+  if (!authState) return <LoadingScreen />;
+  if (!authState.user) return <AuthPage state={authState} onState={setAuthState} />;
   if (!snapshot) {
     return snapshotError
       ? <StartupError message={snapshotError} onRetry={() => void loadInitialSnapshot()} />
@@ -186,6 +217,13 @@ export function App() {
     setTopicView("overview");
     setSelectedTopicID(next.topics[0]?.id);
     setGlobalView("home");
+  };
+  const signOut = async () => {
+    if (!await canLeaveCurrent()) return;
+    setProfileOpen(false);
+    setSettingsOpen(false);
+    try { setAuthState(await window.revember.signOut()); }
+    catch (cause) { setSnapshotError(toErrorMessage(cause)); }
   };
 
   return (
@@ -218,6 +256,12 @@ export function App() {
           <main className="main-stage">
             <div className="toolbar-actions">
               <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}><Cog size={16} /></button>
+              <ProfileMenu
+                email={authState.user.email}
+                open={profileOpen}
+                onToggle={() => setProfileOpen((current) => !current)}
+                onSignOut={() => void signOut()}
+              />
             </div>
             {globalView === "home" && snapshot.topics.length === 0 ? (
               <EmptyKnowledge
@@ -276,9 +320,14 @@ export function App() {
         </div>
       )}
       {snapshot.errorMessage && <ErrorToast message={snapshot.errorMessage} />}
+      {snapshotError && <ErrorToast message={snapshotError} />}
       {settingsOpen && <SettingsDialog
         snapshot={snapshot}
+        authState={authState}
         onSnapshot={setSnapshot}
+        onSignOut={async () => {
+          await signOut();
+        }}
         onKnowledgeRootChanged={applyKnowledgeRootSnapshot}
         onBeforeKnowledgeRootChange={canLeaveCurrent}
         knowledgeRootChangeAllowed={knowledgeRootChangeAllowed}
@@ -295,6 +344,39 @@ export function App() {
       />}
     </div>
   );
+}
+
+function ProfileMenu({ email, open, onToggle, onSignOut }: {
+  email: string;
+  open: boolean;
+  onToggle: () => void;
+  onSignOut: () => void;
+}) {
+  const initials = email.split("@")[0]?.slice(0, 2).toUpperCase() || "U";
+  return <div className="profile-menu">
+    <button
+      className="profile-trigger"
+      type="button"
+      aria-label="Account menu"
+      aria-expanded={open}
+      aria-haspopup="menu"
+      title={email}
+      onClick={onToggle}
+    >
+      <span className="profile-avatar" aria-hidden="true">{initials}</span>
+      <span className="profile-email">{email}</span>
+      <ChevronDown aria-hidden="true" />
+    </button>
+    {open && <div className="profile-popover" role="menu" aria-label="Account menu">
+      <div className="profile-summary">
+        <span className="profile-avatar profile-avatar-large" aria-hidden="true">{initials}</span>
+        <div><strong>{email}</strong><span>Signed in</span></div>
+      </div>
+      <button className="profile-sign-out" type="button" role="menuitem" onClick={onSignOut}>
+        <LogOut aria-hidden="true" /> Sign out
+      </button>
+    </div>}
+  </div>;
 }
 
 function Sidebar({ collapsed, onToggleCollapsed, onOpenHome, onOpenNotes, onOpenQuestions, globalView }: {
@@ -395,9 +477,11 @@ function TopicDetail({ topic, snapshot, view, onOpenQuestions, onOpenNotes, onCr
   );
 }
 
-function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBeforeKnowledgeRootChange, knowledgeRootChangeAllowed, onClose }: {
+function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledgeRootChanged, onBeforeKnowledgeRootChange, knowledgeRootChangeAllowed, onClose }: {
   snapshot: AppSnapshot;
+  authState: AuthState;
   onSnapshot: (snapshot: AppSnapshot) => void;
+  onSignOut: () => Promise<void>;
   onKnowledgeRootChanged: (snapshot: AppSnapshot) => void;
   onBeforeKnowledgeRootChange: () => Promise<boolean>;
   knowledgeRootChangeAllowed: boolean;
@@ -405,7 +489,12 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
 }) {
   const [error, setError] = useState<string>();
   const [mcpMessage, setMcpMessage] = useState<string>();
+  const [cloudState, setCloudState] = useState<CloudSyncState>();
+  const [cloudMessage, setCloudMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void window.revember.getCloudSyncState().then(setCloudState).catch((cause) => setError(toErrorMessage(cause)));
+  }, []);
   const invoke = async (operation: () => Promise<AppSnapshot | void>) => {
     if (busy) return;
     try {
@@ -461,7 +550,48 @@ function SettingsDialog({ snapshot, onSnapshot, onKnowledgeRootChanged, onBefore
       setBusy(false);
     }
   };
+  const syncCloudVault = async (action: "upload" | "download") => {
+    if (busy) return;
+    if (action === "download" && (!knowledgeRootChangeAllowed || !await onBeforeKnowledgeRootChange())) return;
+    if (action === "download" && !window.confirm("Download the cloud vault and replace this device's current vault? Revember will create a local backup first.")) return;
+    try {
+      setBusy(true);
+      setError(undefined);
+      setCloudMessage(undefined);
+      if (action === "upload") {
+        const result = await window.revember.uploadCloudVault();
+        setCloudState(result);
+        setCloudMessage(`Uploaded revision ${result.revision}.`);
+      } else {
+        const result = await window.revember.downloadCloudVault();
+        setCloudState(result.sync);
+        onKnowledgeRootChanged(result.snapshot);
+        setCloudMessage(`Downloaded revision ${result.sync.revision}. A local backup was created first.`);
+      }
+    } catch (cause) {
+      setError(toErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
   return <Modal title="Revember Settings" icon={<Settings />} onClose={onClose}>
+    <div className="settings-section">
+      <Eyebrow>Account</Eyebrow>
+      <p>Signed in as <strong>{authState.user?.email}</strong>. Your cloud vault is private to this account.</p>
+      <div className="settings-actions"><button className="text-button" disabled={busy} onClick={() => void onSignOut()}>Sign out</button></div>
+    </div>
+    <div className="settings-section">
+      <Eyebrow>Cloud Vault</Eyebrow>
+      <p>{cloudState?.hasRemoteVault
+        ? `Cloud revision ${cloudState.revision} saved ${cloudState.updatedAt ? new Date(cloudState.updatedAt).toLocaleString() : ""}.`
+        : "No cloud copy yet. Upload this device's vault to make it available after you sign in elsewhere."}</p>
+      <div className="settings-actions">
+        <button className="primary" disabled={busy} onClick={() => void syncCloudVault("upload")}><CloudUpload /> Upload vault</button>
+        <button disabled={busy || !knowledgeRootChangeAllowed || !cloudState?.hasRemoteVault} onClick={() => void syncCloudVault("download")}><CloudDownload /> Download cloud vault</button>
+      </div>
+      <p className="settings-guidance">Downloading replaces this device's current vault only after making a local backup.</p>
+      {cloudMessage && <p className="settings-guidance">{cloudMessage}</p>}
+    </div>
     <div className="settings-section">
       <Eyebrow>Knowledge Store</Eyebrow>
       <code>{snapshot.settings.knowledgeRootPath}</code>

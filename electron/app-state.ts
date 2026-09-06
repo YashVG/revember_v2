@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, watch, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { FSWatcher } from "node:fs";
@@ -13,6 +13,7 @@ import type {
   CaptureCheckpointInput,
   CaptureCheckpointResult,
   CaptureSummary,
+  CloudVaultArchive,
   CommitReviewInput,
   CommitReviewResult,
   CreateCardInput,
@@ -44,7 +45,7 @@ import {
 } from "../shared/review-timing";
 import { planExamReviews } from "../shared/planner";
 import { createTopicCard, editTopicCard, retireTopicCard } from "./topic-authoring";
-import { emptyPlanner, PlannerStore } from "./planner-store";
+import { emptyPlanner, normalizePlanner, PlannerStore } from "./planner-store";
 import { CaptureRevisionConflictError, CaptureStore } from "./capture-store";
 import {
   NoteSegmentationCoordinator,
@@ -60,16 +61,19 @@ import {
   record,
   strictIdentifier
 } from "./input-validation";
-import { writeJsonAtomically } from "./persistence";
+import { assertPathContained, writeJsonAtomically, writeTextAtomically } from "./persistence";
 
-interface StatePaths {
+export interface StatePaths {
   settingsPath: string;
   bundledKnowledgeRoot: string;
   personalKnowledgeRoot?: string;
   legacyProgressPath: string;
+  isolatedAccount?: boolean;
 }
 
 const reviewRatings = new Set<CommitReviewInput["rating"]>(["missed", "hard", "good", "easy"]);
+const cloudVaultDirectories = ["topics", "notes", "captures", "capture-enrichments", "capture-segmentations", "sessions"] as const;
+const cloudVaultMaxBytes = 7_500_000;
 
 export class RevemberState extends EventEmitter {
   private topics: KnowledgeTopic[] = [];
@@ -81,7 +85,7 @@ export class RevemberState extends EventEmitter {
   private backgroundWarning?: string;
   private watchers: FSWatcher[] = [];
   private reloadTimer?: NodeJS.Timeout;
-  private readonly noteSegmentation: NoteSegmentationCoordinator;
+  private noteSegmentation: NoteSegmentationCoordinator;
   private readonly localNoteModel: LocalNoteModel;
 
   constructor(private readonly paths: StatePaths, noteModel: LocalNoteModel = new OllamaNoteModel()) {
@@ -113,6 +117,92 @@ export class RevemberState extends EventEmitter {
     return this.snapshot;
   }
 
+  exportCloudVault(): CloudVaultArchive {
+    const plannerPath = new PlannerStore(this.settings.progressPath).filePath;
+    const archive: CloudVaultArchive = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      files: readCloudVaultFiles(this.settings.knowledgeRootPath),
+      progress: existsSync(this.settings.progressPath) ? normalizeProgress(JSON.parse(readFileSync(this.settings.progressPath, "utf8"))) : emptyProgress(),
+      planner: existsSync(plannerPath) ? normalizePlanner(JSON.parse(readFileSync(plannerPath, "utf8"))) : emptyPlanner()
+    };
+    if (Buffer.byteLength(JSON.stringify(archive), "utf8") > cloudVaultMaxBytes) {
+      throw new Error("This vault is too large for a single cloud snapshot. Large attachments are not syncable yet.");
+    }
+    return normalizeCloudVaultArchive(archive);
+  }
+
+  importCloudVault(rawArchive: unknown): AppSnapshot {
+    const archive = normalizeCloudVaultArchive(rawArchive);
+    const root = this.settings.knowledgeRootPath;
+    // Check actual filesystem components before staging: lexical containment
+    // alone does not stop writes through a symlink.
+    for (const relativePath of Object.keys(archive.files)) assertCloudDestination(root, relativePath);
+    assertCloudDestination(root, ".revember-cloud-backups/placeholder");
+    const backupRoot = path.join(root, ".revember-cloud-backups", `${Date.now()}-${randomUUID()}`);
+    const stagedRoot = path.join(backupRoot, ".incoming");
+    mkdirSync(stagedRoot, { recursive: true, mode: 0o700 });
+    for (const directory of cloudVaultDirectories) {
+      const source = path.join(root, directory);
+      if (existsSync(source)) {
+        if (lstatSync(source).isSymbolicLink()) throw new Error("Cloud download cannot replace a linked vault directory.");
+        cpSync(source, path.join(stagedRoot, directory), { recursive: true, verbatimSymlinks: true });
+      }
+    }
+    // Remove only syncable files from the staged copy. Attachments and backups
+    // are local-only and must survive a cloud download.
+    for (const relativePath of Object.keys(readCloudVaultFiles(stagedRoot))) {
+      rmSync(path.join(stagedRoot, relativePath));
+    }
+    for (const [relativePath, contents] of Object.entries(archive.files)) {
+      const destination = path.join(stagedRoot, relativePath);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeTextAtomically(destination, contents);
+    }
+    this.loadTopics(stagedRoot);
+    const plannerPath = new PlannerStore(this.settings.progressPath).filePath;
+    const persistedFiles = [this.settings.progressPath, plannerPath].map((filePath, index) => {
+      const backup = path.join(backupRoot, index === 0 ? "progress.json" : "planner.json");
+      const existed = existsSync(filePath);
+      if (existed) copyFileSync(filePath, backup);
+      return { filePath, backup, existed };
+    });
+    const moved: string[] = [];
+    const installed: string[] = [];
+    this.resetNoteSegmentation();
+    try {
+      for (const directory of cloudVaultDirectories) {
+        const source = path.join(root, directory);
+        if (existsSync(source)) {
+          renameSync(source, path.join(backupRoot, directory));
+          moved.push(directory);
+        }
+        if (existsSync(path.join(stagedRoot, directory))) {
+          renameSync(path.join(stagedRoot, directory), source);
+          installed.push(directory);
+        }
+      }
+      this.writeProgress(archive.progress);
+      writeJsonAtomically(plannerPath, archive.planner);
+    } catch (error) {
+      try {
+        for (const directory of installed) rmSync(path.join(root, directory), { recursive: true, force: true });
+        for (const directory of moved) renameSync(path.join(backupRoot, directory), path.join(root, directory));
+        for (const { filePath, backup, existed } of persistedFiles) {
+          if (existed) copyFileSync(backup, filePath);
+          else rmSync(filePath, { force: true });
+        }
+      } catch {
+        throw new Error(`Cloud restore failed. Recover the original vault from ${backupRoot}.`);
+      }
+      throw error;
+    }
+    this.refreshFromDiskAndWatch();
+    this.backgroundWarning = undefined;
+    this.broadcast();
+    return this.snapshot;
+  }
+
   createTopic(rawInput: CreateTopicInput): CreateTopicResult {
     const input = normalizeCreateTopicInput(rawInput);
     const topicID = topicIDFromTitle(input.title);
@@ -139,10 +229,31 @@ export class RevemberState extends EventEmitter {
       questions: []
     });
     validateTopic(topic, topicID);
+    const created: Array<{ filePath: string; ino: number; dev: number }> = [];
     try {
-      writeFileSync(topicPath, JSON.stringify(topic, null, 2) + "\n", { encoding: "utf8", flag: "wx", mode: 0o600 });
-      writeFileSync(notesPath, `# ${input.title}\n\n${topic.summary}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      for (const [filePath, contents] of [
+        [topicPath, JSON.stringify(topic, null, 2) + "\n"],
+        [notesPath, `# ${input.title}\n\n${topic.summary}\n`]
+      ]) {
+        const fd = openSync(filePath, "wx", 0o600);
+        try {
+          const { ino, dev } = fstatSync(fd);
+          created.push({ filePath, ino, dev });
+          writeFileSync(fd, contents, "utf8");
+        } finally { closeSync(fd); }
+      }
     } catch (error) {
+      // Roll back only files we created, never an existing or concurrently replaced entry.
+      for (const file of created) {
+        try {
+          const current = lstatSync(file.filePath);
+          if (current.ino === file.ino && current.dev === file.dev) rmSync(file.filePath);
+        } catch (cleanupError) {
+          if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw new Error(`Topic creation failed and cleanup was incomplete. Check ${file.filePath}.`, { cause: error });
+          }
+        }
+      }
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
         throw new Error(`A topic named \"${input.title}\" already exists. Choose a different name.`);
       }
@@ -411,10 +522,10 @@ export class RevemberState extends EventEmitter {
         this.settingsWarning = this.quarantineInvalidSettings(error);
       }
     }
-    const configuredKnowledgeRoot = process.env.REVEMBER_KNOWLEDGE_ROOT
+    const configuredKnowledgeRoot = !this.paths.isolatedAccount && process.env.REVEMBER_KNOWLEDGE_ROOT
       ? path.resolve(expandHome(process.env.REVEMBER_KNOWLEDGE_ROOT))
       : undefined;
-    const configuredProgressPath = process.env.REVEMBER_PROGRESS_PATH
+    const configuredProgressPath = !this.paths.isolatedAccount && process.env.REVEMBER_PROGRESS_PATH
       ? path.resolve(expandHome(process.env.REVEMBER_PROGRESS_PATH))
       : undefined;
     return {
@@ -460,7 +571,7 @@ export class RevemberState extends EventEmitter {
   }
 
   private legacyKnowledgeRoot(): string | undefined {
-    if (process.platform !== "darwin" || process.env.REVEMBER_USER_DATA_PATH) return undefined;
+    if (this.paths.isolatedAccount || process.platform !== "darwin" || process.env.REVEMBER_USER_DATA_PATH) return undefined;
     try {
       const value = execFileSync("/usr/bin/defaults", ["read", "com.yashvg.Revember", "knowledgeRootPath"], {
         encoding: "utf8",
@@ -495,6 +606,7 @@ export class RevemberState extends EventEmitter {
     const loaded = this.readDiskState(candidateSettings);
     this.saveSettings(candidateSettings);
     this.settings = candidateSettings;
+    this.resetNoteSegmentation();
     this.topics = loaded.topics;
     this.progress = loaded.progress;
     this.planner = loaded.planner;
@@ -530,6 +642,14 @@ export class RevemberState extends EventEmitter {
 
   private captureStore(): CaptureStore {
     return new CaptureStore(this.settings.knowledgeRootPath);
+  }
+
+  private resetNoteSegmentation(): void {
+    this.noteSegmentation.dispose();
+    this.noteSegmentation = new NoteSegmentationCoordinator(this.localNoteModel, (message) => {
+      this.backgroundWarning = message;
+      this.broadcast();
+    });
   }
 
   private assertKnownCaptureTopic(topicID: string): void {
@@ -609,6 +729,98 @@ export class RevemberState extends EventEmitter {
 
   private broadcast(): void {
     this.emit("snapshot", this.snapshot);
+  }
+}
+
+function readCloudVaultFiles(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  let bytes = 0;
+  const visit = (directory: string) => {
+    if (!existsSync(directory) || lstatSync(directory).isSymbolicLink()) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(candidate);
+        continue;
+      }
+      if (!entry.isFile() || lstatSync(candidate).isSymbolicLink()) continue;
+      const relativePath = path.relative(root, candidate).split(path.sep).join("/");
+      if (!isCloudVaultPath(relativePath)) continue;
+      bytes += lstatSync(candidate).size;
+      if (bytes > cloudVaultMaxBytes) throw new Error("Cloud vault exceeds this app's safe snapshot size.");
+      files[relativePath] = readFileSync(candidate, "utf8");
+    }
+  };
+  for (const directory of cloudVaultDirectories) visit(path.join(root, directory));
+  return Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function normalizeCloudVaultArchive(value: unknown): CloudVaultArchive {
+  const raw = record(value, "Cloud vault");
+  if (raw.schemaVersion !== 1) throw new Error("This cloud vault uses an unsupported schema.");
+  if (typeof raw.exportedAt !== "string" || Number.isNaN(new Date(raw.exportedAt).getTime())) {
+    throw new Error("Cloud vault export timestamp is invalid.");
+  }
+  const rawFiles = record(raw.files, "Cloud vault files");
+  const files: Record<string, string> = {};
+  const canonicalPaths = new Set<string>();
+  for (const [relativePath, contents] of Object.entries(rawFiles)) {
+    if (!isCloudVaultPath(relativePath) || typeof contents !== "string") {
+      throw new Error("Cloud vault contains an invalid file.");
+    }
+    const canonicalPath = relativePath.normalize("NFC").toLowerCase();
+    if (canonicalPaths.has(canonicalPath)) throw new Error("Cloud vault contains colliding file paths.");
+    canonicalPaths.add(canonicalPath);
+    if (relativePath.endsWith(".json")) {
+      const parsed: unknown = JSON.parse(contents);
+      if (relativePath.startsWith("topics/")) {
+        const topic = normalizeTopic(parsed);
+        if (topic.id !== path.basename(relativePath, ".json")) throw new Error("Cloud topic id must match its file name.");
+      }
+    }
+    files[relativePath] = contents;
+  }
+  for (const filePath of canonicalPaths) {
+    const segments = filePath.split("/");
+    for (let i = 1; i < segments.length; i += 1) {
+      if (canonicalPaths.has(segments.slice(0, i).join("/"))) throw new Error("Cloud vault contains a file-directory collision.");
+    }
+  }
+  const archive: CloudVaultArchive = {
+    schemaVersion: 1,
+    exportedAt: raw.exportedAt,
+    files,
+    progress: normalizeProgress(raw.progress),
+    planner: normalizePlanner(raw.planner)
+  };
+  if (Buffer.byteLength(JSON.stringify(archive), "utf8") > cloudVaultMaxBytes) {
+    throw new Error("Cloud vault exceeds this app's safe snapshot size.");
+  }
+  return archive;
+}
+
+function isCloudVaultPath(relativePath: string): boolean {
+  const segments = relativePath.split("/");
+  if (segments.length < 2 || !cloudVaultDirectories.includes(segments[0] as typeof cloudVaultDirectories[number])) return false;
+  if (segments.some((segment) => !segment || segment.startsWith(".") || /[\\\x00-\x1f:]/.test(segment))) return false;
+  return relativePath.endsWith(".json") || relativePath.endsWith(".md");
+}
+
+function assertCloudDestination(root: string, relativePath: string): void {
+  let destination = root;
+  const segments = relativePath.split("/");
+  for (const [index, segment] of segments.entries()) {
+    destination = path.join(destination, segment);
+    let stat;
+    try { stat = lstatSync(destination); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || (index < segments.length - 1 && !stat.isDirectory())) {
+      throw new Error("Cloud vault destination contains a link or a file-directory collision.");
+    }
   }
 }
 

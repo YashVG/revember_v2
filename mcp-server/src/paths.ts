@@ -132,7 +132,7 @@ export async function atomicWriteFile(root: string, filePath: string, contents: 
   );
 
   try {
-    await fs.writeFile(tempPath, contents, { encoding: "utf8", flag: "wx" });
+    await fs.writeFile(tempPath, contents, { encoding: "utf8", flag: "wx", mode: 0o600 });
     await fs.rename(tempPath, filePath);
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => undefined);

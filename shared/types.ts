@@ -160,6 +160,38 @@ export interface AppSettings {
   notificationsEnabled: boolean;
 }
 
+/** Public, renderer-safe description of the Electron-owned cloud session. */
+export interface AuthState {
+  configured: boolean;
+  configurationError?: string;
+  user?: { id: string; email: string };
+}
+
+export interface AuthActionResult {
+  state: AuthState;
+  requiresEmailConfirmation: boolean;
+}
+
+/** Portable, text-only representation of the learner-owned vault. */
+export interface CloudVaultArchive {
+  schemaVersion: 1;
+  exportedAt: string;
+  files: Record<string, string>;
+  progress: ProgressRecord;
+  planner: PlannerRecord;
+}
+
+export interface CloudSyncState {
+  configured: boolean;
+  hasRemoteVault: boolean;
+  revision?: number;
+  updatedAt?: string;
+}
+
+export interface CloudSyncResult extends CloudSyncState {
+  syncedAt: string;
+}
+
 export type McpClient = "codex" | "claude";
 
 export interface McpConnectionResult {
@@ -353,6 +385,13 @@ export interface CaptureSegmentation {
 }
 
 export interface RevemberAPI {
+  getAuthState(): Promise<AuthState>;
+  signUp(email: string, password: string): Promise<AuthActionResult>;
+  signIn(email: string, password: string): Promise<AuthActionResult>;
+  signOut(): Promise<AuthState>;
+  getCloudSyncState(): Promise<CloudSyncState>;
+  uploadCloudVault(): Promise<CloudSyncResult>;
+  downloadCloudVault(): Promise<{ sync: CloudSyncResult; snapshot: AppSnapshot }>;
   getSnapshot(): Promise<AppSnapshot>;
   reload(): Promise<AppSnapshot>;
   createTopic(input: CreateTopicInput): Promise<CreateTopicResult>;
@@ -376,6 +415,7 @@ export interface RevemberAPI {
   getCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation | undefined>;
   retryCaptureSegmentation(captureID: string, captureRevision: number): Promise<CaptureSegmentation>;
   setNotificationsEnabled(enabled: boolean): Promise<AppSnapshot>;
+  onAuthState(callback: (state: AuthState) => void): () => void;
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void;
   onNavigate(callback: (route: string) => void): () => void;
 }

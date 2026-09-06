@@ -9,6 +9,8 @@ export type McpConnectionAction = "connect" | "disconnect";
 
 export interface McpConnection {
   runnerPath: string;
+  knowledgeRootPath?: string;
+  progressPath?: string;
 }
 
 export interface McpClientConfigPaths {
@@ -56,7 +58,12 @@ function updateCodexConfig(configPath: string, action: McpConnectionAction, conn
     `command = ${tomlString(connection.runnerPath)}`,
     "args = []",
     'default_tools_approval_mode = "writes"',
-    "startup_timeout_sec = 10"
+    "startup_timeout_sec = 10",
+    ...(connection.knowledgeRootPath && connection.progressPath ? [
+      "[mcp_servers.revember.env]",
+      `REVEMBER_KNOWLEDGE_ROOT = ${tomlString(connection.knowledgeRootPath)}`,
+      `REVEMBER_PROGRESS_PATH = ${tomlString(connection.progressPath)}`
+    ] : [])
   ].join("\n");
   writeToml(configPath, `${withoutRevember.trimEnd()}${withoutRevember.trim() ? "\n\n" : ""}${block}\n`);
 }
@@ -76,7 +83,11 @@ function updateClaudeConfig(configPath: string, action: McpConnectionAction, con
   if (action === "connect") {
     mcpServers.revember = {
       command: connection.runnerPath,
-      args: []
+      args: [],
+      ...(connection.knowledgeRootPath && connection.progressPath ? { env: {
+        REVEMBER_KNOWLEDGE_ROOT: connection.knowledgeRootPath,
+        REVEMBER_PROGRESS_PATH: connection.progressPath
+      } } : {})
     };
     config.mcpServers = mcpServers;
   } else {

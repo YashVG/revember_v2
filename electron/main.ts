@@ -17,11 +17,15 @@ import { dueReviewItems, nextDueAt } from "../shared/domain";
 import { ipcChannels } from "../shared/ipc";
 import type {
   AppSnapshot,
+  AuthActionResult,
+  AuthState,
   ArchiveExamPlanInput,
   CaptureCheckpointInput,
   CommitReviewInput,
   CreateCardInput,
   CreateTopicInput,
+  CloudSyncResult,
+  CloudSyncState,
   EditCardInput,
   McpClient,
   McpConnectionResult,
@@ -30,6 +34,8 @@ import type {
   UpsertExamPlanInput
 } from "../shared/types";
 import { RevemberState } from "./app-state";
+import { SupabaseAuth } from "./supabase-auth";
+import { AccountVaults } from "./account-vaults";
 import { configureMcpClient } from "./mcp-client-config";
 import {
   isSafeExternalURL,
@@ -40,10 +46,17 @@ import {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let state: RevemberState;
+let cloudAuth: SupabaseAuth;
+let accountVaults: AccountVaults;
 let notificationTimer: NodeJS.Timeout | undefined;
 let pendingRoute: string | undefined;
+let pendingAuthCallbackURL: string | undefined;
 let rendererDocumentPolicy: RendererDocumentPolicy | undefined;
 const DEFAULT_ZOOM_FACTOR = 1.15;
+// This is a Supabase publishable key, not a secret. RLS still protects every
+// vault row; never substitute a service-role or secret key here.
+const DEFAULT_SUPABASE_URL = "https://puspkabdjwwhyvteqker.supabase.co";
+const DEFAULT_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Lr8dyUXT4DpwZoahX_BSVg_FzsaGvMl";
 
 if (process.env.REVEMBER_USER_DATA_PATH) {
   app.setPath("userData", path.resolve(process.env.REVEMBER_USER_DATA_PATH));
@@ -73,25 +86,52 @@ app.whenReady().then(() => {
   const bundledKnowledgeRoot = app.isPackaged
     ? path.join(process.resourcesPath, "RevemberKnowledge")
     : path.join(app.getAppPath(), "RevemberKnowledge");
-  state = new RevemberState({
+  const legacyPaths = {
     settingsPath: path.join(app.getPath("userData"), "settings.json"),
     bundledKnowledgeRoot,
     legacyProgressPath: process.platform === "darwin"
       ? path.join(app.getPath("appData"), "RevemberV2", "progress.json")
       : path.join(app.getPath("userData"), "progress.json")
+  };
+  accountVaults = new AccountVaults(app.getPath("userData"), legacyPaths);
+  cloudAuth = new SupabaseAuth({
+    sessionPath: path.join(app.getPath("userData"), "supabase-session.json"),
+    url: process.env.REVEMBER_SUPABASE_URL ?? DEFAULT_SUPABASE_URL,
+    publishableKey: process.env.REVEMBER_SUPABASE_PUBLISHABLE_KEY ?? DEFAULT_SUPABASE_PUBLISHABLE_KEY
   });
-  state.on("snapshot", (snapshot: AppSnapshot) => {
-    mainWindow?.webContents.send(ipcChannels.snapshot, snapshot);
-    updateTray(snapshot);
-    scheduleNotification(snapshot);
+  cloudAuth.on("state", (authState: AuthState) => {
+    if (authState.user) {
+      const nextState = accountVaults.activate(authState.user.id);
+      if (state !== nextState) {
+        state = nextState;
+        state.on("snapshot", (snapshot: AppSnapshot) => {
+          if (state !== nextState || !cloudAuth.state.user) return;
+          mainWindow?.webContents.send(ipcChannels.snapshot, snapshot);
+          updateTray(snapshot);
+          scheduleNotification(snapshot);
+        });
+      }
+      updateTray(state.snapshot);
+      scheduleNotification(state.snapshot);
+    } else {
+      accountVaults.deactivate();
+      if (notificationTimer) clearTimeout(notificationTimer);
+      tray?.setTitle("");
+      tray?.setContextMenu(Menu.buildFromTemplate([{ label: "Open Revember", click: showMainWindow }, { label: "Quit Revember", click: () => app.quit() }]));
+    }
+    mainWindow?.webContents.send(ipcChannels.authState, authState);
   });
-
+  void cloudAuth.restore().catch(() => {
+    // Keep the sign-in UI available when a saved session cannot be restored.
+  });
+  if (pendingAuthCallbackURL) {
+    completeAuthCallback(pendingAuthCallbackURL);
+    pendingAuthCallbackURL = undefined;
+  }
   registerIPC();
   createMenu();
   createWindow();
   createTray();
-  updateTray(state.snapshot);
-  scheduleNotification(state.snapshot);
 });
 
 app.on("activate", () => {
@@ -105,6 +145,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   state?.dispose();
+  cloudAuth?.dispose();
   if (notificationTimer) clearTimeout(notificationTimer);
 });
 
@@ -160,10 +201,30 @@ function createWindow(): void {
 }
 
 function registerIPC(): void {
+  handleState(ipcChannels.getAuthState, (): AuthState => cloudAuth.state);
+  handleState(ipcChannels.signUp, (email: string, password: string): Promise<AuthActionResult> => cloudAuth.signUp(email, password));
+  handleState(ipcChannels.signIn, (email: string, password: string): Promise<AuthActionResult> => cloudAuth.signIn(email, password));
+  handleState(ipcChannels.signOut, (): Promise<AuthState> => cloudAuth.signOut());
+  handleState(ipcChannels.getCloudSyncState, (): Promise<CloudSyncState> => cloudAuth.getCloudSyncState());
+  handleState(ipcChannels.uploadCloudVault, (): Promise<CloudSyncResult> => cloudAuth.uploadVault(state.exportCloudVault()));
+  handleState(ipcChannels.downloadCloudVault, async () => {
+    const target = state;
+    const userID = cloudAuth.state.user?.id;
+    const fingerprint = () => JSON.stringify({ ...target.exportCloudVault(), exportedAt: undefined, settings: target.snapshot.settings });
+    const before = fingerprint();
+    const remote = await cloudAuth.downloadVault();
+    if (accountVaults.requireActive(cloudAuth.state.user?.id) !== target || cloudAuth.state.user?.id !== userID || fingerprint() !== before) {
+      throw new Error("Your local vault or account changed during download. Retry after saving your work.");
+    }
+    const snapshot = target.importCloudVault(remote.archive);
+    cloudAuth.confirmDownloadedRevision(remote.sync.revision!);
+    return { sync: remote.sync, snapshot };
+  });
   handleState(ipcChannels.getSnapshot, () => state.snapshot);
   handleState(ipcChannels.reload, () => state.reload());
   handleState(ipcChannels.createTopic, (input: CreateTopicInput) => state.createTopic(input));
   handleState(ipcChannels.chooseKnowledgeRoot, async () => {
+    const target = state;
     const options: Electron.OpenDialogOptions = {
       title: "Choose Revember Knowledge Folder",
       properties: ["openDirectory", "createDirectory"]
@@ -171,7 +232,8 @@ function registerIPC(): void {
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, options)
       : await dialog.showOpenDialog(options);
-    return result.canceled || !result.filePaths[0] ? state.snapshot : state.setKnowledgeRoot(result.filePaths[0]);
+    if (accountVaults.requireActive(cloudAuth.state.user?.id) !== target) throw new Error("Account changed while choosing a folder.");
+    return result.canceled || !result.filePaths[0] ? target.snapshot : target.setKnowledgeRoot(result.filePaths[0]);
   });
   handleState(ipcChannels.resetKnowledgeRoot, () => state.resetKnowledgeRoot());
   handleState(ipcChannels.openKnowledgeRoot, async () => {
@@ -191,7 +253,7 @@ function registerIPC(): void {
     if (action === "connect" && runtimeFiles.some((filePath) => !existsSync(filePath))) {
       throw new Error("Revember's MCP runtime is unavailable. Reinstall the app and try again.");
     }
-    return configureMcpClient(client, action, { runnerPath });
+    return configureMcpClient(client, action, { runnerPath, ...state.snapshot.settings });
   });
   handleState(ipcChannels.commitReview, (input: CommitReviewInput) => state.commitReview(input));
   handleState(ipcChannels.captureCheckpoint, (input: CaptureCheckpointInput) => state.captureCheckpoint(input));
@@ -215,7 +277,13 @@ function handleState<TArguments extends unknown[], TResult>(
   channel: string,
   handler: (...args: TArguments) => TResult | Promise<TResult>
 ): void {
-  handleTrusted(channel, (_event, ...args: TArguments) => handler(...args));
+  const publicChannels: string[] = [ipcChannels.getAuthState, ipcChannels.signUp, ipcChannels.signIn, ipcChannels.signOut];
+  handleTrusted(channel, async (_event, ...args: TArguments) => {
+    const active = publicChannels.includes(channel) ? undefined : accountVaults.requireActive(cloudAuth.state.user?.id);
+    const result = await handler(...args);
+    if (active && accountVaults.requireActive(cloudAuth.state.user?.id) !== active) throw new Error("Account changed during this operation.");
+    return result;
+  });
 }
 
 function handleTrusted<TArguments extends unknown[], TResult>(
@@ -273,7 +341,7 @@ function createMenu(): void {
       label: "File", submenu: [
         routeCommand("Start 3-Minute Review", "review:3", "CmdOrCtrl+Shift+R"),
         routeCommand("Capture Learning Checkpoint…", "checkpoint", "CmdOrCtrl+Shift+K"),
-        { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => state.reload() },
+        { label: "Reload Knowledge", accelerator: "CmdOrCtrl+R", click: () => { if (cloudAuth.state.user) state.reload(); } },
         { type: "separator" },
         { role: "close" }
       ]
@@ -331,6 +399,7 @@ function scheduleNotification(snapshot: AppSnapshot): void {
   if (!due.length && !Number.isFinite(dueTimestamp)) return;
   const delay = due.length ? 60_000 : Math.max(60_000, dueTimestamp - Date.now());
   notificationTimer = setTimeout(() => {
+    if (!cloudAuth.state.user) return;
     const latest = state.snapshot;
     const count = dueReviewItems(latest).length;
     if (!count) {
@@ -350,11 +419,18 @@ function routeURL(url: string): void {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "revember:") return;
-    if (parsed.hostname === "topic") sendRoute(`topic:${parsed.pathname.replace(/^\//, "")}`);
+    if (parsed.hostname === "auth" && parsed.pathname === "/callback") {
+      if (!cloudAuth) pendingAuthCallbackURL = url;
+      else completeAuthCallback(url);
+    } else if (parsed.hostname === "topic") sendRoute(`topic:${parsed.pathname.replace(/^\//, "")}`);
     else if (parsed.hostname === "review") sendRoute(`review:${Math.max(1, Number(parsed.searchParams.get("minutes")) || 3)}`);
   } catch {
     // Invalid deep links are ignored.
   }
+}
+
+function completeAuthCallback(url: string): void {
+  void cloudAuth.completeEmailCallback(url).then(() => sendRoute("auth:confirmed")).catch(() => undefined);
 }
 
 function sendRoute(route: string): void {

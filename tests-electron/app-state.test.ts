@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as persistence from "../electron/persistence";
 import { RevemberState } from "../electron/app-state";
 
 const temporaryRoots: string[] = [];
@@ -11,6 +12,21 @@ afterEach(async () => {
 });
 
 describe("knowledge-root state transitions", () => {
+  it("rolls back a new topic when its companion note cannot be created, preserving the conflicting entry", async () => {
+    const fixture = await stateFixture();
+    const notes = path.join(fixture.oldRoot, "notes");
+    await fs.mkdir(notes, { recursive: true });
+    const note = path.join(notes, "incomplete-topic.md");
+    // A dangling symlink is invisible to existsSync but exclusive creation rejects it.
+    await fs.symlink(path.join(fixture.root, "missing-note"), note);
+    const state = fixture.createState();
+    try {
+      expect(() => state.createTopic({ title: "Incomplete topic", summary: "Must be all or nothing." })).toThrow(/already exists/i);
+      await expect(fs.access(path.join(fixture.oldRoot, "topics", "incomplete-topic.json"))).rejects.toThrow();
+      expect((await fs.lstat(note)).isSymbolicLink()).toBe(true);
+    } finally { state.dispose(); }
+  });
+
   it("sets up an editable personal copy of the bundled starter vault", async () => {
     const fixture = await stateFixture();
     const bundledRoot = path.join(fixture.root, "bundled-knowledge");
@@ -189,6 +205,180 @@ describe("review mutation validation", () => {
       });
     } finally {
       restarted.dispose();
+    }
+  });
+});
+
+describe("cloud vault archives", () => {
+  it("exports current disk progress rather than stale cached progress", async () => {
+    const fixture = await stateFixture();
+    const state = fixture.createState();
+    try {
+      state.commitReview(validReviewInput());
+      await fs.writeFile(fixture.progressPath, JSON.stringify({ schemaVersion: 2, topics: {}, reviewEvents: [] }));
+      expect(state.exportCloudVault().progress.reviewEvents).toHaveLength(0);
+      await fs.writeFile(path.join(fixture.oldRoot, "topics", "old-topic.json"), "broken");
+      expect(() => state.exportCloudVault()).toThrow();
+    } finally { state.dispose(); }
+  });
+  it("rolls back the vault and progress when committing an import fails", async () => {
+    const fixture = await stateFixture();
+    const state = fixture.createState();
+    const progressBefore = await fs.readFile(fixture.progressPath);
+    const archive = state.exportCloudVault();
+    archive.files = { "topics/new-topic.json": JSON.stringify(topic("new-topic")) };
+    const write = vi.spyOn(persistence, "writeJsonAtomically").mockImplementationOnce(() => { throw new Error("disk full"); });
+    try {
+      expect(() => state.importCloudVault(archive)).toThrow("disk full");
+      expect(await fs.readFile(fixture.progressPath)).toEqual(progressBefore);
+      expect(JSON.parse(await fs.readFile(path.join(fixture.oldRoot, "topics", "old-topic.json"), "utf8")).id).toBe("old-topic");
+      await expect(fs.access(path.join(fixture.oldRoot, "topics", "new-topic.json"))).rejects.toThrow();
+      expect(state.snapshot.topics[0].id).toBe("old-topic");
+    } finally { write.mockRestore(); state.dispose(); }
+  });
+
+  it("refuses to download through an existing symlink without changing its target", async () => {
+    const fixture = await stateFixture();
+    const outside = path.join(fixture.root, "outside");
+    await fs.mkdir(outside);
+    await fs.writeFile(path.join(outside, "note.md"), "private");
+    await fs.symlink(outside, path.join(fixture.oldRoot, "notes"));
+    const state = fixture.createState();
+    try {
+      const archive = state.exportCloudVault();
+      archive.files["notes/note.md"] = "overwrite";
+      expect(() => state.importCloudVault(archive)).toThrow(/link/i);
+      expect(await fs.readFile(path.join(outside, "note.md"), "utf8")).toBe("private");
+    } finally { state.dispose(); }
+  });
+  it("preserves excluded attachments and nested backups on download", async () => {
+    const fixture = await stateFixture();
+    await fs.mkdir(path.join(fixture.oldRoot, "notes", ".backups"), { recursive: true });
+    await fs.writeFile(path.join(fixture.oldRoot, "notes", "attachment.pdf"), "private attachment");
+    await fs.writeFile(path.join(fixture.oldRoot, "notes", ".backups", "old.md"), "private backup");
+    const state = fixture.createState();
+    try {
+      const archive = state.exportCloudVault();
+      expect(Object.keys(archive.files)).not.toContain("notes/.backups/old.md");
+      state.importCloudVault(archive);
+      expect(await fs.readFile(path.join(fixture.oldRoot, "notes", "attachment.pdf"), "utf8")).toBe("private attachment");
+      expect(await fs.readFile(path.join(fixture.oldRoot, "notes", ".backups", "old.md"), "utf8")).toBe("private backup");
+    } finally { state.dispose(); }
+  });
+
+  it("never exports files through a symlinked top-level directory", async () => {
+    const fixture = await stateFixture();
+    const outside = path.join(fixture.root, "private");
+    await fs.mkdir(outside);
+    await fs.writeFile(path.join(outside, "secret.md"), "not vault content");
+    await fs.symlink(outside, path.join(fixture.oldRoot, "notes"));
+    const state = fixture.createState();
+    try { expect(Object.keys(state.exportCloudVault().files)).not.toContain("notes/secret.md"); }
+    finally { state.dispose(); }
+  });
+
+  it.each([
+    ["broken topic JSON", { "topics/old-topic.json": "{broken" }],
+    ["topic filename mismatch", { "topics/other.json": JSON.stringify(topic("old-topic")) }],
+    ["NUL path", { "notes/bad\u0000.md": "x" }],
+    ["case-colliding paths", { "notes/A.md": "one", "notes/a.md": "two" }],
+    ["file-directory collision", { "notes/a.md": "one", "notes/a.md/b.md": "two" }]
+  ])("rejects %s without replacing local files", async (_label, files) => {
+    const fixture = await stateFixture();
+    const state = fixture.createState();
+    try {
+      const before = await fs.readFile(path.join(fixture.oldRoot, "topics", "old-topic.json"));
+      expect(() => state.importCloudVault({ ...state.exportCloudVault(), files })).toThrow();
+      expect(await fs.readFile(path.join(fixture.oldRoot, "topics", "old-topic.json"))).toEqual(before);
+      expect(state.snapshot.topics[0].id).toBe("old-topic");
+    } finally { state.dispose(); }
+  });
+  it("round-trips only syncable vault data and keeps a backup before replacement", async () => {
+    const source = await stateFixture();
+    const sourceRoot = path.join(source.root, "source-knowledge");
+    await writeTopic(sourceRoot, topic("source-topic"));
+    await fs.mkdir(path.join(sourceRoot, "notes"), { recursive: true });
+    await fs.mkdir(path.join(sourceRoot, "captures"), { recursive: true });
+    await fs.mkdir(path.join(sourceRoot, "sessions"), { recursive: true });
+    await fs.mkdir(path.join(sourceRoot, ".backups"), { recursive: true });
+    await fs.writeFile(path.join(sourceRoot, "notes", "source-topic.md"), "# Synced note\n");
+    await fs.writeFile(path.join(sourceRoot, "captures", "capture.json"), '{"title":"Synced capture"}\n');
+    await fs.writeFile(path.join(sourceRoot, "sessions", "session.json"), '{"summary":"Synced session"}\n');
+    await fs.writeFile(path.join(sourceRoot, ".backups", "private.json"), '{"do":"not sync"}\n');
+    await fs.writeFile(path.join(sourceRoot, "notes", "attachment.pdf"), "not text");
+
+    const sourceState = source.createState();
+    let archive;
+    try {
+      sourceState.setKnowledgeRoot(sourceRoot);
+      sourceState.commitReview({
+        ...validReviewInput(),
+        topicID: "source-topic",
+        eventID: "source-event"
+      });
+      archive = sourceState.exportCloudVault();
+    } finally {
+      sourceState.dispose();
+    }
+
+    expect(archive.files).toMatchObject({
+      "topics/source-topic.json": expect.any(String),
+      "notes/source-topic.md": "# Synced note\n",
+      "captures/capture.json": '{"title":"Synced capture"}\n',
+      "sessions/session.json": '{"summary":"Synced session"}\n'
+    });
+    expect(archive.files).not.toHaveProperty(".backups/private.json");
+    expect(archive.files).not.toHaveProperty("notes/attachment.pdf");
+
+    const destination = await stateFixture();
+    await fs.mkdir(path.join(destination.oldRoot, "notes"), { recursive: true });
+    await fs.writeFile(path.join(destination.oldRoot, "notes", "old-topic.md"), "# Old device note\n");
+    const destinationState = destination.createState();
+    try {
+      const snapshot = destinationState.importCloudVault(archive);
+      expect(snapshot.topics.map((candidate) => candidate.id)).toEqual(["source-topic"]);
+      expect(snapshot.progress.reviewEvents.map((event) => event.id)).toEqual(["source-event"]);
+      await expect(fs.readFile(path.join(destination.oldRoot, "notes", "source-topic.md"), "utf8")).resolves.toBe("# Synced note\n");
+      await expect(fs.access(path.join(destination.oldRoot, "topics", "old-topic.json"))).rejects.toThrow();
+      await expect(fs.access(path.join(destination.oldRoot, "notes", "old-topic.md"))).rejects.toThrow();
+
+      const backups = await fs.readdir(path.join(destination.oldRoot, ".revember-cloud-backups"));
+      expect(backups).toHaveLength(1);
+      await expect(fs.readFile(path.join(destination.oldRoot, ".revember-cloud-backups", backups[0], "topics", "old-topic.json"), "utf8")).resolves.toContain('"id":"old-topic"');
+      await expect(fs.readFile(path.join(destination.oldRoot, ".revember-cloud-backups", backups[0], "notes", "old-topic.md"), "utf8")).resolves.toBe("# Old device note\n");
+    } finally {
+      destinationState.dispose();
+    }
+  });
+
+  it.each([
+    ["an unsafe path", (archive: ReturnType<RevemberState["exportCloudVault"]>) => ({ ...archive, files: { "topics/../escape.json": "{}" } }), /invalid file/i],
+    ["a malformed progress record", (archive: ReturnType<RevemberState["exportCloudVault"]>) => ({ ...archive, progress: null }), /progress/i],
+    ["an unsupported schema", (archive: ReturnType<RevemberState["exportCloudVault"]>) => ({ ...archive, schemaVersion: 2 }), /unsupported schema/i]
+  ])("rejects %s before touching the local vault", async (_label, corruptArchive, message) => {
+    const fixture = await stateFixture();
+    const state = fixture.createState();
+    try {
+      const archive = state.exportCloudVault();
+      const topicBefore = await fs.readFile(path.join(fixture.oldRoot, "topics", "old-topic.json"));
+      await expect(Promise.resolve().then(() => state.importCloudVault(corruptArchive(archive)))).rejects.toThrow(message);
+      expect(await fs.readFile(path.join(fixture.oldRoot, "topics", "old-topic.json"))).toEqual(topicBefore);
+      await expect(fs.access(path.join(fixture.oldRoot, ".revember-cloud-backups"))).rejects.toThrow();
+    } finally {
+      state.dispose();
+    }
+  });
+
+  it("rejects an oversized cloud archive before it can create a backup", async () => {
+    const fixture = await stateFixture();
+    const state = fixture.createState();
+    try {
+      const archive = state.exportCloudVault();
+      archive.files["notes/too-large.md"] = "x".repeat(7_500_000);
+      expect(() => state.importCloudVault(archive)).toThrow(/safe snapshot size/i);
+      await expect(fs.access(path.join(fixture.oldRoot, ".revember-cloud-backups"))).rejects.toThrow();
+    } finally {
+      state.dispose();
     }
   });
 });
