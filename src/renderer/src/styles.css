@@ -446,7 +446,8 @@ button.primary:disabled { opacity: .35; cursor: default; }
 .completion > div span { color: var(--secondary); font-size: 10px; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.62); display: grid; place-items: center; backdrop-filter: blur(8px); padding: 30px; }
-.settings-dialog { width: min(620px, 100%); border: 1px solid #373a42; border-radius: 17px; background: #181a1f; box-shadow: 0 26px 100px #000c; overflow: hidden; }
+.settings-dialog { width: min(620px, 100%); max-height: calc(100vh - 60px); border: 1px solid #373a42; border-radius: 17px; background: #181a1f; box-shadow: 0 26px 100px #000c; overflow: auto; }
+.settings-dialog > header { position: sticky; top: 0; z-index: 2; background: #181a1f; }
 .settings-dialog header { min-height: 63px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--hairline); }
 .settings-dialog header > div { display: flex; align-items: center; gap: 10px; }
 .settings-dialog header svg { color: var(--cyan); width: 18px; }

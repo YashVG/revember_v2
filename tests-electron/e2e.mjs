@@ -93,6 +93,12 @@ try {
   assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), true);
   await window.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   assert.equal(await window.locator(".workspace").evaluate((element) => element.classList.contains("sidebar-collapsed")), false);
+  const originalWindowSize = await app.evaluate(({ BrowserWindow }) => {
+    const main = BrowserWindow.getAllWindows()[0];
+    const size = main.getSize();
+    main.setSize(1020, 680);
+    return size;
+  });
   await window.getByTitle("Settings", { exact: true }).click();
   const settings = window.getByRole("dialog", { name: "Revember Settings", exact: true });
   await settings.getByText("AI study partner", { exact: true }).waitFor();
@@ -105,8 +111,14 @@ try {
   await settings.getByRole("button", { name: "Disconnect Codex", exact: true }).click();
   await settings.getByText(/Codex's Revember connection was removed/).waitFor();
   assert.doesNotMatch(await readFile(codexConfigPath, "utf8"), /mcp_servers\.revember/);
+  assert.equal(await settings.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    return bounds.top >= 0 && bounds.bottom <= innerHeight;
+  }), true, "Settings must stay inside the viewport at the minimum supported window size");
+  await window.screenshot({ path: path.join(root, "work", "settings-minimum-window-e2e.png") });
   await settings.getByRole("button", { name: "Close Revember Settings", exact: true }).click();
   await settings.waitFor({ state: "detached" });
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), originalWindowSize);
   await window.getByRole("button", { name: "Questions", exact: true }).click();
   await window.getByRole("heading", { name: "Review", exact: true }).waitFor();
   await window.getByRole("button", { name: "Start review", exact: true }).waitFor();
