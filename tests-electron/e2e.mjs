@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
+import { fixtureArchive, fixtureUserID, installAuthFixture } from "./auth-fixture.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), "revember-electron-e2e-"));
@@ -11,6 +12,8 @@ const knowledgeRoot = path.join(temporaryRoot, "RevemberKnowledge");
 const progressPath = path.join(temporaryRoot, "progress.json");
 const userDataPath = path.join(temporaryRoot, "user-data");
 await cp(path.join(root, "RevemberKnowledge"), knowledgeRoot, { recursive: true });
+const liveSession = Boolean(process.env.REVEMBER_E2E_SESSION_PATH);
+const cloudArchive = await fixtureArchive(knowledgeRoot);
 // A full Electron journey needs a deliberately supplied, already-authenticated
 // test session. This never copies a session unless the caller opts in, and the
 // copy lives only under the disposable E2E user-data directory.
@@ -19,7 +22,14 @@ if (process.env.REVEMBER_E2E_SESSION_PATH) {
   await cp(process.env.REVEMBER_E2E_SESSION_PATH, path.join(userDataPath, "supabase-session.json"));
 }
 
-const launch = () => electron.launch({
+let launchCount = 0;
+const launch = async () => {
+  if (!liveSession) {
+    await mkdir(userDataPath, { recursive: true });
+    await rm(path.join(userDataPath, "supabase-session.json"), { force: true });
+    await writeFile(path.join(userDataPath, "legacy-vault-owner.json"), JSON.stringify({ userID: fixtureUserID }));
+  }
+  const application = await electron.launch({
   args: [root],
   env: {
     ...process.env,
@@ -27,9 +37,21 @@ const launch = () => electron.launch({
     TZ: "UTC",
     REVEMBER_KNOWLEDGE_ROOT: knowledgeRoot,
     REVEMBER_PROGRESS_PATH: progressPath,
-    REVEMBER_USER_DATA_PATH: userDataPath
+    REVEMBER_USER_DATA_PATH: userDataPath,
+    ...(!liveSession ? { REVEMBER_SUPABASE_URL: "https://supabase.fixture.invalid", REVEMBER_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_fixture" } : {})
   }
 });
+  if (!liveSession) {
+    await installAuthFixture(application, cloudArchive);
+    if (launchCount > 0) {
+      const page = await application.firstWindow();
+      await page.waitForLoadState("domcontentloaded");
+      await page.evaluate(() => window.revember.signIn("alice@example.test", "fixture-password"));
+    }
+  }
+  launchCount += 1;
+  return application;
+};
 
 let app = await launch();
 
@@ -42,10 +64,22 @@ try {
     assert.equal(await window.getByLabel("Password", { exact: true }).isVisible(), true);
     assert.equal(await window.getByRole("button", { name: "Sign in", exact: true }).isVisible(), true);
     assert.equal(await window.getByRole("button", { name: "Home", exact: true }).count(), 0);
+    for (const method of ["getSnapshot", "listCaptureSummaries", "uploadCloudVault", "downloadCloudVault"]) {
+      const denied = await window.evaluate(async method => {
+        try { await window.revember[method](); return false; } catch { return true; }
+      }, method);
+      assert.equal(denied, true, `${method} must reject signed-out IPC`);
+    }
     await window.getByRole("button", { name: "Need an account? Create one", exact: true }).click();
     await window.getByRole("heading", { name: "Create your account", exact: true }).waitFor();
-    console.log("Electron auth-gate E2E passed.");
-  } else {
+    await window.getByRole("button", { name: "Already have an account? Sign in", exact: true }).click();
+    await window.getByLabel("Email", { exact: true }).fill("alice@example.test");
+    await window.getByLabel("Password", { exact: true }).fill("wrong-password");
+    await window.getByRole("button", { name: "Sign in", exact: true }).click();
+    await window.getByRole("alert").filter({ hasText: "Invalid login credentials" }).waitFor();
+    await window.getByLabel("Password", { exact: true }).fill("fixture-password");
+    await window.getByRole("button", { name: "Sign in", exact: true }).click();
+  }
   const accountTrigger = window.getByRole("button", { name: "Account menu", exact: true });
   await accountTrigger.waitFor();
   const authenticatedEmail = await window.evaluate(() => window.revember.getAuthState().then((state) => state.user?.email));
@@ -162,6 +196,7 @@ try {
   await window.getByRole("button", { name: /^Manage questions\b/ }).click();
   await window.getByRole("heading", { name: "An Electron E2E card uses a ________.", exact: true }).waitFor();
 
+  await window.getByRole("button", { name: "Home", exact: true }).click();
   await window.getByTitle("Settings").click();
   const cloudSettings = window.getByRole("dialog", { name: "Revember Settings", exact: true });
   await cloudSettings.getByText("Cloud Vault", { exact: true }).waitFor();
@@ -258,14 +293,43 @@ try {
   await cancelEditorPromise;
   await reopenedNoteEditor.waitFor({ state: "detached" });
 
-  const downloaded = await window.evaluate(() => window.revember.downloadCloudVault());
+  await window.getByRole("button", { name: "Home", exact: true }).click();
+  await window.getByTitle("Settings", { exact: true }).click();
+  const downloadSettings = window.getByRole("dialog", { name: "Revember Settings", exact: true });
+  await downloadSettings.getByText(/Cloud revision \d+ saved/).waitFor();
+  const beforeCancelledDownload = await readFile(progressPath);
+  window.once("dialog", dialog => dialog.dismiss());
+  await downloadSettings.getByRole("button", { name: "Download cloud vault", exact: true }).click();
+  assert.deepEqual(await readFile(progressPath), beforeCancelledDownload);
+  window.once("dialog", dialog => dialog.accept());
+  await downloadSettings.getByRole("button", { name: "Download cloud vault", exact: true }).click();
+  await downloadSettings.getByText(/Downloaded revision \d+/).waitFor();
+  const downloaded = await window.evaluate(async () => ({ sync: await window.revember.getCloudSyncState(), snapshot: await window.revember.getSnapshot() }));
   assert.ok(downloaded.sync.revision >= 1, "the authenticated account must return a cloud snapshot");
   assert.ok(downloaded.snapshot.topics.length > 0, "the downloaded cloud snapshot must load as a vault");
   const backups = await readdir(path.join(knowledgeRoot, ".revember-cloud-backups"));
   assert.ok(backups.length >= 1, "cloud download must preserve the isolated local vault first");
   await stat(path.join(knowledgeRoot, ".revember-cloud-backups", backups.at(-1), "captures", captureFile.fileName));
-  console.log("Electron E2E passed.");
+  if (!liveSession) {
+    await downloadSettings.getByRole("button", { name: "Upload vault", exact: true }).click();
+    await downloadSettings.getByText("Uploaded revision 2.", { exact: true }).waitFor();
+    await downloadSettings.getByRole("button", { name: "Close Revember Settings", exact: true }).click();
+    await window.evaluate(() => window.revember.createTopic({ title: "Alice private fixture" }));
+    await window.getByRole("button", { name: "Account menu", exact: true }).click();
+    await window.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+    await window.getByRole("heading", { name: "Welcome back", exact: true }).waitFor();
+    await window.evaluate(() => window.revember.signIn("bob@example.test", "fixture-password"));
+    await window.getByRole("button", { name: "Account menu", exact: true }).waitFor();
+    const bob = await window.evaluate(() => window.revember.getSnapshot());
+    assert.equal(bob.topics.some(topic => topic.title === "Alice private fixture"), false);
+    assert.notEqual(bob.settings.knowledgeRootPath, knowledgeRoot);
+    assert.equal((await window.evaluate(() => window.revember.getCloudSyncState())).hasRemoteVault, false);
+    await window.evaluate(() => window.revember.signOut());
+    await window.evaluate(() => window.revember.signIn("alice@example.test", "fixture-password"));
+    await window.getByRole("button", { name: "Account menu", exact: true }).waitFor();
+    assert.ok((await window.evaluate(() => window.revember.getSnapshot())).topics.some(topic => topic.title === "Alice private fixture"));
   }
+  console.log("Electron E2E passed.");
 } finally {
   try {
     await app.close();

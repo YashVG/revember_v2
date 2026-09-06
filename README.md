@@ -102,6 +102,11 @@ npm run dev
 
 ## Local data
 
+Supabase provides email/password login and manual cloud
+snapshots. Each new account receives separate local storage under Electron's
+user-data directory at `accounts/<user-id>/`. Upgrades preserve the existing
+account's selected folder and progress path. See [cloud setup and sync behavior](supabase/README.md).
+
 | Location | Contains |
 | --- | --- |
 | `RevemberKnowledge/topics/` | Versioned concepts, relationships, gaps, and review cards |
@@ -126,7 +131,7 @@ export REVEMBER_PROGRESS_PATH="$HOME/Library/Application Support/RevemberV2/prog
 | `npm run dev` | Run the desktop app in development |
 | `npm run verify:app` | TypeScript, unit tests, and production build |
 | `npm run verify` | Clean-install and verify the app and MCP workspace |
-| `npm run test:e2e` | Electron topic, review, persistence, and checkpoint flow |
+| `npm run test:e2e` | Mocked-account login, isolation, cloud sync, topic, review, and note flows |
 | `npm run test:package` | Unpacked macOS app and packaged-app smoke checks |
 | `git diff --check` | Whitespace and conflict-marker hygiene |
 
@@ -137,7 +142,9 @@ The current readiness checks are:
 - `npm run verify` — app typecheck, all unit/integration tests, production build, MCP checks, and stdio transport smoke test.
 - `npm run test:package` — packaged macOS app build and unpacked-app smoke test.
 
-The full Electron end-to-end flow remains a separate check because it exercises the installed app and local data paths.
+The full Electron end-to-end flow uses temporary vaults and mocked Supabase responses by default; no credentials are required.
+`REVEMBER_E2E_SESSION_PATH` optionally enables the existing live-account read/download journey using a private session file.
+Mocked account tests do not replace a hosted Supabase authorization check.
 
 ## Project map
 

@@ -51,6 +51,26 @@ type GlobalView = "home" | "topic" | "notes" | "questions";
 
 export function App() {
   const [authState, setAuthState] = useState<AuthState>();
+  useEffect(() => {
+    let observedState = false;
+    let disposed = false;
+    const unsubscribe = window.revember.onAuthState((next) => {
+      observedState = true;
+      setAuthState(next);
+    });
+    void window.revember.getAuthState().then((next) => {
+      if (!disposed && !observedState) setAuthState(next);
+    }).catch((cause) => {
+      if (!disposed && !observedState) setAuthState({ configured: false, configurationError: toErrorMessage(cause) });
+    });
+    return () => { disposed = true; unsubscribe(); };
+  }, []);
+  if (!authState) return <LoadingScreen />;
+  if (!authState.user) return <AuthPage state={authState} onState={setAuthState} />;
+  return <AuthenticatedWorkspace key={authState.user.id} authState={authState} setAuthState={setAuthState} />;
+}
+
+function AuthenticatedWorkspace({ authState, setAuthState }: { authState: AuthState; setAuthState: (state: AuthState) => void }) {
   const [snapshot, setSnapshot] = useState<AppSnapshot>();
   const [snapshotError, setSnapshotError] = useState<string>();
   const [selectedTopicID, setSelectedTopicID] = useState<string>();
@@ -68,13 +88,6 @@ export function App() {
   const [notesCreateRequested, setNotesCreateRequested] = useState(false);
   const [cardSeed, setCardSeed] = useState<{ topicID: string; sentence?: string; token: string }>();
   const beforeLeaveGuards = useRef(new Map<string, BeforeLeaveGuard>());
-
-  useEffect(() => {
-    void window.revember.getAuthState().then(setAuthState).catch((cause) => {
-      setAuthState({ configured: false, configurationError: toErrorMessage(cause) });
-    });
-    return window.revember.onAuthState(setAuthState);
-  }, []);
 
   const registerBeforeLeave = useCallback((key: string, handler: BeforeLeaveGuard | undefined) => {
     if (handler) beforeLeaveGuards.current.set(key, handler);
@@ -206,9 +219,11 @@ export function App() {
     setGlobalView("home");
   };
   const signOut = async () => {
+    if (!await canLeaveCurrent()) return;
     setProfileOpen(false);
     setSettingsOpen(false);
-    setAuthState(await window.revember.signOut());
+    try { setAuthState(await window.revember.signOut()); }
+    catch (cause) { setSnapshotError(toErrorMessage(cause)); }
   };
 
   return (
@@ -305,6 +320,7 @@ export function App() {
         </div>
       )}
       {snapshot.errorMessage && <ErrorToast message={snapshot.errorMessage} />}
+      {snapshotError && <ErrorToast message={snapshotError} />}
       {settingsOpen && <SettingsDialog
         snapshot={snapshot}
         authState={authState}
@@ -536,6 +552,7 @@ function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledg
   };
   const syncCloudVault = async (action: "upload" | "download") => {
     if (busy) return;
+    if (action === "download" && (!knowledgeRootChangeAllowed || !await onBeforeKnowledgeRootChange())) return;
     if (action === "download" && !window.confirm("Download the cloud vault and replace this device's current vault? Revember will create a local backup first.")) return;
     try {
       setBusy(true);
@@ -548,7 +565,7 @@ function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledg
       } else {
         const result = await window.revember.downloadCloudVault();
         setCloudState(result.sync);
-        onSnapshot(result.snapshot);
+        onKnowledgeRootChanged(result.snapshot);
         setCloudMessage(`Downloaded revision ${result.sync.revision}. A local backup was created first.`);
       }
     } catch (cause) {
@@ -570,7 +587,7 @@ function SettingsDialog({ snapshot, authState, onSnapshot, onSignOut, onKnowledg
         : "No cloud copy yet. Upload this device's vault to make it available after you sign in elsewhere."}</p>
       <div className="settings-actions">
         <button className="primary" disabled={busy} onClick={() => void syncCloudVault("upload")}><CloudUpload /> Upload vault</button>
-        <button disabled={busy || !cloudState?.hasRemoteVault} onClick={() => void syncCloudVault("download")}><CloudDownload /> Download cloud vault</button>
+        <button disabled={busy || !knowledgeRootChangeAllowed || !cloudState?.hasRemoteVault} onClick={() => void syncCloudVault("download")}><CloudDownload /> Download cloud vault</button>
       </div>
       <p className="settings-guidance">Downloading replaces this device's current vault only after making a local backup.</p>
       {cloudMessage && <p className="settings-guidance">{cloudMessage}</p>}

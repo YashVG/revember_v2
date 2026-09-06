@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { RevemberConfig } from "../src/config.js";
 import {
   assertSafeSlug,
+  atomicWriteFile,
   ensureKnowledgeDirs,
   fileExists,
   sessionPath,
@@ -98,6 +99,16 @@ async function run(): Promise<void> {
 
   try {
     await ensureKnowledgeDirs(config);
+
+    // New and replaced private learner files must not inherit a permissive umask.
+    const privateSessionPath = sessionPath(config, "permissions-check");
+    await fs.writeFile(privateSessionPath, "old", { mode: 0o644 });
+    await atomicWriteFile(root, privateSessionPath, "private");
+    assert.equal((await fs.stat(privateSessionPath)).mode & 0o777, 0o600);
+    await fs.unlink(privateSessionPath);
+    await atomicWriteFile(root, privateSessionPath, "private");
+    assert.equal((await fs.stat(privateSessionPath)).mode & 0o777, 0o600);
+    await fs.unlink(privateSessionPath);
 
     // Backward-compatible legacy schema and additive v2 schema.
     assert.equal(validateTopicData(validTopic).valid, true);

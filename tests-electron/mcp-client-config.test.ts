@@ -14,6 +14,16 @@ afterEach(async () => {
 });
 
 describe("MCP client connection configuration", () => {
+  it("pins a newly connected MCP client to the selected account's vault", async () => {
+    const paths = await configPaths();
+    const account = { ...connection, knowledgeRootPath: "/accounts/bob/knowledge", progressPath: "/accounts/bob/progress.json" };
+    configureMcpClient("codex", "connect", account, paths);
+    expect(await fs.readFile(paths.codex, "utf8")).toContain('REVEMBER_KNOWLEDGE_ROOT = "/accounts/bob/knowledge"');
+    configureMcpClient("claude", "connect", account, paths);
+    expect(JSON.parse(await fs.readFile(paths.claude, "utf8")).mcpServers.revember.env).toEqual({
+      REVEMBER_KNOWLEDGE_ROOT: account.knowledgeRootPath, REVEMBER_PROGRESS_PATH: account.progressPath
+    });
+  });
   it("adds, updates, and removes only Revember's Codex MCP tables", async () => {
     const paths = await configPaths();
     await fs.mkdir(path.dirname(paths.codex), { recursive: true });

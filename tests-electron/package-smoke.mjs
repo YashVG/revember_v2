@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
+import { fixtureArchive, fixtureUserID, installAuthFixture } from "./auth-fixture.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const appBundle = process.env.REVEMBER_APP_BUNDLE
@@ -22,6 +23,9 @@ const { StdioClientTransport } = mcpRequire("@modelcontextprotocol/sdk/client/st
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), "revember-package-smoke-"));
 const knowledgeRoot = path.join(temporaryRoot, "Documents", "RevemberKnowledge");
 const userDataPath = path.join(temporaryRoot, "user-data");
+const liveSession = Boolean(process.env.REVEMBER_E2E_SESSION_PATH);
+await mkdir(userDataPath, { recursive: true });
+if (!liveSession) await writeFile(path.join(userDataPath, "legacy-vault-owner.json"), JSON.stringify({ userID: fixtureUserID }));
 if (process.env.REVEMBER_E2E_SESSION_PATH) {
   await mkdir(userDataPath, { recursive: true });
   await cp(process.env.REVEMBER_E2E_SESSION_PATH, path.join(userDataPath, "supabase-session.json"));
@@ -36,27 +40,29 @@ try {
       ...process.env,
       HOME: temporaryRoot,
       REVEMBER_PROGRESS_PATH: path.join(temporaryRoot, "progress.json"),
-      REVEMBER_USER_DATA_PATH: userDataPath
+      REVEMBER_USER_DATA_PATH: userDataPath,
+      ...(!liveSession ? { REVEMBER_SUPABASE_URL: "https://supabase.fixture.invalid", REVEMBER_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_fixture" } : {})
     }
   });
+  if (!liveSession) await installAuthFixture(packagedApp, await fixtureArchive(path.join(appBundle, "Contents", "Resources", "RevemberKnowledge")));
   const metadata = await packagedApp.evaluate(({ app }) => ({
     isPackaged: app.isPackaged,
     name: app.getName(),
     version: app.getVersion()
   }));
   assert.deepEqual(metadata, { isPackaged: true, name: "Revember", version: "0.2.0" });
-  await access(path.join(knowledgeRoot, "topics", "ble.json"), constants.R_OK);
-  await access(path.join(knowledgeRoot, "notes", "ble.md"), constants.R_OK);
   const window = await packagedApp.firstWindow();
-  if (process.env.REVEMBER_E2E_SESSION_PATH) {
-    await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
-    await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
-    await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
-    assert.equal(await window.getByText("Topic overview").isVisible(), true);
-  } else {
+  if (!liveSession) {
     await window.getByRole("heading", { name: "Welcome back", exact: true }).waitFor();
     assert.equal(await window.getByRole("button", { name: "Home", exact: true }).count(), 0);
+    await window.evaluate(() => window.revember.signIn("alice@example.test", "fixture-password"));
   }
+  await window.getByRole("heading", { name: "Study focus", exact: true }).waitFor();
+  await access(path.join(knowledgeRoot, "topics", "ble.json"), constants.R_OK);
+  await access(path.join(knowledgeRoot, "notes", "ble.md"), constants.R_OK);
+  await window.locator(".home-topic-list").getByRole("button", { name: /Bluetooth Low Energy/ }).click();
+  await window.getByRole("heading", { name: "Bluetooth Low Energy", exact: true }).waitFor();
+  assert.equal(await window.getByText("Topic overview").isVisible(), true);
 
   await access(mcpRunner, constants.X_OK);
   mcpClient = new Client({ name: "revember-packaged-mcp-smoke", version: "0.1.0" });
