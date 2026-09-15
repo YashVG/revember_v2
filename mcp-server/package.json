@@ -18,10 +18,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "remote": "node dist/remote.js",
     "dev": "tsx src/index.ts",
     "test": "node --import tsx tests/run-tests.ts",
     "test:transport": "node tests/stdio-smoke.mjs",
-    "check": "npm run build && npm run test && npm run test:transport"
+    "test:http": "node --import tsx --test tests/http.test.ts",
+    "test:remote": "node tests/remote-smoke.mjs",
+    "check": "npm run build && npm run test && npm run test:transport && npm run test:http"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -1,6 +1,8 @@
 # Revember MCP Server
 
-Local stdio MCP server for the Revember v2 knowledge base.
+MCP server for the Revember v2 knowledge base, with local stdio and optional
+authenticated AWS hosting. See the [hosted MCP connection guide](AWS.md) for
+cloud setup, manual vault sync, and deployment details.
 
 ## Use the installed app
 
@@ -14,7 +16,8 @@ The server keeps the existing Revember app workflow intact:
 - Markdown explanations stay in `RevemberKnowledge/notes/*.md`.
 - Learning checkpoints stay in `RevemberKnowledge/sessions/*.json`.
 - App progress stays local in `~/Library/Application Support/RevemberV2/progress.json`.
-- There is no backend, login system, database, or remote service.
+- The local server edits the selected on-disk vault. Hosted MCP instead uses the
+  signed-in account's private Supabase cloud snapshot.
 
 ## Source development
 
@@ -105,7 +108,9 @@ The server communicates over stdio, so it should not print normal logs to stdout
 
 `npm run test:transport` launches the built server exactly as an MCP client does, verifies its advertised tools/resources, validates the live knowledge root, and reads the learner brief without mutating authored knowledge.
 
-The server does not start an HTTP listener or expose static-file routes. See the repository [security policy](../SECURITY.md#dependency-audit-status) for the current SDK dependency-audit status and stdio-only mitigation.
+The local entry point does not start an HTTP listener or expose static files.
+The separate AWS entry point serves authenticated Streamable HTTP requests.
+See the repository [security policy](../SECURITY.md) for both trust boundaries.
 
 ## Resources
 

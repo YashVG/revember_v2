@@ -37,7 +37,32 @@ execution of the administrative RLS event-trigger helper. The remaining hosted
 advisor warning is disabled [leaked-password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection),
 which requires Supabase Pro or above. No plan upgrade was made.
 
-Revember's MCP server uses `StdioServerTransport` only and does not expose an HTTP transport. Treat any future HTTP transport as a security-boundary change and repeat both production audits before shipping it.
+## Hosted MCP Boundary
+
+The local entry point uses `StdioServerTransport`. The optional AWS entry point
+adds authenticated Streamable HTTP through API Gateway and Lambda; see the
+[deployment and connection guide](mcp-server/AWS.md).
+
+`/connect` verifies the account access token with Supabase before issuing an
+encrypted, audience-bound MCP token lasting at most 15 minutes. `/mcp` rejects
+raw Supabase tokens, missing/expired credentials, foreign hosts, and foreign
+Origins. This is a custom desktop-helper flow, not OAuth discovery. The helper
+sends an account access token only to the configured trusted deployment; it never
+sends the app's refresh token and does not own token refresh.
+
+Each request uses a separate temporary vault and the caller's Supabase token;
+database row-level security remains in force. No administrative database key is
+deployed. Writes compare the cloud revision before committing. Temporary files
+are removed on normal completion or exceptions; process termination can leave
+them in that Lambda execution environment until it is recycled. They are never
+reused for another request. Cloud sync remains manual.
+
+Request/response limits and shared throttling reduce resource abuse but are not
+a spending cap. Logs must not contain credentials or learning content. Issued
+credentials can remain usable until expiration; signing out is not instantaneous
+server-side revocation. The helper rereads local session state on each message.
+Cloud backups are not a feature of this snapshot service. Repeat dependency
+audits and authentication, isolation, path, and conflict tests before deployment.
 
 ## Reporting a Vulnerability
 
