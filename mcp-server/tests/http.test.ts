@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { randomUUID } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createHttpHandler } from "../src/http.js";
@@ -61,6 +61,37 @@ test("authentication fails closed before reading any vault", async () => {
   assert.throws(() => authenticate({ ...f.options, audience: "https://another.example/mcp" }, token));
   assert.throws(() => authenticate(f.options, `${token.slice(0, -10)}tamperedAA`));
   assert.throws(() => authenticate({ ...f.options, tokenSecret: "b".repeat(64) }, token));
+});
+
+test("MCP credentials require a full authentication tag and the issued nonce size", async () => {
+  const f = fixture();
+  const { token } = await exchangeToken(f.options, f.tokens[0]!);
+  const parts = token.split(".");
+  const tag = Buffer.from(parts[3]!, "base64url");
+  assert.equal(tag.length, 16);
+  assert.equal(authenticate(f.options, token).userID, f.users[0]);
+  for (let size = 0; size < 16; size++) {
+    const shortened = [...parts];
+    shortened[3] = tag.subarray(0, size).toString("base64url");
+    assert.throws(() => authenticate(f.options, shortened.join(".")), `Accepted a ${size}-byte authentication tag`);
+  }
+  const oversized = [...parts];
+  oversized[3] = Buffer.concat([tag, Buffer.from([0])]).toString("base64url");
+  assert.throws(() => authenticate(f.options, oversized.join(".")));
+  const short = [...parts];
+  short[3] = tag.subarray(0, 4).toString("base64url");
+  assert.equal((await f.request("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list" }, short.join("."))).status, 401);
+  assert.equal(f.reads(), 0, "Malformed credentials must not reach a vault");
+
+  // A cryptographically valid token with a different IV length must also fail
+  // the fixed rv1 format, rather than relying on failed decryption to reject it.
+  const nonce = randomBytes(16);
+  const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(f.options.tokenSecret).digest(), nonce);
+  cipher.setAAD(Buffer.from("revember-mcp-v1"));
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(authenticate(f.options, token))), cipher.final()]);
+  const wrongNonce = ["rv1", nonce.toString("base64url"), encrypted.toString("base64url"), cipher.getAuthTag().toString("base64url")].join(".");
+  assert.throws(() => authenticate(f.options, wrongNonce));
+  for (const malformed of [`${token}.`, `${token}!`, `${token}=`]) assert.throws(() => authenticate(f.options, malformed));
 });
 
 test("MCP credentials expire and Lambda preserves its trusted gateway boundary", async context => {

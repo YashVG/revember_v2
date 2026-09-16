@@ -10,6 +10,7 @@ if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || 
 }
 const sessionPath = process.env.REVEMBER_SESSION_PATH ?? path.join(homedir(), "Library", "Application Support", "Revember", "supabase-session.json");
 let cached: { source: string; token: string; expiresAt: number } | undefined;
+let protocolVersion: string | undefined;
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 for await (const line of input) {
@@ -17,6 +18,7 @@ for await (const line of input) {
   let message: { id?: string | number; method?: string };
   try { message = JSON.parse(line); } catch { continue; }
   try {
+    if (message.method === "initialize") protocolVersion = undefined;
     // Always reread the app-owned session: sign-out and account changes must
     // immediately stop reuse. The app alone owns refresh-token rotation.
     const session = JSON.parse(await readFile(sessionPath, "utf8"));
@@ -31,7 +33,10 @@ for await (const line of input) {
       cached = { ...value, source: session.access_token };
     }
     const response = await fetch(endpoint, {
-      method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${cached.token}` },
+      method: "POST", headers: {
+        "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${cached.token}`,
+        ...(protocolVersion ? { "MCP-Protocol-Version": protocolVersion } : {})
+      },
       body: line, redirect: "error", signal: AbortSignal.timeout(30_000)
     });
     const result = await response.text();
@@ -40,6 +45,13 @@ for await (const line of input) {
       if (!result) throw new Error(`Hosted MCP returned HTTP ${response.status}.`);
       const parsed = JSON.parse(result);
       if (parsed.jsonrpc !== "2.0") throw new Error(`Hosted MCP returned HTTP ${response.status}.`);
+      if (message.method === "initialize" && response.ok && !parsed.error) {
+        const selectedVersion = parsed.result?.protocolVersion;
+        if (parsed.id !== message.id || typeof selectedVersion !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(selectedVersion)) {
+          throw new Error("Hosted MCP did not return a valid negotiated protocol version.");
+        }
+        protocolVersion = selectedVersion;
+      }
       process.stdout.write(`${JSON.stringify(parsed)}\n`);
     }
   } catch (error) {

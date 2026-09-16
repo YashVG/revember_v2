@@ -23,8 +23,9 @@
     "test": "node --import tsx tests/run-tests.ts",
     "test:transport": "node tests/stdio-smoke.mjs",
     "test:http": "node --import tsx --test tests/http.test.ts",
+    "test:bridge": "node --test tests/remote-bridge.test.mjs",
     "test:remote": "node tests/remote-smoke.mjs",
-    "check": "npm run build && npm run test && npm run test:transport && npm run test:http"
+    "check": "npm run build && npm run test && npm run test:transport && npm run test:http && npm run test:bridge"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
