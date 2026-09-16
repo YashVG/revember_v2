@@ -9,3 +9,4 @@ release/
 test-results/
 dist/
 work/
+.aws-build/

@@ -81,6 +81,15 @@ This prerelease supports Apple silicon Macs. It is not Apple-notarized, so macOS
 
 The MCP process starts on demand and reads the Vault currently selected in Revember. The installed app supplies its runtime, so the MCP client does not need Node.js or a repository path.
 
+### Hosted MCP on AWS (optional)
+
+The [hosted MCP setup guide](mcp-server/AWS.md) explains how to connect to the
+AWS service using your Revember account. Hosted MCP works on your **cloud
+snapshot**, so upload local edits before using it and download cloud changes
+afterward. It requires an account-enabled source build and the supplied desktop
+connection helper; the v0.2.0 DMG and built-in connection buttons still use local
+MCP. Generic URL-only OAuth connectors are not supported yet.
+
 ## Build from source
 
 Requires Node.js 22 LTS (the CI and `.nvmrc` default) or Node.js 24+, plus npm. Node.js 23 is not supported by the test toolchain.

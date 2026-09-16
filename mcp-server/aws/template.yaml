@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Revember MCP over HTTPS using request-isolated Lambda execution and per-user Supabase cloud vaults.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@2
+  com.aws.cloudformation.Context:
+    must: [Never use a Supabase service-role key, Authorize each request before opening a vault]
+    ref: [{at: ../AWS.md, has: authentication and cloud snapshot contract}]
+Parameters:
+  ArtifactBucket:
+    Type: String
+    MinLength: 3
+  ArtifactKey:
+    Type: String
+    MinLength: 1
+  SupabaseUrl:
+    Type: String
+    AllowedPattern: 'https://[a-z0-9]+\.supabase\.co'
+  SupabasePublishableKey:
+    Type: String
+    AllowedPattern: 'sb_publishable_[A-Za-z0-9_-]+'
+Resources:
+  TokenSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Issue encrypted, short-lived MCP credentials scoped to this deployment.
+        must: [Never expose secret values in outputs or logs, Rotation must also refresh the function environment]
+    Properties:
+      Description: Revember MCP credential encryption key
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+  FunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Keep function diagnostics bounded without logging tokens or vault contents.
+        must: [Never log request bodies or authorization headers]
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-server'
+      RetentionInDays: 7
+  AccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lambda only needs its own logs; Supabase user tokens enforce database authorization.
+        must: [No administrative AWS policies, No service-role database credentials]
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FunctionLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt FunctionLogs.Arn
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Managed TLS and request throttling with buffered JSON MCP responses.
+        must: [Application authentication on /mcp and account verification on /connect]
+    Properties:
+      Name: !Sub '${AWS::StackName}-https'
+      ProtocolType: HTTP
+  Function:
+    Type: AWS::Lambda::Function
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: On-demand compute avoids an idle container; each invocation uses a separate temporary vault.
+        must: [Clean temporary files after requests, Save using revision compare-and-swap, Timeout below gateway limit]
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-server'
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: mcp-server/dist/lambda.handler
+      Role: !GetAtt ExecutionRole.Arn
+      MemorySize: 512
+      Timeout: 28
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ArtifactKey
+      Environment:
+        Variables:
+          REVEMBER_SUPABASE_URL: !Ref SupabaseUrl
+          REVEMBER_SUPABASE_PUBLISHABLE_KEY: !Ref SupabasePublishableKey
+          REVEMBER_MCP_AUDIENCE: !Sub 'https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mcp'
+          REVEMBER_MCP_TOKEN_SECRET: !Sub '{{resolve:secretsmanager:${TokenSecret}:SecretString}}'
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Function.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 29000
+  McpRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: ANY /mcp
+      Target: !Join ['/', [integrations, !Ref Integration]]
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /connect
+      Target: !Join ['/', [integrations, !Ref Integration]]
+  HealthRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /health
+      Target: !Join ['/', [integrations, !Ref Integration]]
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Only this account and API may invoke the handler through API Gateway.
+        must: [Keep SourceArn and SourceAccount restrictions]
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Function
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+      SourceAccount: !Ref AWS::AccountId
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Limit request bursts and retain status-only access logs.
+        must: [Never include headers or bodies in access logs]
+    Properties:
+      ApiId: !Ref Api
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 5
+        ThrottlingRateLimit: 2
+      AccessLogSettings:
+        DestinationArn: !GetAtt AccessLogs.Arn
+        Format: '{"requestId":"$context.requestId","route":"$context.routeKey","status":"$context.status","latency":"$context.responseLatency"}'
+  ErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Inspect MCP function errors in CloudWatch; no notification subscription configured.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref Function
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+Outputs:
+  McpUrl:
+    Description: Authenticated Streamable HTTP MCP endpoint.
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mcp'
+  HealthUrl:
+    Description: Public liveness check without account data.
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/health'

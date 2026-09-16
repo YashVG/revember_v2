@@ -1,23 +1,15 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { ensureKnowledgeDirs } from "./paths.js";
-import { registerResources } from "./resources.js";
-import { registerTools } from "./tools.js";
+import { createServer } from "./server.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
   await ensureKnowledgeDirs(config);
 
-  const server = new McpServer({
-    name: "revember-mcp-server",
-    version: "0.1.0"
-  });
-
-  registerResources(server, config);
-  registerTools(server, config);
+  const server = createServer(config);
 
   await server.connect(new StdioServerTransport());
 }
